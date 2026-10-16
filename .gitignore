@@ -1,10 +1,14 @@
 # Private planning documents: kept in the working tree, never released.
 
 plan_files/
-
 node_modules/
 dist/
 *.tsbuildinfo
-.nexu-local/
+.zyrk-local/
 coverage/
 tmp/
+# Previous names may leave private project state behind.
+.snpm-local/
+
+# Keep previous local project state private.
+.nexu-local/
