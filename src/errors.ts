@@ -27,6 +27,8 @@ export const SPEC_ERROR_CODES = [
   "SNPM_PLATFORM_UNSUPPORTED",
   "SNPM_REGISTRY_AUTH",
   "SNPM_POLICY_DENIED",
+  /** Global installation requested through snpm; added by SPEC v1.2 §29.1. */
+  "SNPM_GLOBAL_INSTALL_UNSUPPORTED",
 ] as const;
 
 export type SpecErrorCode = (typeof SPEC_ERROR_CODES)[number];

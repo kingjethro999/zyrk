@@ -25,6 +25,21 @@ npm test             # vitest
 npm run check        # typecheck + tests
 ```
 
+## Command surface
+
+```bash
+node bin/snpm.js --help       # documented commands
+node bin/snpm.js --version    # recorded version
+node bin/snpm.js <cmd> --json # machine-readable envelope
+```
+
+Native dependency commands (`install`, `add`, …) are not implemented yet:
+snpm reports `SNPM_NOT_IMPLEMENTED` instead of pretending otherwise.
+
+snpm never installs packages globally and never runs npm to do it.
+`snpm install -g <pkg>` fails with `SNPM_GLOBAL_INSTALL_UNSUPPORTED` before
+any work happens; run npm directly: `npm install --global <pkg>`.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

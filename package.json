@@ -1,12 +1,15 @@
 {
   "name": "snpm",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "private": true,
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
+  },
+  "bin": {
+    "snpm": "bin/snpm.js"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
