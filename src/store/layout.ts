@@ -4,6 +4,7 @@ import { NexuError } from "../errors.ts";
 import { resolveStoreRoot } from "../config/paths.ts";
 import {
   ensureDirWithMode,
+  isErrno,
   pathExists,
   readJsonFile,
   writeFileAtomic,
@@ -107,7 +108,9 @@ export class Store {
   }
 
   static async open(options: OpenStoreOptions = {}): Promise<Store> {
-    const root = path.resolve(options.root ?? resolveStoreRoot().root);
+    const root = await canonicalizeRoot(
+      path.resolve(options.root ?? resolveStoreRoot().root),
+    );
     const exists = await pathExists(root);
     if (!exists) {
       if (options.create !== true) {
@@ -267,6 +270,104 @@ export class Store {
         },
       );
     }
+
+    // Every managed boundary nexu writes or reuses through gets the same
+    // ownership, type, and mode checks as the root, evaluated with lstat so
+    // a substituted symlink is rejected instead of followed (S02). Missing
+    // directories are created on demand with 0700; existing ones are never
+    // silently repaired.
+    const paths = storePaths(resolved);
+    for (const dir of [
+      paths.objectsDir,
+      paths.sourcesDir,
+      paths.realizationsDir,
+      paths.graphsDir,
+      paths.metadataDir,
+      paths.journalDir,
+      paths.locksDir,
+      paths.stagingDir,
+      paths.quarantineDir,
+      paths.trashDir,
+      paths.pinsDir,
+    ]) {
+      await Store.checkManagedDir(dir, uid, allowUnsafePermissions);
+    }
+  }
+
+  private static async checkManagedDir(
+    dir: string,
+    uid: number | undefined,
+    allowUnsafePermissions: boolean,
+  ): Promise<void> {
+    let stat;
+    try {
+      stat = await fs.lstat(dir);
+    } catch (error) {
+      if (isErrno(error, "ENOENT")) return;
+      throw error;
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
+        `store directory is not a real directory: ${dir}`,
+        {
+          detail: { storeDir: dir },
+          remedy:
+            "remove the unexpected file or link and let nexu recreate the managed directory",
+        },
+      );
+    }
+    if (allowUnsafePermissions) return;
+    if (uid !== undefined && stat.uid !== uid) {
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
+        `store directory is owned by another user (uid ${stat.uid}, running as ${uid}): ${dir}`,
+        {
+          detail: { storeDir: dir, ownerUid: stat.uid, runningUid: uid },
+          remedy:
+            "nexu never rewrites ownership recursively; use a store your account owns",
+        },
+      );
+    }
+    if ((stat.mode & 0o777 & 0o022) !== 0) {
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
+        `store directory is group- or world-writable (mode ${(stat.mode & 0o777).toString(8)}): ${dir}`,
+        {
+          detail: { storeDir: dir, mode: (stat.mode & 0o777).toString(8) },
+          remedy: `chmod go-w '${dir}' so other accounts cannot modify shared package content`,
+        },
+      );
+    }
+  }
+}
+
+/**
+ * Resolve symlinks deliberately so the store has one canonical identity
+ * for safety checks, paths, and records. A symlinked NEXU_STORE_DIR is
+ * allowed; it always means its target. Missing leaves resolve through
+ * their nearest existing ancestor.
+ */
+async function canonicalizeRoot(root: string): Promise<string> {
+  try {
+    return await fs.realpath(root);
+  } catch (error) {
+    if (!isErrno(error, "ENOENT")) throw error;
+    // A dangling root symlink exists according to lstat but not realpath.
+    // Resolve its target before initialization so writes and safety checks
+    // use the same canonical directory as an already-existing root.
+    try {
+      if ((await fs.lstat(root)).isSymbolicLink()) {
+        return await canonicalizeRoot(
+          path.resolve(path.dirname(root), await fs.readlink(root)),
+        );
+      }
+    } catch (linkError) {
+      if (!isErrno(linkError, "ENOENT")) throw linkError;
+    }
+    const parent = path.dirname(root);
+    if (parent === root) throw error;
+    return path.join(await canonicalizeRoot(parent), path.basename(root));
   }
 }
 

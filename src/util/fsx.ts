@@ -33,6 +33,10 @@ export async function ensureDirWithMode(
   target: string,
   mode: number,
 ): Promise<void> {
+  // Existing directories keep their permissions: silently "repairing" the
+  // mode of a directory someone pointed at would mask unsafe ownership that
+  // safety checks must reject instead (S02).
+  if (await pathExists(target)) return;
   await fs.mkdir(target, { recursive: true, mode });
   if (process.platform !== "win32") {
     await fs.chmod(target, mode);
