@@ -69,6 +69,8 @@ function childEnv(
   ) as NodeJS.ProcessEnv;
   env.PATH = `${fakeBin}${path.delimiter}${env.PATH ?? ""}`;
   env.ZYRK_TEST_NPM_LOG = npmLog;
+  env.ZYRK_STORE_DIR = path.join(root, "store");
+  env.npm_config_userconfig = path.join(root, "absent-npmrc");
   for (const [key, value] of Object.entries(extra)) {
     if (value === undefined) delete env[key];
     else env[key] = value;
@@ -189,16 +191,16 @@ describe.skipIf(process.platform === "win32")(
         ["install", "--global=false", "some-package"],
       ]) {
         const result = await runZyrk(args, childEnv());
-        expect(result.stderr).toContain("ZYRK_NOT_IMPLEMENTED");
+        expect(result.stderr).toContain("ZYRK_MANIFEST_INVALID");
         expect(result.stderr).not.toContain("ZYRK_GLOBAL_INSTALL_UNSUPPORTED");
       }
       expect(await npmLaunched()).toBe(false);
     });
 
-    it("leaves the plain local install to the honest not-implemented path", async () => {
+    it("rejects a local install without a project manifest before launching npm", async () => {
       const result = await runZyrk(["install", "some-package"], childEnv());
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("ZYRK_NOT_IMPLEMENTED");
+      expect(result.stderr).toContain("ZYRK_MANIFEST_INVALID");
       expect(await npmLaunched()).toBe(false);
     });
   },

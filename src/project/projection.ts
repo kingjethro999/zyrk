@@ -1,5 +1,6 @@
 import {
   open,
+  lstat,
   readFile,
   readdir,
   rename,
@@ -7,6 +8,7 @@ import {
   symlink as fsSymlink,
 } from "node:fs/promises";
 import * as path from "node:path";
+import { ZyrkError } from "../errors.ts";
 import { acquireLock } from "../util/locks.ts";
 import {
   ensureDirWithMode,
@@ -50,6 +52,12 @@ type ProjectionEvent = {
   at: string;
   event: "staged" | "old-moved" | "published" | "done";
   generationId: string;
+  metadataOnly?: boolean;
+  files?: Array<{
+    name: "package.json" | "package-lock.json";
+    before: string | null;
+    after: string;
+  }>;
 };
 
 function journalPath(projectDir: string): string {
@@ -87,9 +95,27 @@ async function readEvents(projectDir: string): Promise<ProjectionEvent[]> {
   for (const line of text.split("\n")) {
     if (line === "") continue;
     try {
-      events.push(JSON.parse(line) as ProjectionEvent);
-    } catch {
-      // A torn final line after a crash is expected; earlier lines stand.
+      const event = JSON.parse(line) as ProjectionEvent;
+      if (!/^gen1_[a-zA-Z0-9_-]+$/.test(event.generationId))
+        throw new Error("invalid generation");
+      if (
+        event.files?.some(
+          (file) =>
+            !["package.json", "package-lock.json"].includes(file.name) ||
+            (file.before !== null && typeof file.before !== "string") ||
+            typeof file.after !== "string",
+        )
+      )
+        throw new Error("invalid files");
+      events.push(event);
+    } catch (error) {
+      if (!(error instanceof SyntaxError))
+        throw new ZyrkError(
+          "ZYRK_STORE_CORRUPT",
+          "Project recovery journal is malformed.",
+          { remedy: "Restore the local journal before retrying installation." },
+        );
+      // A torn final append may be ignored; durable earlier events remain.
     }
   }
   return events;
@@ -133,6 +159,37 @@ export async function recoverProjection(projectDir: string): Promise<void> {
       await rmrfNoFollow(previous);
     }
   }
+  const staged = events.find(
+    (event) =>
+      event.generationId === last.generationId && event.files !== undefined,
+  );
+  if (staged?.files) {
+    let active: unknown;
+    try {
+      active = JSON.parse(
+        await readFile(
+          path.join(nodeModules, ".zyrk", "install-state.json"),
+          "utf8",
+        ),
+      );
+    } catch {
+      active = null;
+    }
+    const published =
+      staged.metadataOnly === true
+        ? last.event === "done"
+        : (active as { generationId?: unknown } | null)?.generationId ===
+          last.generationId;
+    for (const file of staged.files) {
+      const contents = published ? file.after : file.before;
+      if (contents === null)
+        await rm(path.join(projectDir, file.name), { force: true });
+      else
+        await writeFileAtomic(path.join(projectDir, file.name), contents, {
+          mode: 0o644,
+        });
+    }
+  }
   await rm(journalPath(projectDir), { force: true });
 }
 
@@ -143,15 +200,26 @@ export async function recoverProjection(projectDir: string): Promise<void> {
 export async function installProjection(
   projectDir: string,
   entries: ProjectionEntry[],
-  options: { projectId?: string } = {},
+  options: {
+    projectId?: string;
+    generationId?: string;
+    lockHeld?: boolean;
+    bins?: Record<string, string>;
+    files?: Array<{
+      name: "package.json" | "package-lock.json";
+      contents: string;
+    }>;
+    readiness?: "ready" | "intentionally-unbuilt";
+    metadata?: Record<string, unknown>;
+  } = {},
 ): Promise<ProjectionResult> {
-  const lock = await acquireLock(lockPath(projectDir), {
-    name: "project mutation",
-  });
+  const lock = options.lockHeld
+    ? undefined
+    : await acquireLock(lockPath(projectDir), { name: "project mutation" });
   try {
     await recoverProjection(projectDir);
 
-    const generationId = `gen1_${randomId("", 12)}`;
+    const generationId = options.generationId ?? `gen1_${randomId("", 12)}`;
     const staging = path.join(
       projectDir,
       `node_modules.zyrk-staging-${generationId}`,
@@ -164,11 +232,51 @@ export async function installProjection(
 
     await ensureDirWithMode(staging, 0o755);
     for (const entry of entries) {
+      if (
+        !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(
+          entry.name,
+        ) ||
+        entry.name === "node_modules"
+      )
+        throw new ZyrkError(
+          "ZYRK_MANIFEST_INVALID",
+          "Unsafe projection dependency name.",
+          { remedy: "Use a valid registry package name." },
+        );
       const target = path.join(staging, ...entry.name.split("/"));
       await mkdirp(path.dirname(target));
       await fsSymlink(entry.linkTarget, target);
     }
 
+    if (Object.keys(options.bins ?? {}).length) {
+      await mkdirp(path.join(staging, ".bin"));
+      for (const [name, target] of Object.entries(options.bins ?? {})) {
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name))
+          throw new ZyrkError("ZYRK_MANIFEST_INVALID", "Unsafe binary name.", {
+            remedy: "Use a package with safe bin entries.",
+          });
+        const stat = await lstat(target);
+        if ((stat.mode & 0o111) !== 0)
+          await fsSymlink(target, path.join(staging, ".bin", name));
+        else {
+          const quote = (value: string): string =>
+            "'" + value.replaceAll("'", "'\\''") + "'";
+          const firstLine =
+            (await readFile(target, "utf8")).split("\n")[0] ?? "";
+          if (!firstLine.includes("node") && !/\.(?:[cm]?js|ts)$/.test(target))
+            throw new ZyrkError(
+              "ZYRK_MANIFEST_INVALID",
+              "Non-executable dependency bin has no Node entry point.",
+              { remedy: "Select a package shipping executable bin files." },
+            );
+          await writeFileAtomic(
+            path.join(staging, ".bin", name),
+            `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(target)} "$@"\n`,
+            { mode: 0o755 },
+          );
+        }
+      }
+    }
     await ensureDirWithMode(path.join(staging, ".zyrk"), 0o755);
     const state = {
       schemaVersion: 1,
@@ -178,7 +286,8 @@ export async function installProjection(
         : { projectId: options.projectId }),
       linker: "shared",
       createdAt: new Date().toISOString(),
-      readiness: "ready",
+      readiness: options.readiness ?? "ready",
+      ...options.metadata,
       direct: entries.map((entry) => ({
         name: entry.name,
         target: entry.linkTarget,
@@ -191,11 +300,26 @@ export async function installProjection(
         mode: 0o644,
       },
     );
+    const files = [];
+    for (const file of options.files ?? []) {
+      let before: string | null = null;
+      try {
+        before = await readFile(path.join(projectDir, file.name), "utf8");
+      } catch (error) {
+        if (!isErrno(error, "ENOENT")) throw error;
+      }
+      files.push({ name: file.name, before, after: file.contents });
+    }
     await appendEvent(projectDir, {
       at: new Date().toISOString(),
       event: "staged",
       generationId,
+      files,
     });
+    for (const file of files)
+      await writeFileAtomic(path.join(projectDir, file.name), file.after, {
+        mode: 0o644,
+      });
 
     const hadPrevious = await pathExists(nodeModules);
     if (hadPrevious) {
@@ -223,6 +347,44 @@ export async function installProjection(
 
     return { nodeModulesDir: nodeModules, generationId };
   } finally {
-    await lock.release();
+    await lock?.release();
   }
+}
+
+/** Journal metadata-only changes while the caller holds the project lock. */
+export async function installMetadata(
+  projectDir: string,
+  files: Array<{
+    name: "package.json" | "package-lock.json";
+    contents: string;
+  }>,
+): Promise<void> {
+  const generationId = `gen1_${randomId("", 12)}`;
+  const snapshots = [];
+  for (const file of files) {
+    let before: string | null = null;
+    try {
+      before = await readFile(path.join(projectDir, file.name), "utf8");
+    } catch (error) {
+      if (!isErrno(error, "ENOENT")) throw error;
+    }
+    snapshots.push({ name: file.name, before, after: file.contents });
+  }
+  await appendEvent(projectDir, {
+    at: new Date().toISOString(),
+    event: "staged",
+    generationId,
+    metadataOnly: true,
+    files: snapshots,
+  });
+  for (const file of snapshots)
+    await writeFileAtomic(path.join(projectDir, file.name), file.after, {
+      mode: 0o644,
+    });
+  await appendEvent(projectDir, {
+    at: new Date().toISOString(),
+    event: "done",
+    generationId,
+  });
+  await rm(journalPath(projectDir), { force: true });
 }

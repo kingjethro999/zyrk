@@ -34,6 +34,7 @@ export type WriteLockOptions = {
   version: string;
   /** Declared direct dependencies for npm's root `dependencies` map. */
   manifestDeps: Record<string, string>;
+  manifestDevDeps?: Record<string, string>;
   existing?: NpmLockDoc | null;
   resolution: WriteLockResolution;
   fingerprints: { manifest: string; scripts: string; config: string };
@@ -85,6 +86,9 @@ export async function writeLockfile(
     name: options.name,
     version: options.version,
     dependencies: { ...options.manifestDeps },
+    ...(options.manifestDevDeps === undefined
+      ? {}
+      : { devDependencies: options.manifestDevDeps }),
   };
   for (const root of [...options.resolution.roots].sort((a, b) =>
     compareStrings(a.name, b.name),
@@ -107,6 +111,59 @@ export async function writeLockfile(
       integrity: node.integrity,
     };
   }
+  const populate = (
+    location: string,
+    key: string,
+    ancestors: Map<string, string>,
+  ): void => {
+    const node = byKey.get(key);
+    if (!node)
+      throw new ZyrkError(
+        "ZYRK_INTERNAL",
+        "Cannot serialize a missing dependency node.",
+      );
+    const dependencies: Record<string, string> = {};
+    for (const edge of node.edges) {
+      const child = byKey.get(edge.target);
+      if (!child)
+        throw new ZyrkError(
+          "ZYRK_INTERNAL",
+          "Cannot serialize a missing dependency edge.",
+        );
+      dependencies[edge.name] =
+        child.name === edge.name
+          ? child.version
+          : `npm:${child.name}@${child.version}`;
+    }
+    packages[location] = {
+      ...packages[location],
+      name: node.name,
+      version: node.version,
+      resolved: node.tarballUrl,
+      integrity: node.integrity,
+      dependencies,
+      ...(Object.keys(node.bin).length ? { bin: node.bin } : {}),
+    };
+    const next = new Map(ancestors);
+    next.set(key, location);
+    for (const edge of node.edges) {
+      // An ancestor with this package slot satisfies a real cycle.
+      const ancestor = next.get(edge.target);
+      if (ancestor && ancestor.endsWith(`node_modules/${edge.name}`)) continue;
+      if (next.has(edge.target))
+        throw new ZyrkError(
+          "ZYRK_RESOLUTION_FAILED",
+          "Cannot encode an aliased dependency cycle in npm lock format.",
+          {
+            remedy:
+              "Use non-cyclic registry dependencies until alias-cycle lock support is available.",
+          },
+        );
+      populate(`${location}/node_modules/${edge.name}`, edge.target, next);
+    }
+  };
+  for (const root of options.resolution.roots)
+    populate(`node_modules/${root.name}`, root.target, new Map());
   const sortedPackages: Record<string, Record<string, unknown>> = {};
   for (const location of Object.keys(packages).sort()) {
     const entry = packages[location];
@@ -137,6 +194,10 @@ export async function writeLockfile(
       integrity: node.integrity,
       origin: node.origin,
       source: node.sourceId,
+      tarball: node.tarballUrl,
+      bin: node.bin,
+      platform: node.platform,
+      ...(node.engines === undefined ? {} : { engines: node.engines }),
       edges,
       edgeKinds,
       peers,

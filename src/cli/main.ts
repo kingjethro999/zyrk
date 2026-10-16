@@ -4,7 +4,7 @@
  * This is the roadmap skeleton, not the whole implementation: `dlx` and
  * `create` run temporary tool environments; `--help`, `--version`, the
  * global-install rejection, and explicit npm delegation do their jobs.
- * Every other native dependency command fails with ZYRK_NOT_IMPLEMENTED
+ * `install` publishes a verified shared project graph. Other dependency commands fail with ZYRK_NOT_IMPLEMENTED
  * rather than pretending to work; unknown commands fail with ZYRK_USAGE
  * and the help text.
  * Nothing here launches a subprocess: rejection happens before resolution,
@@ -12,6 +12,8 @@
  * process (SPEC 15.3.1).
  */
 
+import { installProject, type InstallOptions } from "../install/run.ts";
+import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +62,7 @@ for (const [names] of NATIVE_COMMANDS) {
 }
 
 /** Commands with a real implementation behind runCli. */
-const IMPLEMENTED_COMMANDS = new Set(["dlx", "create"]);
+const IMPLEMENTED_COMMANDS = new Set(["dlx", "create", "install", "i"]);
 
 export function helpText(version: string): string {
   const lines = [
@@ -299,6 +301,89 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           parsed,
         ),
       );
+    }
+  }
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    (parsed.command === "install" || parsed.command === "i")
+  ) {
+    if (isGlobalInstallRequest(parsed.command, parsed.commandArgs, options.env))
+      return emit(fail(globalInstallError(parsed.command), parsed));
+    try {
+      if (
+        parsed.commandArgs.includes("--help") ||
+        parsed.commandArgs.includes("-h")
+      ) {
+        return emit(
+          ok(
+            "Usage: zyrk install [package[@version] ...] [-D] [--save-exact] [--frozen-lockfile] [--offline] [--ignore-scripts] [--lockfile-only] [--omit=dev] [--registry=https://registry.npmjs.org/] [--json]\n",
+            parsed,
+          ),
+        );
+      }
+      const specs: string[] = [];
+      const flags: Partial<InstallOptions> = {};
+      let registryUrl: string | undefined;
+      for (const token of parsed.commandArgs) {
+        if (token === "--frozen-lockfile") flags.frozen = true;
+        else if (token === "--offline") flags.offline = true;
+        else if (token === "--ignore-scripts") flags.ignoreScripts = true;
+        else if (token === "--lockfile-only") flags.lockfileOnly = true;
+        else if (token === "--omit=dev" || token === "--production")
+          flags.omitDev = true;
+        else if (token === "-D" || token === "--save-dev") flags.saveDev = true;
+        else if (token === "-E" || token === "--save-exact")
+          flags.saveExact = true;
+        else if (token === "--no-global" || token === "--global=false")
+          continue;
+        else if (token.startsWith("--registry="))
+          registryUrl = token.slice("--registry=".length);
+        else if (token.startsWith("-"))
+          throw new ZyrkError("ZYRK_USAGE", "Unsupported install option.", {
+            remedy:
+              "Run zyrk install --help for supported options; use --registry=URL for a custom registry.",
+          });
+        else specs.push(token);
+      }
+      const cwd = options.cwd ?? process.cwd();
+      const tools = options.tools
+        ? await options.tools()
+        : {
+            registry: await installRegistry({
+              cwd,
+              env: options.env,
+              version,
+              ...(registryUrl === undefined ? {} : { registry: registryUrl }),
+            }),
+            store: await Store.open({
+              root: resolveStoreRoot({ env: options.env }).root,
+              create: true,
+            }),
+          };
+      const result = await installProject({
+        ...flags,
+        specs,
+        projectDir: cwd,
+        ...tools,
+      });
+      if (parsed.json)
+        return emit({
+          exitCode: 0,
+          stdout: `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, status: "ok", ...result })}\n`,
+          stderr: "",
+        });
+      const summary =
+        result.readiness === "lockfile-only"
+          ? "Lockfile written; dependencies were not installed."
+          : `Installed ${result.packages} packages using shared storage (${result.reused} realizations reused); ${result.readiness}.`;
+      return emit({
+        exitCode: 0,
+        stdout: `${summary}\n`,
+        stderr: result.warnings.map((w) => `zyrk: ${w}\n`).join(""),
+      });
+    } catch (error) {
+      return emit(fail(toZyrkError(error, "zyrk install failed."), parsed));
     }
   }
   if (

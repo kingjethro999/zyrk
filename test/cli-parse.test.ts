@@ -129,7 +129,7 @@ describe("dispatch", () => {
   });
 
   it("reports unbuilt native commands honestly", () => {
-    const result = dispatch(parseArgs(["install", "alpha"]), {
+    const result = dispatch(parseArgs(["update", "alpha"]), {
       version: VERSION,
       env: {},
     });

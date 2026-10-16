@@ -39,6 +39,11 @@ export type ZyrkLockNode = {
   origin: string;
   /** Canonical source identity. */
   source: string;
+  /** Exact archive and execution metadata for network-free reinstall. */
+  tarball?: string;
+  bin?: Record<string, string>;
+  platform?: { os?: string[]; cpu?: string[]; libc?: string[] };
+  engines?: Record<string, string>;
   /** Dependency edge name -> occurrence key (alias-aware). */
   edges: Record<string, string>;
   /** Edge name -> prod | optional | peer. */
