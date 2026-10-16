@@ -18,7 +18,7 @@ import { parseArgs } from "../src/cli/parse.ts";
 /**
  * D-3 evidence: registry write-side and account commands run the user's own
  * npm with verbatim arguments, a stderr disclosure, and unchanged exit
- * behavior. nexu interprets nothing after the command token.
+ * behavior. zyrk interprets nothing after the command token.
  *
  * The fake-npm fixtures are POSIX-only; the Windows platform gate re-covers
  * this scenario there.
@@ -26,7 +26,7 @@ import { parseArgs } from "../src/cli/parse.ts";
 
 const BIN = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../bin/nexu.js",
+  "../bin/zyrk.js",
 );
 
 let root: string;
@@ -34,7 +34,7 @@ let project: string;
 let fakeBin: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-delegate-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-delegate-"));
   project = path.join(root, "project");
   fakeBin = path.join(root, "bin");
   await mkdir(project, { recursive: true });
@@ -50,7 +50,7 @@ async function installFakeNpm(exitCode: string): Promise<void> {
   const script = [
     "#!/bin/sh",
     // One argument per line, so values containing spaces stay exact.
-    'printf "%s\\n" "$@" > "$NEXU_TEST_NPM_ARGS"',
+    'printf "%s\\n" "$@" > "$ZYRK_TEST_NPM_ARGS"',
     `exit ${exitCode}`,
     "",
   ].join("\n");
@@ -70,7 +70,7 @@ function childEnv(
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("NEXU_") &&
+        !key.startsWith("ZYRK_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS",
     ),
@@ -83,7 +83,7 @@ function childEnv(
   return env;
 }
 
-function runNexu(
+function runZyrk(
   args: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -156,13 +156,13 @@ describe.skipIf(process.platform === "win32")(
     it("forwards publish arguments verbatim with a disclosure", async () => {
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runNexu(
+      const result = await runZyrk(
         ["publish", "--tag", "beta", "--access", "public"],
-        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toContain("delegating `nexu publish` to npm");
+      expect(result.stderr).toContain("delegating `zyrk publish` to npm");
       expect(await recordedArgs(argsPath)).toEqual([
         "publish",
         "--tag",
@@ -175,13 +175,13 @@ describe.skipIf(process.platform === "win32")(
     it("propagates the npm exit code unchanged", async () => {
       await installFakeNpm("3");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runNexu(
+      const result = await runZyrk(
         ["dist-tag", "ls", "some-package"],
-        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
       );
 
       expect(result.exitCode).toBe(3);
-      expect(result.stderr).toContain("delegating `nexu dist-tag` to npm");
+      expect(result.stderr).toContain("delegating `zyrk dist-tag` to npm");
       expect(await recordedArgs(argsPath)).toEqual([
         "dist-tag",
         "ls",
@@ -189,12 +189,12 @@ describe.skipIf(process.platform === "win32")(
       ]);
     });
 
-    it("forwards flags nexu would otherwise interpret, including -g", async () => {
+    it("forwards flags zyrk would otherwise interpret, including -g", async () => {
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runNexu(
+      const result = await runZyrk(
         ["whoami", "--json", "-g"],
-        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
       );
 
       expect(result.exitCode).toBe(0);
@@ -223,9 +223,9 @@ describe.skipIf(process.platform === "win32")(
         },
       ];
       for (const { argv, expected } of forwarded) {
-        const result = await runNexu(
+        const result = await runZyrk(
           argv,
-          childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+          childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
         );
         expect(result.exitCode).toBe(0);
         expect(await recordedArgs(argsPath)).toEqual(expected);
@@ -234,7 +234,7 @@ describe.skipIf(process.platform === "win32")(
 
     it("fails separate-value leading options before spawning anything (S05)", async () => {
       // A bare value before the command is indistinguishable from the
-      // command itself without npm's option schema, so nexu fails closed
+      // command itself without npm's option schema, so zyrk fails closed
       // instead of guessing: the remedy teaches the two working spellings.
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
@@ -243,24 +243,24 @@ describe.skipIf(process.platform === "win32")(
         ["--tag", "my tag", "publish"],
       ]) {
         const before = await recordedArgs(argsPath).catch(() => null);
-        const result = await runNexu(
+        const result = await runZyrk(
           argv,
-          childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+          childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
         );
         expect(result.exitCode).not.toBe(0);
-        expect(result.stderr).toContain("NEXU_USAGE");
+        expect(result.stderr).toContain("ZYRK_USAGE");
         expect(result.stderr).toContain("--flag=value");
         // No npm process launched, and a previous recording is untouched.
         expect(await recordedArgs(argsPath).catch(() => null)).toEqual(before);
       }
     });
 
-    it("keeps nexu --json visible to npm instead of swallowing it", async () => {
+    it("keeps zyrk --json visible to npm instead of swallowing it", async () => {
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runNexu(
+      const result = await runZyrk(
         ["--json", "whoami"],
-        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
       );
       expect(result.exitCode).toBe(0);
       expect(await recordedArgs(argsPath)).toEqual(["whoami", "--json"]);
@@ -269,9 +269,9 @@ describe.skipIf(process.platform === "win32")(
     it("passes npm --help through to npm itself", async () => {
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runNexu(
+      const result = await runZyrk(
         ["publish", "--help"],
-        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        childEnv({ ZYRK_TEST_NPM_ARGS: argsPath }),
       );
       expect(result.exitCode).toBe(0);
       expect(await recordedArgs(argsPath)).toEqual(["publish", "--help"]);
@@ -289,7 +289,7 @@ describe.skipIf(process.platform === "win32")(
       });
 
       expect(code).toBe(1);
-      expect(errOut.join("")).toContain("NEXU_NPM_UNAVAILABLE");
+      expect(errOut.join("")).toContain("ZYRK_NPM_UNAVAILABLE");
     });
 
     it("maps a signaled npm to the shell-convention exit code", async () => {
@@ -297,7 +297,7 @@ describe.skipIf(process.platform === "win32")(
       const recorderPath = path.join(fakeBin, "npm");
       await writeFile(recorderPath, script);
       await chmod(recorderPath, 0o755);
-      const result = await runNexu(["ping"], childEnv());
+      const result = await runZyrk(["ping"], childEnv());
 
       expect(result.exitCode).toBe(143);
     });

@@ -1,6 +1,6 @@
 import { link, readFile, rename, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import {
   hostname,
   isErrno,
@@ -43,7 +43,7 @@ export type LockHandle = {
 
 export type AcquireLockOptions = {
   name: string;
-  /** How long to wait for a live owner before failing with NEXU_PROJECT_LOCKED. */
+  /** How long to wait for a live owner before failing with ZYRK_PROJECT_LOCKED. */
   timeoutMs?: number;
   /** Called once per wait cycle while blocked. */
   onWait?: (owner: LockRecord, waitedMs: number) => void;
@@ -243,10 +243,10 @@ function makeLockedError(
   lockPath: string,
   owner: LockRecord,
   waitedMs: number,
-): NexuError {
-  return new NexuError(
-    "NEXU_PROJECT_LOCKED",
-    `another nexu process holds the ${name} lock`,
+): ZyrkError {
+  return new ZyrkError(
+    "ZYRK_PROJECT_LOCKED",
+    `another zyrk process holds the ${name} lock`,
     {
       detail: {
         lockPath,
@@ -256,7 +256,7 @@ function makeLockedError(
         waitedMs,
       },
       remedy:
-        "wait for the other operation to finish; if that process is gone, run `nexu doctor` to reclaim the stale lock",
+        "wait for the other operation to finish; if that process is gone, run `zyrk doctor` to reclaim the stale lock",
     },
   );
 }

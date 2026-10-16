@@ -23,7 +23,7 @@
  *   paths, since extraction creates implied parents without recording
  *   them)
  *
- * Any mismatch fails with NEXU_STORE_CORRUPT and changes nothing: suspect
+ * Any mismatch fails with ZYRK_STORE_CORRUPT and changes nothing: suspect
  * content is never repaired in place and never executed. Fail-closed is
  * deliberate; the repair protocol that rebuilds replacements at new paths
  * is a later milestone.
@@ -31,7 +31,7 @@
 
 import { lstat, readdir, readlink } from "node:fs/promises";
 import * as path from "node:path";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { isErrno } from "../util/fsx.ts";
 import { modeClassOf, sha512HexOfFile } from "../util/hash.ts";
 import { contextIdFor, type GraphDoc, type GraphNode } from "./graph.ts";
@@ -115,9 +115,9 @@ class RealizationChecker {
   private corrupt(
     reason: string,
     detail: Record<string, unknown> = {},
-  ): NexuError {
-    return new NexuError(
-      "NEXU_STORE_CORRUPT",
+  ): ZyrkError {
+    return new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `stored realization failed verification: ${reason}`,
       {
         detail: {
@@ -428,6 +428,6 @@ class RealizationChecker {
   }
 }
 
-function internal(message: string): NexuError {
-  return new NexuError("NEXU_INTERNAL", message);
+function internal(message: string): ZyrkError {
+  return new ZyrkError("ZYRK_INTERNAL", message);
 }

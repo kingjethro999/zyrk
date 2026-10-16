@@ -1,5 +1,5 @@
 /**
- * Project scaffolding: `nexu create <name>[@spec] [args...]`.
+ * Project scaffolding: `zyrk create <name>[@spec] [args...]`.
  *
  * The initializer mapping mirrors npm exactly (verified against npm's own
  * `init` command): `foo` runs `create-foo`, `@scope/bar` runs
@@ -10,7 +10,7 @@
  */
 
 import npa from "npm-package-arg";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { runDlx, type DlxOptions, type DlxResult } from "./run.ts";
 
 export type CreateOptions = Omit<DlxOptions, "spec"> & {
@@ -19,7 +19,7 @@ export type CreateOptions = Omit<DlxOptions, "spec"> & {
 };
 
 /**
- * Map an initializer to its starter package specifier. Throws NEXU_USAGE
+ * Map an initializer to its starter package specifier. Throws ZYRK_USAGE
  * for non-registry inputs (Git/hosted initializers are deferred along with
  * every other non-registry protocol).
  */
@@ -54,8 +54,8 @@ export function starterSpecFor(input: string): string {
   return `${packageName}@${parsed.rawSpec}`;
 }
 
-function usage(input: string, cause?: unknown): NexuError {
-  return new NexuError("NEXU_USAGE", `unrecognized initializer: ${input}.`, {
+function usage(input: string, cause?: unknown): ZyrkError {
+  return new ZyrkError("ZYRK_USAGE", `unrecognized initializer: ${input}.`, {
     detail: { input },
     remedy:
       "use a registry package name with an optional @version, @range, or @tag",

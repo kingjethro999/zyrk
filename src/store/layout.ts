@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { resolveStoreRoot } from "../config/paths.ts";
 import {
   ensureDirWithMode,
@@ -75,7 +75,7 @@ export type StoreFormatMarker = {
 };
 
 export type OpenStoreOptions = {
-  /** Explicit root; defaults to the platform location or NEXU_STORE_DIR. */
+  /** Explicit root; defaults to the platform location or ZYRK_STORE_DIR. */
   root?: string;
   /** Create and initialize the store if it does not exist. */
   create?: boolean;
@@ -139,13 +139,13 @@ export class Store {
   /** Throw unless the store is initialized and usable. */
   requireInitialized(): StoreFormatMarker {
     if (this.format === undefined) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
-        `the nexu store at ${this.root} is not initialized`,
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
+        `the zyrk store at ${this.root} is not initialized`,
         {
           detail: { storeRoot: this.root },
           remedy:
-            "run an install or fetch command to initialize the store, or set NEXU_STORE_DIR to an existing initialized store",
+            "run an install or fetch command to initialize the store, or set ZYRK_STORE_DIR to an existing initialized store",
         },
       );
     }
@@ -190,7 +190,7 @@ export class Store {
         extractionPolicyVersion: EXTRACTION_POLICY_VERSION,
         contextCanonicalizationVersion: CONTEXT_CANONICALIZATION_VERSION,
         createdAt: new Date().toISOString(),
-        tool: { name: "nexu", version: CLI_VERSION },
+        tool: { name: "zyrk", version: CLI_VERSION },
       };
       await writeFileAtomic(
         paths.formatFile,
@@ -212,8 +212,8 @@ export class Store {
     const resolved = await fs.realpath(root);
     const stat = await fs.stat(resolved);
     if (!stat.isDirectory()) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
         `store path is not a directory: ${root}`,
         {
           detail: { storeRoot: root },
@@ -226,8 +226,8 @@ export class Store {
     if (process.platform === "win32") {
       // Windows ACL verification arrives with Windows platform support
       // (SPEC 27); until then the store is not advertised as supported there.
-      throw new NexuError(
-        "NEXU_PLATFORM_UNSUPPORTED",
+      throw new ZyrkError(
+        "ZYRK_PLATFORM_UNSUPPORTED",
         "Windows store permission checks are not implemented yet",
         {
           detail: { storeRoot: root, platform: process.platform },
@@ -241,18 +241,18 @@ export class Store {
 
     const uid = process.getuid?.();
     if (uid !== undefined && stat.uid !== uid) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
         `store is owned by another user (uid ${stat.uid}, running as ${uid}): ${root}`,
         {
           detail: { storeRoot: root, ownerUid: stat.uid, runningUid: uid },
           remedy:
-            "if this store was created by root, move it under your own account or point NEXU_STORE_DIR at a user-owned location; nexu never rewrites ownership recursively",
+            "if this store was created by root, move it under your own account or point ZYRK_STORE_DIR at a user-owned location; zyrk never rewrites ownership recursively",
         },
       );
     }
     if (uid !== undefined && stat.uid === 0 && uid !== 0) {
-      throw new NexuError("NEXU_STORE_UNSAFE", `store is root-owned: ${root}`, {
+      throw new ZyrkError("ZYRK_STORE_UNSAFE", `store is root-owned: ${root}`, {
         detail: { storeRoot: root, ownerUid: stat.uid },
         remedy:
           "create a fresh store under your account instead of reusing a root-owned one",
@@ -261,8 +261,8 @@ export class Store {
 
     const mode = stat.mode & 0o777;
     if ((mode & 0o022) !== 0) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
         `store is group- or world-writable (mode ${mode.toString(8)}): ${root}`,
         {
           detail: { storeRoot: root, mode: mode.toString(8) },
@@ -271,7 +271,7 @@ export class Store {
       );
     }
 
-    // Every managed boundary nexu writes or reuses through gets the same
+    // Every managed boundary zyrk writes or reuses through gets the same
     // ownership, type, and mode checks as the root, evaluated with lstat so
     // a substituted symlink is rejected instead of followed (S02). Missing
     // directories are created on demand with 0700; existing ones are never
@@ -307,31 +307,31 @@ export class Store {
       throw error;
     }
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
         `store directory is not a real directory: ${dir}`,
         {
           detail: { storeDir: dir },
           remedy:
-            "remove the unexpected file or link and let nexu recreate the managed directory",
+            "remove the unexpected file or link and let zyrk recreate the managed directory",
         },
       );
     }
     if (allowUnsafePermissions) return;
     if (uid !== undefined && stat.uid !== uid) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
         `store directory is owned by another user (uid ${stat.uid}, running as ${uid}): ${dir}`,
         {
           detail: { storeDir: dir, ownerUid: stat.uid, runningUid: uid },
           remedy:
-            "nexu never rewrites ownership recursively; use a store your account owns",
+            "zyrk never rewrites ownership recursively; use a store your account owns",
         },
       );
     }
     if ((stat.mode & 0o777 & 0o022) !== 0) {
-      throw new NexuError(
-        "NEXU_STORE_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_STORE_UNSAFE",
         `store directory is group- or world-writable (mode ${(stat.mode & 0o777).toString(8)}): ${dir}`,
         {
           detail: { storeDir: dir, mode: (stat.mode & 0o777).toString(8) },
@@ -344,7 +344,7 @@ export class Store {
 
 /**
  * Resolve symlinks deliberately so the store has one canonical identity
- * for safety checks, paths, and records. A symlinked NEXU_STORE_DIR is
+ * for safety checks, paths, and records. A symlinked ZYRK_STORE_DIR is
  * allowed; it always means its target. Missing leaves resolve through
  * their nearest existing ancestor.
  */
@@ -377,8 +377,8 @@ async function readStoreFormatMarker(
   try {
     return await readJsonFile<StoreFormatMarker>(markerPath);
   } catch (error) {
-    throw new NexuError(
-      "NEXU_STORE_CORRUPT",
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `store format marker is unreadable: ${markerPath}`,
       {
         detail: { formatFile: markerPath },
@@ -395,9 +395,9 @@ function validateStoreFormatMarker(
   markerPath: string,
 ): void {
   if (marker.storeFormatVersion !== STORE_FORMAT_VERSION) {
-    throw new NexuError(
-      "NEXU_STORE_FORMAT_UNSUPPORTED",
-      `store format ${marker.storeFormatVersion} is not supported by this nexu (expects ${STORE_FORMAT_VERSION})`,
+    throw new ZyrkError(
+      "ZYRK_STORE_FORMAT_UNSUPPORTED",
+      `store format ${marker.storeFormatVersion} is not supported by this zyrk (expects ${STORE_FORMAT_VERSION})`,
       {
         detail: {
           formatFile: markerPath,
@@ -405,13 +405,13 @@ function validateStoreFormatMarker(
           supported: STORE_FORMAT_VERSION,
         },
         remedy:
-          "use a CLI matching this store format, or initialize a fresh store at a new location; if this store is newer, upgrade nexu first",
+          "use a CLI matching this store format, or initialize a fresh store at a new location; if this store is newer, upgrade zyrk first",
       },
     );
   }
   if (marker.objectKeyScheme !== OBJECT_KEY_SCHEME) {
-    throw new NexuError(
-      "NEXU_STORE_FORMAT_UNSUPPORTED",
+    throw new ZyrkError(
+      "ZYRK_STORE_FORMAT_UNSUPPORTED",
       `object key scheme ${marker.objectKeyScheme} is not supported`,
       {
         detail: {

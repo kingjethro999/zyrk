@@ -9,7 +9,7 @@ import {
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { NexuError } from "../src/errors.ts";
+import { ZyrkError } from "../src/errors.ts";
 import {
   DEFAULT_EXTRACTION_LIMITS,
   extractTarball,
@@ -20,7 +20,7 @@ import { craftTar, craftTarGz, type CraftEntry } from "./helpers/tar.ts";
 let workDir: string;
 
 beforeEach(async () => {
-  workDir = await mkdtemp(path.join(os.tmpdir(), "nexu-extract-"));
+  workDir = await mkdtemp(path.join(os.tmpdir(), "zyrk-extract-"));
 });
 
 afterEach(async () => {
@@ -57,17 +57,17 @@ async function extract(
 async function expectUnsafe(
   run: () => Promise<unknown>,
   messagePart?: string,
-): Promise<NexuError> {
+): Promise<ZyrkError> {
   try {
     await run();
   } catch (error) {
-    expect(error).toBeInstanceOf(NexuError);
-    const nexuError = error as NexuError;
-    expect(nexuError.code).toBe("NEXU_EXTRACTION_UNSAFE");
+    expect(error).toBeInstanceOf(ZyrkError);
+    const zyrkError = error as ZyrkError;
+    expect(zyrkError.code).toBe("ZYRK_EXTRACTION_UNSAFE");
     if (messagePart !== undefined) {
-      expect(nexuError.message).toContain(messagePart);
+      expect(zyrkError.message).toContain(messagePart);
     }
-    return nexuError;
+    return zyrkError;
   }
   throw new Error("expected extraction to fail, but it succeeded");
 }
@@ -390,7 +390,7 @@ describe("extractTarball: limits and malformed archives", () => {
     ).toThrow(/path longer than 64/);
   });
 
-  it("wraps malformed archive bytes as NEXU_EXTRACTION_UNSAFE", async () => {
+  it("wraps malformed archive bytes as ZYRK_EXTRACTION_UNSAFE", async () => {
     const tarballPath = await writeArchive(Buffer.alloc(2048, 0x41));
     await expectUnsafe(() =>
       extractTarball({ tarballPath, destDir: path.join(workDir, "dest") }),
@@ -441,10 +441,10 @@ describe("normalizeArchivePath", () => {
 
   it("rejects empty paths", () => {
     expect(() => normalizeArchivePath("", DEFAULT_EXTRACTION_LIMITS)).toThrow(
-      NexuError,
+      ZyrkError,
     );
     expect(() => normalizeArchivePath("./", DEFAULT_EXTRACTION_LIMITS)).toThrow(
-      NexuError,
+      ZyrkError,
     );
   });
 });

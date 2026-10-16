@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { NexuError } from "../src/errors.ts";
+import { ZyrkError } from "../src/errors.ts";
 import { fetchSources } from "../src/fetch/all.ts";
 import type { FetchedSource } from "../src/fetch/package.ts";
 import { RegistryClient } from "../src/fetch/registry.ts";
@@ -19,7 +19,7 @@ let registry: RegistryClient;
 let txn: Transaction;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-fetch-all-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-fetch-all-"));
   store = await Store.open({ root: path.join(root, "store"), create: true });
   registry = new RegistryClient({
     registry: "https://registry.example.com/",
@@ -99,7 +99,7 @@ describe("fetchSources", () => {
       fetchOne: async (request) => {
         await delay(request.key === "a" ? 30 : 5);
         if (request.key === "a" || request.key === "b") {
-          throw new NexuError("NEXU_FETCH_FAILED", `nope ${request.key}`, {
+          throw new ZyrkError("ZYRK_FETCH_FAILED", `nope ${request.key}`, {
             detail: { key: request.key },
           });
         }
@@ -109,13 +109,13 @@ describe("fetchSources", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_FETCH_FAILED" });
+    expect(failure).toMatchObject({ code: "ZYRK_FETCH_FAILED" });
     expect(failure).toMatchObject({
       detail: expect.objectContaining({ key: "a" }),
     });
   });
 
-  it("wraps non-nexu failures without losing them", async () => {
+  it("wraps non-zyrk failures without losing them", async () => {
     const failure = await fetchSources({
       store,
       registry,
@@ -128,7 +128,7 @@ describe("fetchSources", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_INTERNAL" });
+    expect(failure).toMatchObject({ code: "ZYRK_INTERNAL" });
   });
 
   it("handles empty requests and serial execution", async () => {
@@ -160,7 +160,7 @@ describe("fetchSources", () => {
           return fakeSource(request.key);
         },
       }),
-    ).rejects.toMatchObject({ code: "NEXU_INTERNAL" });
+    ).rejects.toMatchObject({ code: "ZYRK_INTERNAL" });
     expect(called).toBe(0);
   });
 
@@ -179,7 +179,7 @@ describe("fetchSources", () => {
     try {
       const stubRegistry = new RegistryClient({
         registry: stub.url,
-        userAgent: "nexu-test/0",
+        userAgent: "zyrk-test/0",
       });
       const result = await fetchSources({
         store,

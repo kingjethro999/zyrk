@@ -28,11 +28,11 @@ import { canonicalJson } from "../util/json.ts";
  * the new complete projection; recovery reads the journal and the filesystem
  * together (SPEC 17.3).
  *
- * Local state lives under `<project>/.nexu-local/`, is never required to
+ * Local state lives under `<project>/.zyrk-local/`, is never required to
  * clone and reinstall, and is never copied into a lockfile.
  */
 
-export const PROJECT_STATE_DIR = ".nexu-local";
+export const PROJECT_STATE_DIR = ".zyrk-local";
 
 export type ProjectionEntry = {
   /** Dependency name as it appears under `node_modules` (alias-aware). */
@@ -114,7 +114,7 @@ export async function recoverProjection(projectDir: string): Promise<void> {
   // Staging trees from an interrupted run are never live: the journaled swap
   // is the only path that can publish one.
   for (const name of names) {
-    if (name.startsWith("node_modules.nexu-staging-")) {
+    if (name.startsWith("node_modules.zyrk-staging-")) {
       await rmrfNoFollow(path.join(projectDir, name));
     }
   }
@@ -122,7 +122,7 @@ export async function recoverProjection(projectDir: string): Promise<void> {
   if (last === undefined) return;
   const previous = path.join(
     projectDir,
-    `node_modules.nexu-old-${last.generationId}`,
+    `node_modules.zyrk-old-${last.generationId}`,
   );
   if (await pathExists(previous)) {
     if (!(await pathExists(nodeModules))) {
@@ -154,11 +154,11 @@ export async function installProjection(
     const generationId = `gen1_${randomId("", 12)}`;
     const staging = path.join(
       projectDir,
-      `node_modules.nexu-staging-${generationId}`,
+      `node_modules.zyrk-staging-${generationId}`,
     );
     const previous = path.join(
       projectDir,
-      `node_modules.nexu-old-${generationId}`,
+      `node_modules.zyrk-old-${generationId}`,
     );
     const nodeModules = path.join(projectDir, "node_modules");
 
@@ -169,7 +169,7 @@ export async function installProjection(
       await fsSymlink(entry.linkTarget, target);
     }
 
-    await ensureDirWithMode(path.join(staging, ".nexu"), 0o755);
+    await ensureDirWithMode(path.join(staging, ".zyrk"), 0o755);
     const state = {
       schemaVersion: 1,
       generationId,
@@ -185,7 +185,7 @@ export async function installProjection(
       })),
     };
     await writeFileAtomic(
-      path.join(staging, ".nexu", "install-state.json"),
+      path.join(staging, ".zyrk", "install-state.json"),
       `${JSON.stringify(state, null, 2)}\n`,
       {
         mode: 0o644,

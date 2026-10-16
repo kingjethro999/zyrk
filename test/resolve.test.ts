@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NexuError } from "../src/errors.ts";
+import { ZyrkError } from "../src/errors.ts";
 import type { Packument, PackumentVersion } from "../src/fetch/registry.ts";
 import {
   resolveRequirements,
@@ -71,8 +71,8 @@ class FakeProvider implements MetadataProvider {
   async packument(name: string): Promise<Packument> {
     const doc = this.docs.get(name);
     if (doc === undefined) {
-      throw new NexuError(
-        "NEXU_RESOLUTION_FAILED",
+      throw new ZyrkError(
+        "ZYRK_RESOLUTION_FAILED",
         `not found while trying to fetch metadata for ${name} (HTTP 404)`,
         {
           detail: { name },
@@ -141,7 +141,7 @@ describe("parseRequirement", () => {
         parseRequirement("alpha", spec);
         expect.unreachable(`expected "${spec}" to fail`);
       } catch (error) {
-        expect(error).toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
+        expect(error).toMatchObject({ code: "ZYRK_RESOLUTION_FAILED" });
         expect(error).toMatchObject({
           remedy: expect.stringContaining("deferred"),
         });
@@ -184,7 +184,7 @@ describe("version selection", () => {
           provider,
           requirements: [{ name: "alpha", spec }],
         }),
-      ).rejects.toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
+      ).rejects.toMatchObject({ code: "ZYRK_RESOLUTION_FAILED" });
     }
   });
 
@@ -194,7 +194,7 @@ describe("version selection", () => {
         provider,
         requirements: [{ name: "ghost", spec: "1.0.0" }],
       }),
-    ).rejects.toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
+    ).rejects.toMatchObject({ code: "ZYRK_RESOLUTION_FAILED" });
   });
 });
 
@@ -387,7 +387,7 @@ describe("peer dependencies", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_PEER_CONFLICT" });
+    expect(failure).toMatchObject({ code: "ZYRK_PEER_CONFLICT" });
     expect(failure).toMatchObject({
       detail: expect.objectContaining({
         peer: "host",
@@ -572,7 +572,7 @@ describe("integrity and protocol failures", () => {
         provider,
         requirements: [{ name: "loose", spec: "1.0.0" }],
       }),
-    ).rejects.toMatchObject({ code: "NEXU_INTEGRITY_FAILED" });
+    ).rejects.toMatchObject({ code: "ZYRK_INTEGRITY_FAILED" });
   });
 
   it("rejects Git and local specs without running anything", async () => {
@@ -583,7 +583,7 @@ describe("integrity and protocol failures", () => {
           provider,
           requirements: [{ name: "alpha", spec }],
         }),
-      ).rejects.toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
+      ).rejects.toMatchObject({ code: "ZYRK_RESOLUTION_FAILED" });
     }
   });
 });

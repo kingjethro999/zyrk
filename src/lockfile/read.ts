@@ -7,12 +7,12 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { isErrno, pathExists } from "../util/fsx.ts";
 import {
-  NEXU_LOCK_EXTENSION_VERSION,
+  ZYRK_LOCK_EXTENSION_VERSION,
   type NpmLockDoc,
-  type NexuLockExtension,
+  type ZyrkLockExtension,
 } from "./types.ts";
 
 export type ReadLockResult = {
@@ -35,8 +35,8 @@ export async function readLockfile(
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new NexuError(
-      "NEXU_MANIFEST_INVALID",
+    throw new ZyrkError(
+      "ZYRK_MANIFEST_INVALID",
       `lockfile at ${lockPath} is not valid JSON`,
       {
         detail: { path: lockPath },
@@ -50,9 +50,9 @@ export async function readLockfile(
 }
 
 export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
-  const bad = (why: string): NexuError =>
-    new NexuError(
-      "NEXU_MANIFEST_INVALID",
+  const bad = (why: string): ZyrkError =>
+    new ZyrkError(
+      "ZYRK_MANIFEST_INVALID",
       `lockfile ${label} is malformed (${why})`,
       {
         detail: { path: label },
@@ -74,9 +74,9 @@ export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
     );
   }
   if (record["lockfileVersion"] === 1) {
-    throw new NexuError(
-      "NEXU_MANIFEST_INVALID",
-      `lockfile ${label} uses the legacy v1 layout, which nexu cannot use`,
+    throw new ZyrkError(
+      "ZYRK_MANIFEST_INVALID",
+      `lockfile ${label} uses the legacy v1 layout, which zyrk cannot use`,
       {
         detail: { path: label },
         remedy:
@@ -100,21 +100,21 @@ export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
       }
     }
   }
-  if (record["nexu"] !== undefined) validateExtension(record["nexu"], label);
+  if (record["zyrk"] !== undefined) validateExtension(record["zyrk"], label);
   return doc as NpmLockDoc;
 }
 
 function validateExtension(
   extension: unknown,
   label: string,
-): asserts extension is NexuLockExtension {
-  const bad = (why: string): NexuError =>
-    new NexuError(
-      "NEXU_LOCK_MISMATCH",
-      `lockfile ${label} has an unusable nexu extension (${why})`,
+): asserts extension is ZyrkLockExtension {
+  const bad = (why: string): ZyrkError =>
+    new ZyrkError(
+      "ZYRK_LOCK_MISMATCH",
+      `lockfile ${label} has an unusable zyrk extension (${why})`,
       {
         detail: { path: label },
-        remedy: "refresh the lockfile intentionally with nexu",
+        remedy: "refresh the lockfile intentionally with zyrk",
       },
     );
   if (
@@ -125,7 +125,7 @@ function validateExtension(
     throw bad("extension is not an object");
   }
   const record = extension as Record<string, unknown>;
-  if (record["version"] !== NEXU_LOCK_EXTENSION_VERSION) {
+  if (record["version"] !== ZYRK_LOCK_EXTENSION_VERSION) {
     throw bad(
       `extension version ${String(record["version"])} is not supported`,
     );
@@ -156,25 +156,25 @@ export type FrozenFingerprints = {
  * Frozen-install compatibility (D-1): the extension must exist, come from a
  * supported writer, and match the current manifests, portable script
  * policy, and resolution configuration. Any disagreement fails with
- * NEXU_LOCK_MISMATCH; a frozen install never silently re-resolves.
+ * ZYRK_LOCK_MISMATCH; a frozen install never silently re-resolves.
  */
 export function assertFrozenCompatible(
   doc: NpmLockDoc,
   expected: FrozenFingerprints,
 ): void {
-  const mismatch = (what: string, remedy: string): NexuError =>
-    new NexuError(
-      "NEXU_LOCK_MISMATCH",
+  const mismatch = (what: string, remedy: string): ZyrkError =>
+    new ZyrkError(
+      "ZYRK_LOCK_MISMATCH",
       `frozen lockfile is not compatible (${what})`,
       {
         remedy,
       },
     );
-  const extension = doc.nexu;
+  const extension = doc.zyrk;
   if (extension === undefined) {
     throw mismatch(
-      "no nexu extension",
-      "this lockfile was written without nexu metadata; refresh it intentionally with nexu",
+      "no zyrk extension",
+      "this lockfile was written without zyrk metadata; refresh it intentionally with zyrk",
     );
   }
   if (extension.manifest !== expected.manifest) {

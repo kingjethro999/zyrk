@@ -9,7 +9,7 @@
  * diagnostics are reproducible and never depend on completion order.
  */
 
-import { NexuError, toNexuError } from "../errors.ts";
+import { ZyrkError, toZyrkError } from "../errors.ts";
 import { Store } from "../store/layout.ts";
 import { Transaction } from "../store/txn.ts";
 import type { StoreDb } from "../store/db.ts";
@@ -96,8 +96,8 @@ export async function fetchSources(
   );
   const rawConcurrency = options.concurrency ?? DEFAULT_FETCH_CONCURRENCY;
   if (!Number.isFinite(rawConcurrency) || rawConcurrency < 1) {
-    throw new NexuError(
-      "NEXU_INTERNAL",
+    throw new ZyrkError(
+      "ZYRK_INTERNAL",
       `fetch concurrency must be a finite number >= 1, got ${String(options.concurrency)}`,
       {
         detail: { concurrency: options.concurrency },
@@ -140,7 +140,7 @@ export async function fetchSources(
   };
 
   const results = new Array<FetchedSource | undefined>(sorted.length);
-  const failures = new Array<{ key: string; error: NexuError } | undefined>(
+  const failures = new Array<{ key: string; error: ZyrkError } | undefined>(
     sorted.length,
   );
   let next = 0;
@@ -154,7 +154,7 @@ export async function fetchSources(
         const fetched = await fetchOne(group.representative, context);
         for (const member of group.members) results[member] = fetched;
       } catch (error) {
-        const failure = toNexuError(
+        const failure = toZyrkError(
           error,
           `failed to fetch ${group.representative.key}`,
         );
@@ -172,7 +172,7 @@ export async function fetchSources(
     Array.from({ length: Math.min(workers, unique.length) }, () => runWorker()),
   );
 
-  let selected: { key: string; error: NexuError } | undefined;
+  let selected: { key: string; error: ZyrkError } | undefined;
   for (const failure of failures) {
     if (failure === undefined) continue;
     if (
@@ -188,8 +188,8 @@ export async function fetchSources(
   for (const [index, request] of sorted.entries()) {
     const result = results[index];
     if (result === undefined) {
-      throw new NexuError(
-        "NEXU_INTERNAL",
+      throw new ZyrkError(
+        "ZYRK_INTERNAL",
         `fetch produced no result for ${request.key}`,
         {
           detail: { key: request.key },

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { NexuError } from "../src/errors.ts";
+import { ZyrkError } from "../src/errors.ts";
 import {
   SCHEMA_VERSION,
   getObject,
@@ -22,7 +22,7 @@ let dbFile: string;
 let db: StoreDb;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-db-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-db-"));
   dbFile = path.join(root, "metadata", "state.sqlite");
   await mkdir(path.dirname(dbFile), { recursive: true });
   db = openStoreDb(dbFile);
@@ -96,8 +96,8 @@ describe("openStoreDb", () => {
     } catch (error) {
       caught = error;
     }
-    expect(caught).toBeInstanceOf(NexuError);
-    expect((caught as NexuError).code).toBe("NEXU_STORE_FORMAT_UNSUPPORTED");
+    expect(caught).toBeInstanceOf(ZyrkError);
+    expect((caught as ZyrkError).code).toBe("ZYRK_STORE_FORMAT_UNSUPPORTED");
   });
 });
 

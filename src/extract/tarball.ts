@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import * as path from "node:path";
 import { Parser, type ReadEntry } from "tar";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { Digest, modeClassOf, type ModeClass } from "../util/hash.ts";
 import { ensureDirWithMode, isErrno } from "../util/fsx.ts";
 
@@ -843,7 +843,7 @@ async function runParser(
 
     parser.on("error", (error: Error) => {
       finish(
-        error instanceof NexuError
+        error instanceof ZyrkError
           ? error
           : unsafe(`archive could not be parsed: ${error.message}`, {
               archiveError: error.message,
@@ -859,10 +859,10 @@ async function runParser(
   });
 }
 
-function unsafe(message: string, detail: Record<string, unknown>): NexuError {
-  return new NexuError("NEXU_EXTRACTION_UNSAFE", message, {
+function unsafe(message: string, detail: Record<string, unknown>): ZyrkError {
+  return new ZyrkError("ZYRK_EXTRACTION_UNSAFE", message, {
     detail,
     remedy:
-      "review the package contents or report the package; nexu will not extract archives that violate the extraction safety rules",
+      "review the package contents or report the package; zyrk will not extract archives that violate the extraction safety rules",
   });
 }

@@ -1,5 +1,5 @@
 /**
- * Temporary tool environments: `nexu dlx <spec> [args...]` (SPEC 22.4).
+ * Temporary tool environments: `zyrk dlx <spec> [args...]` (SPEC 22.4).
  *
  * A tool specifier resolves to an exact package identity; its closure is
  * fetched, verified, and realized through the shared store (reused across
@@ -11,7 +11,7 @@
  *
  * Trust policy is honored strictly: dependency lifecycle scripts are denied
  * by default, and no script runner exists yet, so any tool closure
- * declaring install-time scripts fails with NEXU_SCRIPT_BLOCKED instead of
+ * declaring install-time scripts fails with ZYRK_SCRIPT_BLOCKED instead of
  * running anything.
  */
 
@@ -20,7 +20,7 @@ import { lstat, mkdtemp, readFile } from "node:fs/promises";
 import npa from "npm-package-arg";
 import * as os from "node:os";
 import * as path from "node:path";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { fetchSources } from "../fetch/all.ts";
 import type { RegistryClient } from "../fetch/registry.ts";
 import type { Logger } from "../log.ts";
@@ -71,9 +71,9 @@ export function splitDlxSpec(spec: string): {
   name: string;
   versionSpec: string;
 } {
-  const invalid = (cause?: unknown): NexuError =>
-    new NexuError(
-      "NEXU_RESOLUTION_FAILED",
+  const invalid = (cause?: unknown): ZyrkError =>
+    new ZyrkError(
+      "ZYRK_RESOLUTION_FAILED",
       `invalid tool specifier "${spec}"`,
       {
         detail: { spec },
@@ -129,8 +129,8 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
       const committed = fetched.get(node.key);
       if (committed === undefined) throw internal(`fetch lost ${node.key}`);
       if (committed.sourceId !== node.sourceId) {
-        throw new NexuError(
-          "NEXU_INTERNAL",
+        throw new ZyrkError(
+          "ZYRK_INTERNAL",
           `fetch skew for ${node.name}@${node.version}: resolved and committed identities disagree`,
           {
             detail: { name: node.name, version: node.version },
@@ -173,7 +173,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
       throw internal(`selected bin ${binKey} vanished`);
     const script = await resolveBinScript(toolPkgDir, tool, binKey, binTarget);
 
-    const envDir = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-"));
+    const envDir = await mkdtemp(path.join(os.tmpdir(), "zyrk-dlx-"));
     try {
       await installProjection(envDir, [
         { name: tool.name, linkTarget: toolPkgDir },
@@ -214,8 +214,8 @@ async function assertNoInstallScripts(
         await readFile(path.join(pkgDir, "package.json"), "utf8"),
       );
     } catch (error) {
-      throw new NexuError(
-        "NEXU_RESOLUTION_FAILED",
+      throw new ZyrkError(
+        "ZYRK_RESOLUTION_FAILED",
         `tool closure package ${label} has no readable package.json`,
         {
           detail: { package: label },
@@ -232,8 +232,8 @@ async function assertNoInstallScripts(
     for (const stage of ["preinstall", "install", "postinstall"]) {
       const script = table[stage];
       if (typeof script === "string" && script.trim() !== "") {
-        throw new NexuError(
-          "NEXU_SCRIPT_BLOCKED",
+        throw new ZyrkError(
+          "ZYRK_SCRIPT_BLOCKED",
           `tool ${label} declares install-time script "${stage}"`,
           {
             detail: { package: label, script: stage },
@@ -253,8 +253,8 @@ function selectBin(
   const label = `${tool.name}@${tool.version}`;
   if (binName !== undefined) {
     if (tool.bin[binName] === undefined) {
-      throw new NexuError(
-        "NEXU_RESOLUTION_FAILED",
+      throw new ZyrkError(
+        "ZYRK_RESOLUTION_FAILED",
         `tool ${label} has no bin entry "${binName}"`,
         {
           detail: {
@@ -270,8 +270,8 @@ function selectBin(
   }
   const names = Object.keys(tool.bin);
   if (names.length === 0) {
-    throw new NexuError(
-      "NEXU_RESOLUTION_FAILED",
+    throw new ZyrkError(
+      "ZYRK_RESOLUTION_FAILED",
       `tool ${label} declares no executable bin entry`,
       {
         detail: { package: label },
@@ -286,8 +286,8 @@ function selectBin(
     ? (tool.name.split("/")[1] ?? tool.name)
     : tool.name;
   if (tool.bin[short] !== undefined) return short;
-  throw new NexuError(
-    "NEXU_RESOLUTION_FAILED",
+  throw new ZyrkError(
+    "ZYRK_RESOLUTION_FAILED",
     `tool ${label} declares several bins (${names.join(", ")}); select one explicitly`,
     {
       detail: { package: label, available: names },
@@ -310,8 +310,8 @@ async function resolveBinScript(
     relative.startsWith("..") ||
     path.isAbsolute(relative)
   ) {
-    throw new NexuError(
-      "NEXU_RESOLUTION_FAILED",
+    throw new ZyrkError(
+      "ZYRK_RESOLUTION_FAILED",
       `tool ${label} bin "${binKey}" escapes the package`,
       {
         detail: { package: label, bin: binKey },
@@ -323,8 +323,8 @@ async function resolveBinScript(
   try {
     stat = await lstat(script);
   } catch (error) {
-    throw new NexuError(
-      "NEXU_RESOLUTION_FAILED",
+    throw new ZyrkError(
+      "ZYRK_RESOLUTION_FAILED",
       `tool ${label} bin "${binKey}" is missing from the package`,
       {
         detail: { package: label, bin: binKey },
@@ -335,8 +335,8 @@ async function resolveBinScript(
     );
   }
   if (!stat.isFile() && !stat.isSymbolicLink()) {
-    throw new NexuError(
-      "NEXU_RESOLUTION_FAILED",
+    throw new ZyrkError(
+      "ZYRK_RESOLUTION_FAILED",
       `tool ${label} bin "${binKey}" is not a file`,
       {
         detail: { package: label, bin: binKey },
@@ -372,7 +372,7 @@ async function runTool(
     }
     child.on("error", (error) => {
       reject(
-        new NexuError("NEXU_INTERNAL", "failed to launch the tool process", {
+        new ZyrkError("ZYRK_INTERNAL", "failed to launch the tool process", {
           cause: error,
           remedy: "verify the Node.js executable is usable",
         }),
@@ -384,6 +384,6 @@ async function runTool(
   });
 }
 
-function internal(message: string): NexuError {
-  return new NexuError("NEXU_INTERNAL", message);
+function internal(message: string): ZyrkError {
+  return new ZyrkError("ZYRK_INTERNAL", message);
 }

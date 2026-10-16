@@ -33,7 +33,7 @@ import { craftTar, type CraftEntry } from "./helpers/tar.ts";
 
 /**
  * S01 evidence: an existing realization is never trusted by existence
- * alone. Every corruption below must fail with NEXU_STORE_CORRUPT before
+ * alone. Every corruption below must fail with ZYRK_STORE_CORRUPT before
  * anything executes, without changing unrelated projects.
  */
 
@@ -44,7 +44,7 @@ let store: Store;
 let counter = 0;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-verify-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-verify-"));
   store = await Store.open({ root: path.join(root, "store"), create: true });
 });
 
@@ -153,7 +153,7 @@ function runNode(
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("NEXU_") &&
+        !key.startsWith("ZYRK_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS",
     ),
@@ -201,7 +201,7 @@ describe("realization reuse verification (S01)", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_STORE_CORRUPT" });
+    expect(failure).toMatchObject({ code: "ZYRK_STORE_CORRUPT" });
     expect(failure).toMatchObject({
       detail: expect.objectContaining({ node: "lib@2.0.0" }),
     });
@@ -220,7 +220,7 @@ describe("realization reuse verification (S01)", () => {
       await unlink(path.join(toolDir, "index.js"));
     });
     await expect(realizeGraph({ store, graph })).rejects.toMatchObject({
-      code: "NEXU_STORE_CORRUPT",
+      code: "ZYRK_STORE_CORRUPT",
     });
   });
 
@@ -235,7 +235,7 @@ describe("realization reuse verification (S01)", () => {
       await writeFile(path.join(libDir, "evil.js"), "x\n");
     });
     await expect(realizeGraph({ store, graph })).rejects.toMatchObject({
-      code: "NEXU_STORE_CORRUPT",
+      code: "ZYRK_STORE_CORRUPT",
     });
   });
 
@@ -250,7 +250,7 @@ describe("realization reuse verification (S01)", () => {
       await writeFile(path.join(modulesDir, "stowaway"), "x\n");
     });
     await expect(realizeGraph({ store, graph })).rejects.toMatchObject({
-      code: "NEXU_STORE_CORRUPT",
+      code: "ZYRK_STORE_CORRUPT",
     });
   });
 
@@ -278,7 +278,7 @@ describe("realization reuse verification (S01)", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_STORE_CORRUPT" });
+    expect(failure).toMatchObject({ code: "ZYRK_STORE_CORRUPT" });
     expect(failure).toMatchObject({
       detail: expect.objectContaining({ node: "tool@1.0.0" }),
     });
@@ -300,7 +300,7 @@ describe("realization reuse verification (S01)", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_STORE_CORRUPT" });
+    expect(failure).toMatchObject({ code: "ZYRK_STORE_CORRUPT" });
     expect(failure).toMatchObject({
       detail: expect.objectContaining({ node: "lib@2.0.0" }),
     });
@@ -333,7 +333,7 @@ describe("realization reuse verification (S01)", () => {
       );
     });
     await expect(realizeGraph({ store, graph })).rejects.toMatchObject({
-      code: "NEXU_STORE_CORRUPT",
+      code: "ZYRK_STORE_CORRUPT",
     });
 
     expect(await readlink(alphaLink)).toBe(linkBefore);

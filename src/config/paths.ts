@@ -10,7 +10,7 @@ import { pathExists } from "../util/fsx.ts";
  */
 
 export type PlatformPaths = {
-  /** Directory holding the managed store's parent (`.../nexu/store/v1`). */
+  /** Directory holding the managed store's parent (`.../zyrk/store/v1`). */
   storeRoot: string;
   /** User configuration file. */
   configFile: string;
@@ -22,7 +22,7 @@ export type StoreRootResolution = {
   overrideVariable?: string;
 };
 
-export const STORE_DIR_ENV = "NEXU_STORE_DIR";
+export const STORE_DIR_ENV = "ZYRK_STORE_DIR";
 
 export function platformPaths(
   env: NodeJS.ProcessEnv = process.env,
@@ -34,15 +34,15 @@ export function platformPaths(
       env["LOCALAPPDATA"] ?? path.join(home, "AppData", "Local");
     const appData = env["APPDATA"] ?? path.join(home, "AppData", "Roaming");
     return {
-      storeRoot: path.join(localAppData, "nexu", "store", "v1"),
-      configFile: path.join(appData, "nexu", "config.json"),
+      storeRoot: path.join(localAppData, "zyrk", "store", "v1"),
+      configFile: path.join(appData, "zyrk", "config.json"),
     };
   }
   if (platform === "darwin") {
     const support = path.join(home, "Library", "Application Support");
     return {
-      storeRoot: path.join(support, "nexu", "store", "v1"),
-      configFile: path.join(support, "nexu", "config.json"),
+      storeRoot: path.join(support, "zyrk", "store", "v1"),
+      configFile: path.join(support, "zyrk", "config.json"),
     };
   }
   const dataHome =
@@ -54,8 +54,8 @@ export function platformPaths(
       ? env["XDG_CONFIG_HOME"]
       : path.join(home, ".config");
   return {
-    storeRoot: path.join(dataHome, "nexu", "store", "v1"),
-    configFile: path.join(configHome, "nexu", "config.json"),
+    storeRoot: path.join(dataHome, "zyrk", "store", "v1"),
+    configFile: path.join(configHome, "zyrk", "config.json"),
   };
 }
 

@@ -7,7 +7,7 @@ import {
   symlink as fsSymlink,
 } from "node:fs/promises";
 import * as path from "node:path";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import type { Logger } from "../log.ts";
 import {
   fsyncDir,
@@ -164,8 +164,8 @@ async function buildRealization(options: {
   const manifestDoc = await readSourceManifest(store, node.sourceId);
   const manifest = manifestDoc.manifest;
   if (manifest.name !== node.name || manifest.version !== node.version) {
-    throw new NexuError(
-      "NEXU_STORE_CORRUPT",
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `source ${node.sourceId} contains ${manifest.name}@${manifest.version}, not ${node.name}@${node.version}`,
       {
         detail: {
@@ -174,7 +174,7 @@ async function buildRealization(options: {
           found: `${manifest.name}@${manifest.version}`,
         },
         remedy:
-          "run `nexu store verify --full`; the stored source no longer matches its recorded identity",
+          "run `zyrk store verify --full`; the stored source no longer matches its recorded identity",
       },
     );
   }
@@ -198,8 +198,8 @@ async function buildRealization(options: {
             bytes: entry.size,
           });
           if (!check.ok) {
-            throw new NexuError(
-              "NEXU_STORE_CORRUPT",
+            throw new ZyrkError(
+              "ZYRK_STORE_CORRUPT",
               `object ${entry.objectId} failed verification before reuse (${check.reason})`,
               {
                 detail: {
@@ -209,7 +209,7 @@ async function buildRealization(options: {
                   entryPath: entry.path,
                 },
                 remedy:
-                  "run `nexu store verify --full` to inspect and repair the store; this realization was not published",
+                  "run `zyrk store verify --full` to inspect and repair the store; this realization was not published",
               },
             );
           }
@@ -246,8 +246,8 @@ async function buildRealization(options: {
     if (await pathExists(linkPath)) {
       // Bundled content at that slot would be silently shadowed otherwise
       // (SPEC 10.1.1); reconciliation with a selected edge is not attempted.
-      throw new NexuError(
-        "NEXU_RESOLUTION_FAILED",
+      throw new ZyrkError(
+        "ZYRK_RESOLUTION_FAILED",
         `cannot link dependency ${edge.name} for ${node.name}: the slot is already provided by bundled content`,
         {
           detail: { node: node.key, dependency: edge.name, slot: linkPath },
@@ -317,6 +317,6 @@ async function publishRealization(
   return true;
 }
 
-function internal(message: string): NexuError {
-  return new NexuError("NEXU_INTERNAL", message);
+function internal(message: string): ZyrkError {
+  return new ZyrkError("ZYRK_INTERNAL", message);
 }

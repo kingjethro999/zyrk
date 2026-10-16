@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { manifestHashOf, type ModeClass } from "../util/hash.ts";
 import { pathExists, writeFileAtomic } from "../util/fsx.ts";
 import { SOURCE_MANIFEST_SCHEMA_VERSION } from "../version.ts";
@@ -100,13 +100,13 @@ export async function writeSourceManifest(
   if (await pathExists(target)) {
     const existing = await readSourceManifest(store, doc.manifest.sourceId);
     if (existing.manifestHash !== doc.manifestHash) {
-      throw new NexuError(
-        "NEXU_STORE_CORRUPT",
+      throw new ZyrkError(
+        "ZYRK_STORE_CORRUPT",
         `source ${doc.manifest.sourceId} already committed with different content`,
         {
           detail: { sourceId: doc.manifest.sourceId, path: target },
           remedy:
-            "run `nexu store verify --full`; if the manifest is damaged, remove the source and re-fetch it",
+            "run `zyrk store verify --full`; if the manifest is damaged, remove the source and re-fetch it",
         },
       );
     }
@@ -127,13 +127,13 @@ export async function readSourceManifest(
   try {
     text = await readFile(target, "utf8");
   } catch (error) {
-    throw new NexuError(
-      "NEXU_STORE_CORRUPT",
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `source manifest is unreadable: ${sourceId}`,
       {
         detail: { sourceId, path: target },
         remedy:
-          "re-fetch the source; if it recurs, run `nexu store verify --full`",
+          "re-fetch the source; if it recurs, run `zyrk store verify --full`",
         cause: error,
       },
     );
@@ -143,8 +143,8 @@ export async function readSourceManifest(
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    throw new NexuError(
-      "NEXU_STORE_CORRUPT",
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `source manifest is not valid JSON: ${sourceId}`,
       {
         detail: { sourceId, path: target },
@@ -157,8 +157,8 @@ export async function readSourceManifest(
   const doc = validateManifestDoc(parsed, sourceId, target);
   const recomputed = manifestHashOf(doc.manifest);
   if (recomputed !== doc.manifestHash) {
-    throw new NexuError(
-      "NEXU_STORE_CORRUPT",
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `source manifest hash mismatch: ${sourceId}`,
       {
         detail: {
@@ -181,8 +181,8 @@ function validateManifestDoc(
   target: string,
 ): SourceManifestDoc {
   function bad(why: string): never {
-    throw new NexuError(
-      "NEXU_STORE_CORRUPT",
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
       `source manifest is invalid (${why}): ${sourceId}`,
       {
         detail: { sourceId, path: target, reason: why },

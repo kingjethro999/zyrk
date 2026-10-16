@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /**
  * A-026 evidence: global-install requests fail with
- * NEXU_GLOBAL_INSTALL_UNSUPPORTED, mutate nothing, and never launch npm.
+ * ZYRK_GLOBAL_INSTALL_UNSUPPORTED, mutate nothing, and never launch npm.
  *
  * A recording `npm` executable sits on PATH; its absence of output proves no
  * subprocess launched for the requested installation. Project snapshots
@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const BIN = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../bin/nexu.js",
+  "../bin/zyrk.js",
 );
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -39,13 +39,13 @@ let fakeBin: string;
 let npmLog: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-cli-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-cli-"));
   project = path.join(root, "project");
   fakeBin = path.join(root, "bin");
   await mkdir(project, { recursive: true });
   await mkdir(fakeBin, { recursive: true });
   npmLog = path.join(root, "npm-launches.log");
-  const recorder = `#!/bin/sh\necho "npm launched: $@" >> "$NEXU_TEST_NPM_LOG"\nexit 0\n`;
+  const recorder = `#!/bin/sh\necho "npm launched: $@" >> "$ZYRK_TEST_NPM_LOG"\nexit 0\n`;
   const recorderPath = path.join(fakeBin, "npm");
   await writeFile(recorderPath, recorder);
   await chmod(recorderPath, 0o755);
@@ -61,14 +61,14 @@ function childEnv(
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("NEXU_") &&
+        !key.startsWith("ZYRK_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS" &&
         key !== "npm_config_global",
     ),
   ) as NodeJS.ProcessEnv;
   env.PATH = `${fakeBin}${path.delimiter}${env.PATH ?? ""}`;
-  env.NEXU_TEST_NPM_LOG = npmLog;
+  env.ZYRK_TEST_NPM_LOG = npmLog;
   for (const [key, value] of Object.entries(extra)) {
     if (value === undefined) delete env[key];
     else env[key] = value;
@@ -76,7 +76,7 @@ function childEnv(
   return env;
 }
 
-function runNexu(
+function runZyrk(
   args: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -139,13 +139,13 @@ describe.skipIf(process.platform === "win32")(
     ];
 
     it.each(cases)(
-      "nexu %s is rejected without launching npm",
+      "zyrk %s is rejected without launching npm",
       async (...args) => {
         const before = await snapshot(project);
-        const result = await runNexu(args, childEnv());
+        const result = await runZyrk(args, childEnv());
 
         expect(result.exitCode).not.toBe(0);
-        expect(result.stderr).toContain("NEXU_GLOBAL_INSTALL_UNSUPPORTED");
+        expect(result.stderr).toContain("ZYRK_GLOBAL_INSTALL_UNSUPPORTED");
         expect(result.stderr).toContain("npm install --global");
         expect(await npmLaunched()).toBe(false);
         expect(await snapshot(project)).toEqual(before);
@@ -154,20 +154,20 @@ describe.skipIf(process.platform === "win32")(
 
     it("rejects npm_config_global=true from the environment", async () => {
       const before = await snapshot(project);
-      const result = await runNexu(
+      const result = await runZyrk(
         ["install", "some-package"],
         childEnv({ npm_config_global: "true" }),
       );
 
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("NEXU_GLOBAL_INSTALL_UNSUPPORTED");
+      expect(result.stderr).toContain("ZYRK_GLOBAL_INSTALL_UNSUPPORTED");
       expect(await npmLaunched()).toBe(false);
       expect(await snapshot(project)).toEqual(before);
     });
 
     it("reports the same code through the JSON envelope", async () => {
       const before = await snapshot(project);
-      const result = await runNexu(
+      const result = await runZyrk(
         ["--json", "install", "-g", "some-package"],
         childEnv(),
       );
@@ -177,7 +177,7 @@ describe.skipIf(process.platform === "win32")(
       expect(JSON.parse(result.stdout)).toMatchObject({
         schemaVersion: 1,
         status: "error",
-        code: "NEXU_GLOBAL_INSTALL_UNSUPPORTED",
+        code: "ZYRK_GLOBAL_INSTALL_UNSUPPORTED",
       });
       expect(await npmLaunched()).toBe(false);
       expect(await snapshot(project)).toEqual(before);
@@ -188,17 +188,17 @@ describe.skipIf(process.platform === "win32")(
         ["install", "--no-global", "some-package"],
         ["install", "--global=false", "some-package"],
       ]) {
-        const result = await runNexu(args, childEnv());
-        expect(result.stderr).toContain("NEXU_NOT_IMPLEMENTED");
-        expect(result.stderr).not.toContain("NEXU_GLOBAL_INSTALL_UNSUPPORTED");
+        const result = await runZyrk(args, childEnv());
+        expect(result.stderr).toContain("ZYRK_NOT_IMPLEMENTED");
+        expect(result.stderr).not.toContain("ZYRK_GLOBAL_INSTALL_UNSUPPORTED");
       }
       expect(await npmLaunched()).toBe(false);
     });
 
     it("leaves the plain local install to the honest not-implemented path", async () => {
-      const result = await runNexu(["install", "some-package"], childEnv());
+      const result = await runZyrk(["install", "some-package"], childEnv());
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("NEXU_NOT_IMPLEMENTED");
+      expect(result.stderr).toContain("ZYRK_NOT_IMPLEMENTED");
       expect(await npmLaunched()).toBe(false);
     });
   },
@@ -206,9 +206,9 @@ describe.skipIf(process.platform === "win32")(
 
 describe("basic CLI behavior", () => {
   it("prints help with no command", async () => {
-    const result = await runNexu([], childEnv());
+    const result = await runZyrk([], childEnv());
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Usage: nexu <command>");
+    expect(result.stdout).toContain("Usage: zyrk <command>");
   });
 
   it("prints the recorded version", async () => {
@@ -217,27 +217,27 @@ describe("basic CLI behavior", () => {
     ) as {
       version: string;
     };
-    const result = await runNexu(["--version"], childEnv());
+    const result = await runZyrk(["--version"], childEnv());
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(pkg.version);
   });
 
   it("fails unknown commands with help", async () => {
-    const result = await runNexu(["frobnicate"], childEnv());
+    const result = await runZyrk(["frobnicate"], childEnv());
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("NEXU_USAGE");
-    expect(result.stdout).toContain("Usage: nexu <command>");
+    expect(result.stderr).toContain("ZYRK_USAGE");
+    expect(result.stdout).toContain("Usage: zyrk <command>");
     expect(await npmLaunched()).toBe(false);
   });
 
   it("redacts credentials when the unknown token is a URL (S05)", async () => {
     const before = await snapshot(project);
-    const result = await runNexu(
+    const result = await runZyrk(
       ["https://user:hunter2@registry.example.invalid", "publish"],
       childEnv(),
     );
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("NEXU_USAGE");
+    expect(result.stderr).toContain("ZYRK_USAGE");
     expect(result.stderr).toContain("https://registry.example.invalid");
     expect(result.stderr).not.toContain("hunter2");
     expect(result.stderr).toContain("--flag=value");

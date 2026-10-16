@@ -1,6 +1,6 @@
 {
-  "name": "@moxies/nexu",
-  "version": "0.2.3",
+  "name": "zyrk",
+  "version": "0.2.4",
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,7 @@
     "node": ">=24.0.0"
   },
   "bin": {
-    "nexu": "bin/nexu.js"
+    "zyrk": "bin/zyrk.js"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

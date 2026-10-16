@@ -1,11 +1,11 @@
 /**
- * nexu command dispatch (SPEC 15).
+ * zyrk command dispatch (SPEC 15).
  *
  * This is the roadmap skeleton, not the whole implementation: `dlx` and
  * `create` run temporary tool environments; `--help`, `--version`, the
  * global-install rejection, and explicit npm delegation do their jobs.
- * Every other native dependency command fails with NEXU_NOT_IMPLEMENTED
- * rather than pretending to work; unknown commands fail with NEXU_USAGE
+ * Every other native dependency command fails with ZYRK_NOT_IMPLEMENTED
+ * rather than pretending to work; unknown commands fail with ZYRK_USAGE
  * and the help text.
  * Nothing here launches a subprocess: rejection happens before resolution,
  * downloads, lifecycle execution, project/store mutation, or any child
@@ -17,7 +17,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCreate } from "../dlx/create.ts";
 import { runDlx } from "../dlx/run.ts";
-import { exitCodeFor, NexuError, toNexuError } from "../errors.ts";
+import { exitCodeFor, ZyrkError, toZyrkError } from "../errors.ts";
 import { DEFAULT_REGISTRY, RegistryClient } from "../fetch/registry.ts";
 import { resolveStoreRoot } from "../config/paths.ts";
 import { Store } from "../store/layout.ts";
@@ -64,9 +64,9 @@ const IMPLEMENTED_COMMANDS = new Set(["dlx", "create"]);
 
 export function helpText(version: string): string {
   const lines = [
-    `nexu v${version} — one verified store per user, shared across projects through links.`,
+    `zyrk v${version} — one verified store per user, shared across projects through links.`,
     "",
-    "Usage: nexu <command> [args] [--json]",
+    "Usage: zyrk <command> [args] [--json]",
     "",
     "Dependency commands:",
   ];
@@ -82,7 +82,7 @@ export function helpText(version: string): string {
   lines.push(...delegatedHelpLines());
   lines.push(
     "",
-    "nexu never installs packages globally and never runs npm to do it.",
+    "zyrk never installs packages globally and never runs npm to do it.",
     "Need a global package? Run npm directly: npm install --global <package-spec>",
   );
   return `${lines.join("\n")}\n`;
@@ -104,12 +104,12 @@ function ok(stdout: string, parsed: ParsedArgs): CliOutput {
 }
 
 function fail(
-  error: NexuError,
+  error: ZyrkError,
   parsed: ParsedArgs,
   stdoutHint = "",
 ): CliOutput {
   const human =
-    `nexu: error ${error.code}: ${error.message}` +
+    `zyrk: error ${error.code}: ${error.message}` +
     (error.remedy === undefined ? "" : `\n${error.remedy}`);
   if (!parsed.json) {
     return {
@@ -156,15 +156,15 @@ function sanitizeCommandToken(token: string): string {
   return capped.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^@/]*@)?/, "$1");
 }
 
-function globalInstallError(command: string): NexuError {
-  return new NexuError(
-    "NEXU_GLOBAL_INSTALL_UNSUPPORTED",
-    `nexu does not install packages globally (requested: nexu ${command} with global-install mode).`,
+function globalInstallError(command: string): ZyrkError {
+  return new ZyrkError(
+    "ZYRK_GLOBAL_INSTALL_UNSUPPORTED",
+    `zyrk does not install packages globally (requested: zyrk ${command} with global-install mode).`,
     {
       detail: { command },
       remedy:
         "Shared storage is not global installation. Run npm directly, for example: " +
-        "npm install --global <package-spec>. nexu will not run npm for you.",
+        "npm install --global <package-spec>. zyrk will not run npm for you.",
     },
   );
 }
@@ -194,9 +194,9 @@ export function dispatch(
         ? " If this was an option value, use the --flag=value form or place the command first."
         : "";
     return fail(
-      new NexuError("NEXU_USAGE", `unknown command: ${shown}.`, {
+      new ZyrkError("ZYRK_USAGE", `unknown command: ${shown}.`, {
         detail: { command: shown },
-        remedy: `Run \`nexu --help\` for the documented command list.${placementHint}`,
+        remedy: `Run \`zyrk --help\` for the documented command list.${placementHint}`,
       }),
       parsed,
       helpText(context.version),
@@ -204,9 +204,9 @@ export function dispatch(
   }
   if (!IMPLEMENTED_COMMANDS.has(command)) {
     return fail(
-      new NexuError(
-        "NEXU_NOT_IMPLEMENTED",
-        `nexu ${command} is not implemented yet.`,
+      new ZyrkError(
+        "ZYRK_NOT_IMPLEMENTED",
+        `zyrk ${command} is not implemented yet.`,
         {
           detail: { command },
           remedy:
@@ -216,8 +216,8 @@ export function dispatch(
       parsed,
     );
   }
-  throw new NexuError(
-    "NEXU_INTERNAL",
+  throw new ZyrkError(
+    "ZYRK_INTERNAL",
     `implemented command ${command} bypassed runCli.`,
     {
       detail: { command },
@@ -267,11 +267,11 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     if (result.stderr !== "") options.stderr.write(result.stderr);
     return result.exitCode;
   };
-  // Delegation bypasses dispatch: nexu interprets no command arguments
-  // itself, adds no JSON envelope, and forwards every non-nexu token
+  // Delegation bypasses dispatch: zyrk interprets no command arguments
+  // itself, adds no JSON envelope, and forwards every non-zyrk token
   // verbatim — before the command as well as after it. A leading
   // protective flag such as `--dry-run` belongs to npm; dropping it would
-  // silently change what runs (S05). The only tokens nexu consumes are its
+  // silently change what runs (S05). The only tokens zyrk consumes are its
   // own `--json`/`--help`/`--version`, and `--json` is passed on so npm
   // still sees exactly what it was given.
   if (
@@ -295,7 +295,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     } catch (error) {
       return emit(
         fail(
-          toNexuError(error, "nexu failed while delegating to npm."),
+          toZyrkError(error, "zyrk failed while delegating to npm."),
           parsed,
         ),
       );
@@ -310,7 +310,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       return await runToolCommand(parsed.command, parsed, options, version);
     } catch (error) {
       return emit(
-        fail(toNexuError(error, `nexu ${parsed.command} failed.`), parsed),
+        fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
       );
     }
   }
@@ -327,7 +327,7 @@ async function defaultTools(
   });
   const registry = new RegistryClient({
     registry: DEFAULT_REGISTRY,
-    userAgent: `nexu/${version}`,
+    userAgent: `zyrk/${version}`,
   });
   return { store, registry };
 }
@@ -339,29 +339,29 @@ async function runToolCommand(
   version: string,
 ): Promise<number> {
   if (parsed.json) {
-    throw new NexuError(
-      "NEXU_USAGE",
-      `nexu ${command} does not support --json; the tool owns stdout.`,
+    throw new ZyrkError(
+      "ZYRK_USAGE",
+      `zyrk ${command} does not support --json; the tool owns stdout.`,
       {
         detail: { command },
-        remedy: `run nexu ${command} without --json.`,
+        remedy: `run zyrk ${command} without --json.`,
       },
     );
   }
   const tail = parsed.commandArgs;
   const first = tail[0];
   if (first === undefined) {
-    throw new NexuError(
-      "NEXU_USAGE",
+    throw new ZyrkError(
+      "ZYRK_USAGE",
       command === "dlx"
-        ? "nexu dlx needs a tool specifier."
-        : "nexu create needs an initializer name.",
+        ? "zyrk dlx needs a tool specifier."
+        : "zyrk create needs an initializer name.",
       {
         detail: { command },
         remedy:
           command === "dlx"
-            ? "use nexu dlx <package>[@version] [args...]."
-            : "use nexu create <name>[@version] [args...].",
+            ? "use zyrk dlx <package>[@version] [args...]."
+            : "use zyrk create <name>[@version] [args...].",
       },
     );
   }

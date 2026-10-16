@@ -103,7 +103,7 @@ describe("createGraphDoc", () => {
         { name: "x", version: "1.0.0", sourceId: "s" },
         { name: "x", version: "1.0.0", sourceId: "s" },
       ]),
-    ).toThrowError(expect.objectContaining({ code: "NEXU_INTERNAL" }));
+    ).toThrowError(expect.objectContaining({ code: "ZYRK_INTERNAL" }));
   });
 });
 

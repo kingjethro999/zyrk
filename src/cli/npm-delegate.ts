@@ -2,23 +2,23 @@
  * Explicit delegation of registry write-side and account commands to the
  * user's own npm CLI (D-3, founder direction).
  *
- * nexu does not reimplement publishing or registry authentication: it
+ * zyrk does not reimplement publishing or registry authentication: it
  * verifies nothing about the arguments, forwards them verbatim to `npm`,
  * and propagates the child exit code or signal unchanged. The environment
- * passes through untouched — nexu injects no credentials, tokens, or NEXU_*
+ * passes through untouched — zyrk injects no credentials, tokens, or ZYRK_*
  * variables, and npm authenticates exactly as when run directly. stdio is
  * inherited so interactive flows (`login`) and scripts parsing stdout
  * (`pack --json`) behave identically. A one-line disclosure goes to stderr
  * so npm's stdout stays clean.
  *
- * Delegation never touches the nexu store, lockfile, or projection, never
+ * Delegation never touches the zyrk store, lockfile, or projection, never
  * runs package code itself, and never selects versions: those commands
- * operate outside nexu's dependency management. Global installs are never
+ * operate outside zyrk's dependency management. Global installs are never
  * delegated (F-018); see parse.ts.
  */
 
 import { spawn } from "node:child_process";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import { closeCode } from "../util/proc.ts";
 
 /** Delegated command, its aliases collapsed, plus help text. */
@@ -65,11 +65,11 @@ export type DelegateOptions = {
  * Exec `npm <command> <args...>` with inherited stdio. Resolves with the
  * child exit code, or 128 plus the signal number when signaled (the shell
  * convention), so callers observe the same termination. Rejects with
- * NEXU_NPM_UNAVAILABLE when npm cannot be launched.
+ * ZYRK_NPM_UNAVAILABLE when npm cannot be launched.
  */
 export async function delegateToNpm(options: DelegateOptions): Promise<number> {
   options.stderr.write(
-    `nexu: delegating \`nexu ${options.command}\` to npm; nexu does not implement publishing or registry authentication.\n`,
+    `zyrk: delegating \`zyrk ${options.command}\` to npm; zyrk does not implement publishing or registry authentication.\n`,
   );
   return new Promise((resolve, reject) => {
     const child = spawn("npm", [options.command, ...options.args], {
@@ -78,9 +78,9 @@ export async function delegateToNpm(options: DelegateOptions): Promise<number> {
     });
     child.on("error", (error) => {
       reject(
-        new NexuError(
-          "NEXU_NPM_UNAVAILABLE",
-          "nexu could not launch npm for an explicitly delegated command.",
+        new ZyrkError(
+          "ZYRK_NPM_UNAVAILABLE",
+          "zyrk could not launch npm for an explicitly delegated command.",
           {
             detail: { command: options.command },
             remedy:

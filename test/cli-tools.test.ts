@@ -16,7 +16,7 @@ let tools: ToolEnvironment;
 let registry: StubRegistry;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-cli-tools-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-cli-tools-"));
   const store = await Store.open({
     root: path.join(root, "store"),
     create: true,
@@ -64,7 +64,7 @@ beforeEach(async () => {
     store,
     registry: new RegistryClient({
       registry: registry.url,
-      userAgent: "nexu-test/0",
+      userAgent: "zyrk-test/0",
     }),
   };
 });
@@ -94,7 +94,7 @@ function toolEnv(): NodeJS.ProcessEnv {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("NEXU_") &&
+        !key.startsWith("ZYRK_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS",
     ),
@@ -162,7 +162,7 @@ describe("runCli with tool commands", () => {
         tools: async () => tools,
       });
       expect(code).toBe(2);
-      expect(errOut.join("")).toContain("NEXU_USAGE");
+      expect(errOut.join("")).toContain("ZYRK_USAGE");
     }
   });
 
@@ -182,7 +182,7 @@ describe("runCli with tool commands", () => {
     expect(JSON.parse(out.join(""))).toMatchObject({
       schemaVersion: 1,
       status: "error",
-      code: "NEXU_USAGE",
+      code: "ZYRK_USAGE",
     });
   });
 
@@ -198,6 +198,6 @@ describe("runCli with tool commands", () => {
       tools: async () => tools,
     });
     expect(code).not.toBe(0);
-    expect(errOut.join("")).toContain("NEXU_RESOLUTION_FAILED");
+    expect(errOut.join("")).toContain("ZYRK_RESOLUTION_FAILED");
   });
 });

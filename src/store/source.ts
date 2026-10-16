@@ -10,7 +10,7 @@
  * Nothing here resolves versions, touches projects, or runs package code.
  */
 
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import type { ExtractionResult } from "../extract/tarball.ts";
 import type { Logger } from "../log.ts";
 import { manifestHashOf, sourceIdOf } from "../util/hash.ts";
@@ -62,8 +62,8 @@ export async function commitExtractedSource(
   const { store, extraction, name, version, origin, integrity } = input;
 
   if (extraction.entries.length === 0) {
-    throw new NexuError(
-      "NEXU_EXTRACTION_UNSAFE",
+    throw new ZyrkError(
+      "ZYRK_EXTRACTION_UNSAFE",
       `tarball for ${name}@${version} contains no entries`,
       {
         detail: { name, version },
@@ -114,8 +114,8 @@ export async function commitExtractedSource(
   );
   for (let i = 1; i < manifestEntries.length; i += 1) {
     if (manifestEntries[i - 1]?.path === manifestEntries[i]?.path) {
-      throw new NexuError(
-        "NEXU_EXTRACTION_UNSAFE",
+      throw new ZyrkError(
+        "ZYRK_EXTRACTION_UNSAFE",
         `tarball for ${name}@${version} produced duplicate entry paths: ${manifestEntries[i]?.path}`,
         {
           detail: { name, version, path: manifestEntries[i]?.path },
@@ -156,14 +156,14 @@ export async function commitExtractedSource(
   const verifiedAt = new Date().toISOString();
   const doc = buildManifestDoc(manifest, {
     verifiedAt,
-    tool: { name: "nexu", version: CLI_VERSION },
+    tool: { name: "zyrk", version: CLI_VERSION },
     archiveBytes: input.archiveBytes,
   });
 
   // Defensive: the doc hash must be derived from the content we just built.
   if (doc.manifestHash !== manifestHashOf(manifest)) {
-    throw new NexuError(
-      "NEXU_INTERNAL",
+    throw new ZyrkError(
+      "ZYRK_INTERNAL",
       "manifest hash construction is inconsistent",
     );
   }

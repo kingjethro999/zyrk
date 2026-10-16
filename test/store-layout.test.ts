@@ -15,7 +15,7 @@ import { Store } from "../src/store/layout.ts";
 import { rmrfNoFollow } from "../src/util/fsx.ts";
 
 /**
- * S02 evidence: every managed boundary nexu writes or reuses through is
+ * S02 evidence: every managed boundary zyrk writes or reuses through is
  * validated — ownership, real-directory type, and modes — with lstat so a
  * substituted symlink is rejected instead of followed. Nothing is silently
  * repaired: unsafe state fails closed.
@@ -29,7 +29,7 @@ let root: string;
 const scratch: string[] = [];
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nexu-layout-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "zyrk-layout-"));
   scratch.push(root);
 });
 
@@ -50,7 +50,7 @@ describe("store boundary validation (S02)", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_STORE_UNSAFE" });
+    expect(failure).toMatchObject({ code: "ZYRK_STORE_UNSAFE" });
   });
 
   it("rejects a symlinked internal directory without following it", async () => {
@@ -67,7 +67,7 @@ describe("store boundary validation (S02)", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_STORE_UNSAFE" });
+    expect(failure).toMatchObject({ code: "ZYRK_STORE_UNSAFE" });
     expect((await lstat(objectsDir)).isSymbolicLink()).toBe(true);
     expect(await readlink(objectsDir)).toBe(outside);
   });
@@ -93,7 +93,7 @@ describe("store boundary validation (S02)", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(failure).toMatchObject({ code: "NEXU_STORE_UNSAFE" });
+    expect(failure).toMatchObject({ code: "ZYRK_STORE_UNSAFE" });
     const mode = (await lstat(path.join(storeRoot, "objects"))).mode & 0o777;
     expect(mode).toBe(0o777);
   });

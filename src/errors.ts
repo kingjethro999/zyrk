@@ -1,34 +1,34 @@
 /**
  * Stable error codes and the one error type the CLI turns into output.
  *
- * The table in SPEC 29.1 is the contract. Codes beginning with NEXU_ that are
+ * The table in SPEC 29.1 is the contract. Codes beginning with ZYRK_ that are
  * not listed there are internal extensions; they follow the same rules:
  * name the failed action, name the subject, and carry a remedy.
  */
 
 export const SPEC_ERROR_CODES = [
-  "NEXU_MANIFEST_INVALID",
-  "NEXU_LOCK_MISMATCH",
-  "NEXU_RESOLUTION_FAILED",
-  "NEXU_PEER_CONFLICT",
-  "NEXU_INTEGRITY_FAILED",
-  "NEXU_SIGNATURE_INVALID",
-  "NEXU_EXTRACTION_UNSAFE",
-  "NEXU_SCRIPT_BLOCKED",
-  "NEXU_BUILD_FAILED",
-  "NEXU_WORKSPACE_BUILD_CONTEXT_UNSUPPORTED",
-  "NEXU_OFFLINE_MISSING",
-  "NEXU_LINK_UNSUPPORTED",
-  "NEXU_STORE_CORRUPT",
-  "NEXU_PROJECT_LOCKED",
-  "NEXU_DISK_FULL",
-  "NEXU_DEPLOY_ESCAPE",
-  "NEXU_DEPLOY_NONRELOCATABLE",
-  "NEXU_PLATFORM_UNSUPPORTED",
-  "NEXU_REGISTRY_AUTH",
-  "NEXU_POLICY_DENIED",
-  /** Global installation requested through nexu; added by SPEC v1.2 §29.1. */
-  "NEXU_GLOBAL_INSTALL_UNSUPPORTED",
+  "ZYRK_MANIFEST_INVALID",
+  "ZYRK_LOCK_MISMATCH",
+  "ZYRK_RESOLUTION_FAILED",
+  "ZYRK_PEER_CONFLICT",
+  "ZYRK_INTEGRITY_FAILED",
+  "ZYRK_SIGNATURE_INVALID",
+  "ZYRK_EXTRACTION_UNSAFE",
+  "ZYRK_SCRIPT_BLOCKED",
+  "ZYRK_BUILD_FAILED",
+  "ZYRK_WORKSPACE_BUILD_CONTEXT_UNSUPPORTED",
+  "ZYRK_OFFLINE_MISSING",
+  "ZYRK_LINK_UNSUPPORTED",
+  "ZYRK_STORE_CORRUPT",
+  "ZYRK_PROJECT_LOCKED",
+  "ZYRK_DISK_FULL",
+  "ZYRK_DEPLOY_ESCAPE",
+  "ZYRK_DEPLOY_NONRELOCATABLE",
+  "ZYRK_PLATFORM_UNSUPPORTED",
+  "ZYRK_REGISTRY_AUTH",
+  "ZYRK_POLICY_DENIED",
+  /** Global installation requested through zyrk; added by SPEC v1.2 §29.1. */
+  "ZYRK_GLOBAL_INSTALL_UNSUPPORTED",
 ] as const;
 
 export type SpecErrorCode = (typeof SPEC_ERROR_CODES)[number];
@@ -36,37 +36,37 @@ export type SpecErrorCode = (typeof SPEC_ERROR_CODES)[number];
 /** Internal extensions. Keep this list short and justified. */
 export const INTERNAL_ERROR_CODES = [
   /** Bad invocation: unknown command, contradictory flags, missing argument. */
-  "NEXU_USAGE",
+  "ZYRK_USAGE",
   /** A documented command or mode that has not been implemented yet. */
-  "NEXU_NOT_IMPLEMENTED",
+  "ZYRK_NOT_IMPLEMENTED",
   /** npm executable missing for an explicitly delegated command (D-3). */
-  "NEXU_NPM_UNAVAILABLE",
+  "ZYRK_NPM_UNAVAILABLE",
   /** Store root fails ownership/permission safety checks. */
-  "NEXU_STORE_UNSAFE",
+  "ZYRK_STORE_UNSAFE",
   /** Store format marker missing or newer/older than this CLI understands. */
-  "NEXU_STORE_FORMAT_UNSUPPORTED",
+  "ZYRK_STORE_FORMAT_UNSUPPORTED",
   /**
    * A fetched artifact was refused before use: download exceeded the
    * configured size bound, or a bounded retry budget was exhausted on a
-   * refusal-worthy response. Distinct from NEXU_INTEGRITY_FAILED: nothing
+   * refusal-worthy response. Distinct from ZYRK_INTEGRITY_FAILED: nothing
    * was verified or accepted.
    */
-  "NEXU_FETCH_REFUSED",
+  "ZYRK_FETCH_REFUSED",
   /**
    * Transport failure reaching the registry (DNS, TLS, connect, timeout,
    * HTTP 5xx) after bounded retries. Retryable later; not an integrity or
    * resolution verdict.
    */
-  "NEXU_FETCH_FAILED",
+  "ZYRK_FETCH_FAILED",
   /** Unexpected internal failure; always a bug. */
-  "NEXU_INTERNAL",
+  "ZYRK_INTERNAL",
 ] as const;
 
 export type InternalErrorCode = (typeof INTERNAL_ERROR_CODES)[number];
 
 export type ErrorCode = SpecErrorCode | InternalErrorCode;
 
-export type NexuErrorOptions = {
+export type ZyrkErrorOptions = {
   /** Structured facts about the failure. Never include credentials. */
   detail?: Record<string, unknown>;
   /** One actionable line: what the user can do next. */
@@ -74,7 +74,7 @@ export type NexuErrorOptions = {
   cause?: unknown;
 };
 
-export class NexuError extends Error {
+export class ZyrkError extends Error {
   readonly code: ErrorCode;
   readonly detail: Record<string, unknown> | undefined;
   readonly remedy: string | undefined;
@@ -82,21 +82,21 @@ export class NexuError extends Error {
   constructor(
     code: ErrorCode,
     message: string,
-    options: NexuErrorOptions = {},
+    options: ZyrkErrorOptions = {},
   ) {
     super(
       message,
       options.cause === undefined ? undefined : { cause: options.cause },
     );
-    this.name = "NexuError";
+    this.name = "ZyrkError";
     this.code = code;
     this.detail = options.detail;
     this.remedy = options.remedy;
   }
 }
 
-export function isNexuError(error: unknown): error is NexuError {
-  return error instanceof NexuError;
+export function isZyrkError(error: unknown): error is ZyrkError {
+  return error instanceof ZyrkError;
 }
 
 /**
@@ -104,11 +104,11 @@ export function isNexuError(error: unknown): error is NexuError {
  * in `detail.errno` so disk-full and permission failures stay diagnosable
  * without dumping the environment.
  */
-export function toNexuError(
+export function toZyrkError(
   error: unknown,
   fallbackMessage: string,
-): NexuError {
-  if (isNexuError(error)) return error;
+): ZyrkError {
+  if (isZyrkError(error)) return error;
 
   const detail: Record<string, unknown> = {};
   let message = fallbackMessage;
@@ -118,7 +118,7 @@ export function toNexuError(
     if (typeof errno === "string") {
       detail.errno = errno;
       if (errno === "ENOSPC") {
-        return new NexuError("NEXU_DISK_FULL", message, {
+        return new ZyrkError("ZYRK_DISK_FULL", message, {
           detail,
           cause: error,
         });
@@ -128,7 +128,7 @@ export function toNexuError(
       }
     }
   }
-  return new NexuError("NEXU_INTERNAL", message, { detail, cause: error });
+  return new ZyrkError("ZYRK_INTERNAL", message, { detail, cause: error });
 }
 
 /**
@@ -137,6 +137,6 @@ export function toNexuError(
  * required builds; 1 covers all of those. Usage errors use 2 so scripts can
  * tell "you called it wrong" from "the operation failed".
  */
-export function exitCodeFor(error: NexuError): number {
-  return error.code === "NEXU_USAGE" ? 2 : 1;
+export function exitCodeFor(error: ZyrkError): number {
+  return error.code === "ZYRK_USAGE" ? 2 : 1;
 }

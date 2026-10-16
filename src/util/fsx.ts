@@ -229,7 +229,7 @@ export async function probeCapabilities(
 
 async function probeHardlink(fromDir: string, toDir: string): Promise<boolean> {
   const source = path.join(fromDir, "hardlink-probe");
-  const target = path.join(toDir, `.nexu-probe-${randomId("", 8)}`);
+  const target = path.join(toDir, `.zyrk-probe-${randomId("", 8)}`);
   try {
     await fs.writeFile(source, "probe", { mode: 0o600 });
     await fs.link(source, target);
@@ -266,7 +266,7 @@ async function probeDirectorySymlink(
   toDir: string,
 ): Promise<boolean> {
   const target = path.join(fromDir, "symlink-probe-target");
-  const link = path.join(toDir, `.nexu-probe-link-${randomId("", 8)}`);
+  const link = path.join(toDir, `.zyrk-probe-link-${randomId("", 8)}`);
   try {
     await fs.mkdir(target);
     await fs.symlink(target, link, "dir");

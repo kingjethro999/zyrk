@@ -23,7 +23,7 @@ for (const [name, command, args] of steps) {
     console.error(`check: missing ${command}; run npm install first`);
     process.exit(1);
   }
-  console.log(`\n--- nexu check: ${name} ---`);
+  console.log(`\n--- zyrk check: ${name} ---`);
   const result = spawnSync(command, args, { stdio: "inherit", cwd: root });
   if (result.error) {
     console.error(`check: ${name} failed to start: ${result.error.message}`);

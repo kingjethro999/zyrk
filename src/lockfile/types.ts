@@ -1,9 +1,9 @@
 /**
- * package-lock.json with a namespaced nexu extension (D-1).
+ * package-lock.json with a namespaced zyrk extension (D-1).
  *
- * nexu reads and writes the same `package-lock.json` as npm. All npm-owned
+ * zyrk reads and writes the same `package-lock.json` as npm. All npm-owned
  * fields are preserved opaquely: the writer never deletes or reinterprets
- * them, and the nexu extension lives under one top-level `nexu` key that
+ * them, and the zyrk extension lives under one top-level `zyrk` key that
  * npm's own loader carries through untouched (verified against the pinned
  * npm's @npmcli/arborist `shrinkwrap.js load()`, which spreads unknown
  * top-level fields into its data object and only reads the keys it knows).
@@ -14,7 +14,7 @@
  * manifest, policy, or configuration drift.
  */
 
-export const NEXU_LOCK_EXTENSION_VERSION = 1;
+export const ZYRK_LOCK_EXTENSION_VERSION = 1;
 
 /** Opaque npm package entry: preserved byte-identically, never interpreted. */
 export type NpmPackageEntry = Record<string, unknown>;
@@ -26,11 +26,11 @@ export type NpmLockDoc = {
   requires?: boolean;
   packages?: Record<string, NpmPackageEntry>;
   dependencies?: Record<string, unknown>;
-  nexu?: NexuLockExtension;
+  zyrk?: ZyrkLockExtension;
   [key: string]: unknown;
 };
 
-export type NexuLockNode = {
+export type ZyrkLockNode = {
   name: string;
   version: string;
   /** Expected tarball integrity (mirrors the npm entry). */
@@ -47,7 +47,7 @@ export type NexuLockNode = {
   peers: Record<string, string | null>;
 };
 
-export type NexuLockExtension = {
+export type ZyrkLockExtension = {
   /** Extension schema version; newer writers are rejected, never guessed. */
   version: number;
   /** Resolver-policy version that produced this lock. */
@@ -61,10 +61,10 @@ export type NexuLockExtension = {
   /** Resolution-affecting configuration fingerprint. */
   config: string;
   /** Occurrence key -> resolved node, sorted by key at write time. */
-  nodes: Record<string, NexuLockNode>;
+  nodes: Record<string, ZyrkLockNode>;
   /** Importer ("." for the root) -> direct dep name -> occurrence key. */
   roots: Record<string, Record<string, string>>;
   [key: string]: unknown;
 };
 
-export const NEXU_RESOLVER_POLICY = "nexu-resolve/1";
+export const ZYRK_RESOLVER_POLICY = "zyrk-resolve/1";

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { NexuError } from "../errors.ts";
+import { ZyrkError } from "../errors.ts";
 import type { ModeClass } from "../util/hash.ts";
 
 /**
@@ -43,13 +43,13 @@ export function migrate(db: StoreDb): void {
   const version = userVersion(db);
   if (version === SCHEMA_VERSION) return;
   if (version > SCHEMA_VERSION) {
-    throw new NexuError(
-      "NEXU_STORE_FORMAT_UNSUPPORTED",
-      `metadata schema ${version} is newer than this nexu understands (${SCHEMA_VERSION})`,
+    throw new ZyrkError(
+      "ZYRK_STORE_FORMAT_UNSUPPORTED",
+      `metadata schema ${version} is newer than this zyrk understands (${SCHEMA_VERSION})`,
       {
         detail: { schemaVersion: version, supported: SCHEMA_VERSION },
         remedy:
-          "upgrade nexu, or point NEXU_STORE_DIR at a store created by this version",
+          "upgrade zyrk, or point ZYRK_STORE_DIR at a store created by this version",
       },
     );
   }
@@ -65,8 +65,8 @@ export function migrate(db: StoreDb): void {
     }
     return;
   }
-  throw new NexuError(
-    "NEXU_INTERNAL",
+  throw new ZyrkError(
+    "ZYRK_INTERNAL",
     `no migration path from metadata schema ${version}`,
     {
       detail: { schemaVersion: version },

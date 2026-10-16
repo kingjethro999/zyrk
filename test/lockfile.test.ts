@@ -15,7 +15,7 @@ import type { ResolvedOccurrence } from "../src/resolve/resolver.ts";
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(os.tmpdir(), "nexu-lock-"));
+  dir = await mkdtemp(path.join(os.tmpdir(), "zyrk-lock-"));
 });
 
 afterEach(async () => {
@@ -63,7 +63,7 @@ function appResolution() {
 }
 
 describe("writeLockfile", () => {
-  it("writes selections, direct entries, and the full nexu extension", async () => {
+  it("writes selections, direct entries, and the full zyrk extension", async () => {
     const lockPath = path.join(dir, "package-lock.json");
     const doc = await writeLockfile({
       path: lockPath,
@@ -84,16 +84,16 @@ describe("writeLockfile", () => {
       resolved: "https://registry.example.com/app/-/app-1.0.0.tgz",
       integrity: doc.packages?.["node_modules/app"]?.["integrity"],
     });
-    expect(doc.nexu?.resolver).toBe("nexu-resolve/1");
-    expect(doc.nexu?.manifest).toBe(FINGERPRINTS.manifest);
-    expect(doc.nexu?.nodes["app@1.0.0"]).toMatchObject({
+    expect(doc.zyrk?.resolver).toBe("zyrk-resolve/1");
+    expect(doc.zyrk?.manifest).toBe(FINGERPRINTS.manifest);
+    expect(doc.zyrk?.nodes["app@1.0.0"]).toMatchObject({
       name: "app",
       version: "1.0.0",
       edges: { lib: "lib@2.0.0" },
       edgeKinds: { lib: "prod" },
       peers: {},
     });
-    expect(doc.nexu?.roots).toEqual({ ".": { app: "app@1.0.0" } });
+    expect(doc.zyrk?.roots).toEqual({ ".": { app: "app@1.0.0" } });
 
     const onDisk = JSON.parse(await readFile(lockPath, "utf8"));
     expect(onDisk).toEqual(JSON.parse(JSON.stringify(doc)));
@@ -149,7 +149,7 @@ describe("writeLockfile", () => {
       extra: true,
     });
     expect(doc.customField).toBe(42);
-    expect(doc.nexu).toBeDefined();
+    expect(doc.zyrk).toBeDefined();
   });
 
   it("keeps the extension purely additive for npm readers", async () => {
@@ -167,7 +167,7 @@ describe("writeLockfile", () => {
     // @npmcli/arborist shrinkwrap.js load(), which spreads unknown
     // top-level fields into its data object). The extension must therefore
     // be confined to its single top-level key, and npm package entries
-    // must contain no nexu namespaced keys.
+    // must contain no zyrk namespaced keys.
     const raw = JSON.parse(await readFile(lockPath, "utf8")) as Record<
       string,
       unknown
@@ -179,17 +179,17 @@ describe("writeLockfile", () => {
         "lockfileVersion",
         "requires",
         "packages",
-        "nexu",
+        "zyrk",
       ]),
     );
     for (const entry of Object.values(
       raw["packages"] as Record<string, unknown>,
     )) {
       for (const key of Object.keys(entry as Record<string, unknown>)) {
-        expect(key.startsWith("nexu")).toBe(false);
+        expect(key.startsWith("zyrk")).toBe(false);
       }
     }
-    const { nexu: _removed, ...npmView } = raw;
+    const { zyrk: _removed, ...npmView } = raw;
     expect(npmView["packages"]).toBeDefined();
   });
 });
@@ -217,14 +217,14 @@ describe("readLockfile", () => {
     const lockPath = path.join(dir, "package-lock.json");
     await writeFile(lockPath, "{not json");
     await expect(readLockfile(lockPath)).rejects.toMatchObject({
-      code: "NEXU_MANIFEST_INVALID",
+      code: "ZYRK_MANIFEST_INVALID",
     });
     await writeFile(
       lockPath,
       JSON.stringify({ lockfileVersion: 1, packages: {} }),
     );
     await expect(readLockfile(lockPath)).rejects.toMatchObject({
-      code: "NEXU_MANIFEST_INVALID",
+      code: "ZYRK_MANIFEST_INVALID",
     });
   });
 
@@ -238,10 +238,10 @@ describe("readLockfile", () => {
       resolution: appResolution(),
       fingerprints: FINGERPRINTS,
     });
-    if (doc.nexu !== undefined) doc.nexu.version = 999;
+    if (doc.zyrk !== undefined) doc.zyrk.version = 999;
     await writeFile(lockPath, JSON.stringify(doc));
     await expect(readLockfile(lockPath)).rejects.toMatchObject({
-      code: "NEXU_LOCK_MISMATCH",
+      code: "ZYRK_LOCK_MISMATCH",
     });
   });
 });
@@ -259,7 +259,7 @@ describe("assertFrozenCompatible", () => {
     expect(() => assertFrozenCompatible(doc, FINGERPRINTS)).not.toThrow();
   });
 
-  it("fails each drifted fingerprint with NEXU_LOCK_MISMATCH", async () => {
+  it("fails each drifted fingerprint with ZYRK_LOCK_MISMATCH", async () => {
     const doc = await writeLockfile({
       path: path.join(dir, "package-lock.json"),
       name: "demo",
@@ -277,7 +277,7 @@ describe("assertFrozenCompatible", () => {
         assertFrozenCompatible(doc, tampered);
         expect.unreachable(`expected a ${field} mismatch`);
       } catch (error) {
-        expect(error).toMatchObject({ code: "NEXU_LOCK_MISMATCH" });
+        expect(error).toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
       }
     }
     try {
@@ -301,7 +301,7 @@ describe("assertFrozenCompatible", () => {
       assertFrozenCompatible(plain, FINGERPRINTS);
       expect.unreachable("expected a missing-extension mismatch");
     } catch (error) {
-      expect(error).toMatchObject({ code: "NEXU_LOCK_MISMATCH" });
+      expect(error).toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
     }
   });
 });
