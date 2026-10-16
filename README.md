@@ -30,7 +30,14 @@ npm run check        # typecheck + tests
 ```bash
 node bin/snpm.js --help       # documented commands
 node bin/snpm.js --version    # recorded version
-node bin/snpm.js <cmd> --json # machine-readable envelope
+node bin/snpm.js <cmd> --json # machine-readable envelope (not for dlx/create)
+```
+
+One-off tools run natively, with no global installs involved:
+
+```bash
+node bin/snpm.js dlx <package>[@version] [args...]  # resolve, verify, run in a temp env
+node bin/snpm.js create <name>[@version] [args...]  # dlx for starters (next-app → create-next-app)
 ```
 
 Native dependency commands (`install`, `add`, …) are not implemented yet:

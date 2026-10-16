@@ -18,8 +18,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { constants as osConstants } from "node:os";
 import { SnpmError } from "../errors.ts";
+import { closeCode } from "../util/proc.ts";
 
 /** Delegated command, its aliases collapsed, plus help text. */
 const DELEGATED_COMMANDS: ReadonlyArray<readonly [readonly string[], string]> =
@@ -91,13 +91,7 @@ export async function delegateToNpm(options: DelegateOptions): Promise<number> {
       );
     });
     child.on("close", (code, signal) => {
-      if (signal !== null) {
-        const signalNumber =
-          (osConstants.signals[signal] as number | undefined) ?? 0;
-        resolve(128 + signalNumber);
-      } else {
-        resolve(code ?? 1);
-      }
+      resolve(closeCode(code, signal));
     });
   });
 }

@@ -1,11 +1,12 @@
 /**
  * snpm command dispatch (SPEC 15).
  *
- * This is the roadmap skeleton, not the implementation: every listed command
- * dispatches today, but only `--help`, `--version`, the global-install
- * rejection, and (later) explicit npm delegation do anything yet. Native
- * dependency commands fail with SNPM_NOT_IMPLEMENTED rather than pretending
- * to work; unknown commands fail with SNPM_USAGE and the help text.
+ * This is the roadmap skeleton, not the whole implementation: `dlx` and
+ * `create` run temporary tool environments; `--help`, `--version`, the
+ * global-install rejection, and explicit npm delegation do their jobs.
+ * Every other native dependency command fails with SNPM_NOT_IMPLEMENTED
+ * rather than pretending to work; unknown commands fail with SNPM_USAGE
+ * and the help text.
  * Nothing here launches a subprocess: rejection happens before resolution,
  * downloads, lifecycle execution, project/store mutation, or any child
  * process (SPEC 15.3.1).
@@ -14,7 +15,12 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCreate } from "../dlx/create.ts";
+import { runDlx } from "../dlx/run.ts";
 import { exitCodeFor, SnpmError, toSnpmError } from "../errors.ts";
+import { DEFAULT_REGISTRY, RegistryClient } from "../fetch/registry.ts";
+import { resolveStoreRoot } from "../config/paths.ts";
+import { Store } from "../store/layout.ts";
 import {
   delegateToNpm,
   delegatedHelpLines,
@@ -34,6 +40,7 @@ const NATIVE_COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["run", "Run a project script with local binary paths."],
   ["exec", "Run an installed executable (never fetches)."],
   ["dlx", "Explicitly fetch and run a temporary tool environment."],
+  ["create", "Scaffold from a create-* starter package."],
   ["list, why", "Show the installed graph / why a dependency is selected."],
   ["doctor", "Diagnose filesystem, links, policy, install-state issues."],
   ["approve-builds, rebuild", "Review script permissions / rebuild."],
@@ -52,16 +59,24 @@ for (const [names] of NATIVE_COMMANDS) {
   for (const name of names.split(", ")) KNOWN_COMMANDS.add(name);
 }
 
+/** Commands with a real implementation behind runCli. */
+const IMPLEMENTED_COMMANDS = new Set(["dlx", "create"]);
+
 export function helpText(version: string): string {
   const lines = [
     `snpm v${version} — one verified store per user, shared across projects through links.`,
     "",
     "Usage: snpm <command> [args] [--json]",
     "",
-    "Dependency commands (not implemented yet):",
+    "Dependency commands:",
   ];
   for (const [names, description] of NATIVE_COMMANDS) {
-    lines.push(`  ${names.padEnd(24, " ")}${description}`);
+    const done = names
+      .split(", ")
+      .some((name) => IMPLEMENTED_COMMANDS.has(name));
+    lines.push(
+      `  ${names.padEnd(24, " ")}${description}${done ? "" : " (not implemented yet)"}`,
+    );
   }
   lines.push("", "Registry publishing and account commands (via your npm):");
   lines.push(...delegatedHelpLines());
@@ -158,17 +173,27 @@ export function dispatch(
       helpText(context.version),
     );
   }
-  return fail(
-    new SnpmError(
-      "SNPM_NOT_IMPLEMENTED",
-      `snpm ${command} is not implemented yet.`,
-      {
-        detail: { command },
-        remedy:
-          "Only documented, implemented commands are advertised; this one is on the roadmap.",
-      },
-    ),
-    parsed,
+  if (!IMPLEMENTED_COMMANDS.has(command)) {
+    return fail(
+      new SnpmError(
+        "SNPM_NOT_IMPLEMENTED",
+        `snpm ${command} is not implemented yet.`,
+        {
+          detail: { command },
+          remedy:
+            "Only documented, implemented commands are advertised; this one is on the roadmap.",
+        },
+      ),
+      parsed,
+    );
+  }
+  throw new SnpmError(
+    "SNPM_INTERNAL",
+    `implemented command ${command} bypassed runCli.`,
+    {
+      detail: { command },
+      remedy: "report this unreachable dispatch failure",
+    },
   );
 }
 
@@ -189,17 +214,25 @@ function readCliVersion(): string {
   }
 }
 
+export type ToolEnvironment = {
+  store: Store;
+  registry: RegistryClient;
+};
+
 export type RunCliOptions = {
   argv: readonly string[];
   env: NodeJS.ProcessEnv;
   stdout: { write(chunk: string): unknown };
   stderr: { write(chunk: string): unknown };
   readVersion?: () => string;
+  cwd?: string;
+  tools?: () => Promise<ToolEnvironment>;
 };
 
-/** Parse, dispatch or delegate, and emit. The only impure seam. */
+/** Parse, dispatch, delegate, or run a tool, and emit. The only impure seam. */
 export async function runCli(options: RunCliOptions): Promise<number> {
   const parsed = parseArgs(options.argv);
+  const version = (options.readVersion ?? readCliVersion)();
   const emit = (result: CliOutput): number => {
     if (result.stdout !== "") options.stdout.write(result.stdout);
     if (result.stderr !== "") options.stderr.write(result.stderr);
@@ -229,6 +262,83 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       );
     }
   }
-  const version = (options.readVersion ?? readCliVersion)();
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    (parsed.command === "dlx" || parsed.command === "create")
+  ) {
+    try {
+      return await runToolCommand(parsed.command, parsed, options, version);
+    } catch (error) {
+      return emit(
+        fail(toSnpmError(error, `snpm ${parsed.command} failed.`), parsed),
+      );
+    }
+  }
   return emit(dispatch(parsed, { version, env: options.env }));
+}
+
+async function defaultTools(
+  env: NodeJS.ProcessEnv,
+  version: string,
+): Promise<ToolEnvironment> {
+  const store = await Store.open({
+    root: resolveStoreRoot({ env }).root,
+    create: true,
+  });
+  const registry = new RegistryClient({
+    registry: DEFAULT_REGISTRY,
+    userAgent: `snpm/${version}`,
+  });
+  return { store, registry };
+}
+
+async function runToolCommand(
+  command: "dlx" | "create",
+  parsed: ParsedArgs,
+  options: RunCliOptions,
+  version: string,
+): Promise<number> {
+  if (parsed.json) {
+    throw new SnpmError(
+      "SNPM_USAGE",
+      `snpm ${command} does not support --json; the tool owns stdout.`,
+      {
+        detail: { command },
+        remedy: `run snpm ${command} without --json.`,
+      },
+    );
+  }
+  const tail = parsed.commandArgs;
+  const first = tail[0];
+  if (first === undefined) {
+    throw new SnpmError(
+      "SNPM_USAGE",
+      command === "dlx"
+        ? "snpm dlx needs a tool specifier."
+        : "snpm create needs an initializer name.",
+      {
+        detail: { command },
+        remedy:
+          command === "dlx"
+            ? "use snpm dlx <package>[@version] [args...]."
+            : "use snpm create <name>[@version] [args...].",
+      },
+    );
+  }
+  const tools =
+    options.tools === undefined
+      ? await defaultTools(options.env, version)
+      : await options.tools();
+  const base = {
+    store: tools.store,
+    registry: tools.registry,
+    args: tail.slice(1),
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env,
+  };
+  if (command === "dlx") {
+    return (await runDlx({ ...base, spec: first })).exitCode;
+  }
+  return (await runCreate({ ...base, input: first })).exitCode;
 }

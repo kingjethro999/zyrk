@@ -1,3 +1,4 @@
+import { constants as osConstants } from "node:os";
 import { readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 
@@ -56,6 +57,22 @@ export function parseStatStartId(statText: string): string | null {
   // rest[0] is field 3 (state); starttime is field 22 -> index 19.
   const starttime = rest[19];
   return starttime === undefined || !/^\d+$/.test(starttime) ? null : starttime;
+}
+
+/**
+ * Shell-convention exit code for a finished child process: its exit code,
+ * or 128 plus the signal number when it was signaled, so callers observe
+ * the same termination through a plain number.
+ */
+export function closeCode(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): number {
+  if (signal !== null) {
+    const number: unknown = osConstants.signals[signal];
+    return 128 + (typeof number === "number" ? number : 0);
+  }
+  return code ?? 1;
 }
 
 /**

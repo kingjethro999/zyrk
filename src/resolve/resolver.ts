@@ -67,9 +67,15 @@ export type ResolveOptions = {
   requirements: Array<{ name: string; spec: string }>;
 };
 
+export type FinalizedGraph = {
+  nodes: ResolvedOccurrence[];
+  /** Root requirement edge name -> occurrence key. */
+  roots: Array<{ name: string; target: string }>;
+};
+
 export async function resolveRequirements(
   options: ResolveOptions,
-): Promise<{ nodes: ResolvedOccurrence[] }> {
+): Promise<FinalizedGraph> {
   const state = new ResolverState(options.provider);
   const rootFrame: Frame = { label: "<root>", children: [] };
   const seenRoots = new Set<string>();
@@ -93,9 +99,12 @@ export async function resolveRequirements(
     });
   }
   await state.bindPeersToFixpoint();
-  return {
-    nodes: state.finalize(rootFrame.children.map((link) => link.child)),
-  };
+  return state.finalize(
+    rootFrame.children.map((link) => ({
+      name: link.edgeName,
+      child: link.child,
+    })),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +393,9 @@ class ResolverState {
    * targets behind) are dropped so the document is exactly the reachable
    * closure of the requirements.
    */
-  finalize(roots: Occurrence[]): ResolvedOccurrence[] {
+  finalize(
+    rootLinks: Array<{ name: string; child: Occurrence }>,
+  ): FinalizedGraph {
     const keys = new Map<Occurrence, string>();
     for (const occ of this.occurrences) {
       keys.set(occ, occurrenceKey(occ));
@@ -398,7 +409,7 @@ class ResolverState {
         if (child !== undefined) visit(child);
       }
     };
-    for (const root of roots) visit(root);
+    for (const link of rootLinks) visit(link.child);
     const byKey = new Map<string, Occurrence>();
     for (const occ of reachable) {
       const key = keys.get(occ);
@@ -410,9 +421,16 @@ class ResolverState {
       }
       byKey.set(key, occ);
     }
-    return [...byKey.entries()]
+    const nodes = [...byKey.entries()]
       .sort((a, b) => compareStrings(a[0], b[0]))
       .map(([key, occ]) => toResolved(occ, key, keys, this.provider.origin));
+    const roots = rootLinks.map((link) => {
+      const target = keys.get(link.child);
+      if (target === undefined)
+        throw internal(`missing key for root ${link.name}`);
+      return { name: link.name, target };
+    });
+    return { nodes, roots };
   }
 }
 

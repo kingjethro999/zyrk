@@ -109,6 +109,10 @@ declare module "npm-package-arg" {
     /** Occurrence name for alias specs; the registry name otherwise. */
     name: string;
     fetchSpec: string | null;
+    /** Raw spec text after the name ("*" when bare). */
+    rawSpec: string;
+    /** True for registry specs (false for git/file/remote/etc). */
+    registry: boolean;
     subSpec?: NpaSubSpec;
   }
 

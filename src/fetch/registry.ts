@@ -27,6 +27,9 @@ import {
 /** 512 MiB: large for an npm package, small enough to bound mishaps. */
 export const DEFAULT_MAX_TARBALL_BYTES = 512 * 1024 * 1024;
 
+/** Default registry for tool environments (SPEC 13.1). */
+export const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
+
 /** npm's abbreviated packument media type, used for installs. */
 const INSTALL_V1_ACCEPT = "application/vnd.npm.install-v1+json";
 
