@@ -21,6 +21,7 @@ import { Store } from "./layout.ts";
 import { readSourceManifest } from "./manifests.ts";
 import { objectPathFor, verifyObjectPayload } from "./objects.ts";
 import { Transaction } from "./txn.ts";
+import { verifyRealization } from "./verify.ts";
 
 /**
  * Shared realizations (SPEC 10.1-10.2, 11.4).
@@ -91,6 +92,11 @@ export async function realizeGraph(options: {
       result.packageDirByKey.set(node.key, packageDir);
 
       if (await pathExists(packageDir)) {
+        // S01: existence alone never authorizes reuse. The exact tree is
+        // verified before it backs anything.
+        if (verify) {
+          await verifyRealization({ store, graph, rootKey: node.key, contextId });
+        }
         result.reused.push(contextId);
         continue;
       }
@@ -104,7 +110,16 @@ export async function realizeGraph(options: {
         stagingContext,
         verify,
       });
-      await publishRealization(contextDir, stagingContext);
+      const published = await publishRealization(contextDir, stagingContext);
+      if (!published) {
+        // A concurrent publisher won the race; their tree is verified
+        // before it is trusted, exactly like any other reuse.
+        if (verify) {
+          await verifyRealization({ store, graph, rootKey: node.key, contextId });
+        }
+        result.reused.push(contextId);
+        continue;
+      }
       result.created.push(contextId);
     }
 
@@ -267,7 +282,7 @@ async function makeTreeReadOnly(root: string): Promise<void> {
 async function publishRealization(
   contextDir: string,
   stagingContext: string,
-): Promise<void> {
+): Promise<boolean> {
   await mkdirp(path.dirname(contextDir));
   try {
     await rename(stagingContext, contextDir);
@@ -277,10 +292,11 @@ async function publishRealization(
       (await pathExists(contextDir))
     ) {
       // Another process published the same context first. Identical inputs
-      // produce identical content, so reuse theirs and discard ours.
+      // produce identical content, so reuse theirs and discard ours. The
+      // caller verifies the winner before trusting it (S01).
       await rmrfNoFollow(stagingContext);
       await fsyncDir(path.dirname(contextDir));
-      return;
+      return false;
     }
     throw error;
   }
@@ -288,6 +304,7 @@ async function publishRealization(
   // does not (SPEC 11.4).
   await chmod(contextDir, 0o555);
   await fsyncDir(path.dirname(contextDir));
+  return true;
 }
 
 function internal(message: string): NexuError {

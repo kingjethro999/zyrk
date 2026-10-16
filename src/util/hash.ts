@@ -1,4 +1,5 @@
 import { createHash, type Hash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { canonicalJson } from "./json.ts";
 import { EXTRACTION_POLICY_VERSION, OBJECT_KEY_SCHEME } from "../version.ts";
 
@@ -39,6 +40,25 @@ export class Digest {
 
 export function sha512Hex(data: Uint8Array | string): string {
   return createHash("sha512").update(data).digest("hex");
+}
+
+/**
+ * sha512 of a file's bytes, streamed so large payloads never sit in memory.
+ * Used to verify realized files against their recorded digests: a replaced
+ * file shares no inode with its object, so only direct hashing proves the
+ * bytes about to execute are the verified ones (S01).
+ */
+export async function sha512HexOfFile(filePath: string): Promise<string> {
+  const hash = createHash("sha512");
+  const stream = createReadStream(filePath);
+  try {
+    for await (const chunk of stream) {
+      hash.update(chunk as Uint8Array);
+    }
+  } finally {
+    stream.destroy();
+  }
+  return hash.digest("hex");
 }
 
 /**
