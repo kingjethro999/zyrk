@@ -128,6 +128,46 @@ describe("validateGraph", () => {
   });
 });
 
+describe("peer-split keys", () => {
+  it("accepts fingerprint suffixes for same-source occurrences with different edges", () => {
+    const doc = createGraphDoc([
+      {
+        key: "plugin@1.0.0#0123456789ab",
+        name: "plugin",
+        version: "1.0.0",
+        sourceId: "src-plugin",
+        deps: [{ name: "host", target: "host@1.0.0" }],
+      },
+      {
+        key: "plugin@1.0.0#cdef01234567",
+        name: "plugin",
+        version: "1.0.0",
+        sourceId: "src-plugin",
+        deps: [{ name: "host", target: "host@2.0.0" }],
+      },
+      { name: "host", version: "1.0.0", sourceId: "src-host" },
+      { name: "host", version: "2.0.0", sourceId: "src-host" },
+    ]);
+    expect(contextIdFor(doc, "plugin@1.0.0#0123456789ab")).not.toBe(
+      contextIdFor(doc, "plugin@1.0.0#cdef01234567"),
+    );
+  });
+
+  it("rejects malformed suffixes", () => {
+    for (const key of [
+      "plugin@1.0.0#xyz",
+      "plugin@1.0.0#",
+      "plugin@1.0.0#ABCDEF12",
+    ]) {
+      expect(() =>
+        createGraphDoc([
+          { key, name: "plugin", version: "1.0.0", sourceId: "src" },
+        ]),
+      ).toThrowError(/does not match/);
+    }
+  });
+});
+
 describe("graphHash", () => {
   it("is identical under permuted input order", () => {
     const a = createGraphDoc([

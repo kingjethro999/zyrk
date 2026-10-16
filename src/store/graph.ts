@@ -22,7 +22,11 @@ export type GraphEdge = {
 };
 
 export type GraphNode = {
-  /** `${name}@${version}` */
+  /**
+   * `${name}@${version}`, or `${name}@${version}#${fingerprint}` when the
+   * occurrence carries peer bindings: one verified source may back several
+   * dependency contexts (SPEC 9.3), and each needs a distinct node.
+   */
   key: string;
   name: string;
   version: string;
@@ -39,6 +43,8 @@ export type GraphDoc = {
 };
 
 export type GraphNodeInput = {
+  /** Defaults to `nodeKeyOf(name, version)`; peer-split occurrences pass theirs. */
+  key?: string;
   name: string;
   version: string;
   sourceId: string;
@@ -53,7 +59,7 @@ export function nodeKeyOf(name: string, version: string): string {
 export function createGraphDoc(inputs: GraphNodeInput[]): GraphDoc {
   const nodes: GraphNode[] = inputs
     .map((input) => ({
-      key: nodeKeyOf(input.name, input.version),
+      key: input.key ?? nodeKeyOf(input.name, input.version),
       name: input.name,
       version: input.version,
       sourceId: input.sourceId,
@@ -69,10 +75,16 @@ export function createGraphDoc(inputs: GraphNodeInput[]): GraphDoc {
   return doc;
 }
 
+const PEER_KEY_SUFFIX = /^#[0-9a-f]{8,}$/;
+
 export function validateGraph(doc: GraphDoc): void {
   const keys = new Set<string>();
   for (const node of doc.nodes) {
-    if (node.key !== nodeKeyOf(node.name, node.version)) {
+    const base = nodeKeyOf(node.name, node.version);
+    const suffixed =
+      node.key.startsWith(`${base}#`) &&
+      PEER_KEY_SUFFIX.test(node.key.slice(base.length));
+    if (node.key !== base && !suffixed) {
       fail(`node key ${node.key} does not match ${node.name}@${node.version}`);
     }
     if (keys.has(node.key)) fail(`duplicate node key ${node.key}`);

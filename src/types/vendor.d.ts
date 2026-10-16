@@ -81,3 +81,36 @@ declare module "npm-registry-fetch" {
   ): string;
   export function getAuth(registry: string, opts?: FetchOptions): unknown;
 }
+
+/**
+ * Minimal npm-package-arg surface (verified against the installed 14.x).
+ * Only the spec kinds snpm resolves are modeled; anything else is rejected
+ * by the resolver with an explicit unsupported-protocol error.
+ */
+declare module "npm-package-arg" {
+  export type NpaType =
+    | "version"
+    | "range"
+    | "tag"
+    | "alias"
+    | "git"
+    | "file"
+    | "directory"
+    | "remote";
+
+  export interface NpaSubSpec {
+    type: NpaType;
+    name: string;
+    fetchSpec: string | null;
+  }
+
+  export interface NpaResult {
+    type: NpaType;
+    /** Occurrence name for alias specs; the registry name otherwise. */
+    name: string;
+    fetchSpec: string | null;
+    subSpec?: NpaSubSpec;
+  }
+
+  export default function npa(spec: string): NpaResult;
+}
