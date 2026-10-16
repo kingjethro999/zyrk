@@ -14,7 +14,12 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { exitCodeFor, SnpmError } from "../errors.ts";
+import { exitCodeFor, SnpmError, toSnpmError } from "../errors.ts";
+import {
+  delegateToNpm,
+  delegatedHelpLines,
+  isDelegatedCommand,
+} from "./npm-delegate.ts";
 import { isGlobalInstallRequest, parseArgs, type ParsedArgs } from "./parse.ts";
 
 export const CLI_JSON_SCHEMA_VERSION = 1;
@@ -58,10 +63,9 @@ export function helpText(version: string): string {
   for (const [names, description] of NATIVE_COMMANDS) {
     lines.push(`  ${names.padEnd(24, " ")}${description}`);
   }
+  lines.push("", "Registry publishing and account commands (via your npm):");
+  lines.push(...delegatedHelpLines());
   lines.push(
-    "",
-    "Registry publishing and account commands (not implemented yet):",
-    "  publish, login, ...          delegated to npm once implemented; never reimplemented.",
     "",
     "snpm never installs packages globally and never runs npm to do it.",
     "Need a global package? Run npm directly: npm install --global <package-spec>",
@@ -193,12 +197,38 @@ export type RunCliOptions = {
   readVersion?: () => string;
 };
 
-/** Parse, dispatch, and emit. The only impure seam; everything else is pure. */
+/** Parse, dispatch or delegate, and emit. The only impure seam. */
 export async function runCli(options: RunCliOptions): Promise<number> {
   const parsed = parseArgs(options.argv);
+  const emit = (result: CliOutput): number => {
+    if (result.stdout !== "") options.stdout.write(result.stdout);
+    if (result.stderr !== "") options.stderr.write(result.stderr);
+    return result.exitCode;
+  };
+  // Delegation bypasses dispatch: snpm interprets nothing after the command
+  // token, adds no JSON envelope, and forwards the raw tail verbatim.
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    parsed.command !== undefined &&
+    isDelegatedCommand(parsed.command)
+  ) {
+    try {
+      return await delegateToNpm({
+        command: parsed.command,
+        args: parsed.argsAfterCommand,
+        env: options.env,
+        stderr: options.stderr,
+      });
+    } catch (error) {
+      return emit(
+        fail(
+          toSnpmError(error, "snpm failed while delegating to npm."),
+          parsed,
+        ),
+      );
+    }
+  }
   const version = (options.readVersion ?? readCliVersion)();
-  const result = dispatch(parsed, { version, env: options.env });
-  if (result.stdout !== "") options.stdout.write(result.stdout);
-  if (result.stderr !== "") options.stderr.write(result.stderr);
-  return result.exitCode;
+  return emit(dispatch(parsed, { version, env: options.env }));
 }

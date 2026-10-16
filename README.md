@@ -40,6 +40,15 @@ snpm never installs packages globally and never runs npm to do it.
 `snpm install -g <pkg>` fails with `SNPM_GLOBAL_INSTALL_UNSUPPORTED` before
 any work happens; run npm directly: `npm install --global <pkg>`.
 
+Registry publishing and account commands are delegated to npm, verbatim:
+`snpm publish --tag beta` runs `npm publish --tag beta` with your
+environment and registry configuration. snpm prints a one-line disclosure,
+passes stdio through, and returns npm's exit code or signal unchanged. This
+covers `publish`, `unpublish`, `access`, `deprecate`, `dist-tag`, `owner`,
+`token`, `adduser`/`login`/`logout`, `whoami`, `ping`, and `pack`. snpm
+never implements, wraps, or interferes with publishing or authentication
+flows — and global installs are never delegated.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

@@ -15,6 +15,8 @@ export type ParsedArgs = {
   command: string | undefined;
   /** Everything that is not the command, `--json`, or `--help`/`--version`. */
   commandArgs: string[];
+  /** Raw tokens after the command token, verbatim, for npm delegation. */
+  argsAfterCommand: string[];
   json: boolean;
 };
 
@@ -24,43 +26,47 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     version: false,
     command: undefined,
     commandArgs: [],
+    argsAfterCommand: [],
     json: false,
   };
   let separator = false;
-  for (const token of argv) {
+  let commandIndex = -1;
+  argv.forEach((token, index) => {
     if (separator) {
       parsed.commandArgs.push(token);
-      continue;
+      return;
     }
     if (token === "--") {
       separator = true;
       parsed.commandArgs.push(token);
-      continue;
+      return;
     }
     if (token === "--json") {
       parsed.json = true;
-      continue;
+      return;
     }
     if (
       parsed.command === undefined &&
       (token === "--help" || token === "-h")
     ) {
       parsed.help = true;
-      continue;
+      return;
     }
     if (
       parsed.command === undefined &&
       (token === "--version" || token === "-v")
     ) {
       parsed.version = true;
-      continue;
+      return;
     }
     if (parsed.command === undefined && !token.startsWith("-")) {
       parsed.command = token;
-      continue;
+      commandIndex = index;
+      return;
     }
     parsed.commandArgs.push(token);
-  }
+  });
+  if (commandIndex >= 0) parsed.argsAfterCommand = argv.slice(commandIndex + 1);
   return parsed;
 }
 

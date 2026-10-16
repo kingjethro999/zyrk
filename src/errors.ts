@@ -39,6 +39,8 @@ export const INTERNAL_ERROR_CODES = [
   "SNPM_USAGE",
   /** A documented command or mode that has not been implemented yet. */
   "SNPM_NOT_IMPLEMENTED",
+  /** npm executable missing for an explicitly delegated command (D-3). */
+  "SNPM_NPM_UNAVAILABLE",
   /** Store root fails ownership/permission safety checks. */
   "SNPM_STORE_UNSAFE",
   /** Store format marker missing or newer/older than this CLI understands. */
