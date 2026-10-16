@@ -8,6 +8,7 @@ import type { FetchedSource } from "../src/fetch/package.ts";
 import { RegistryClient } from "../src/fetch/registry.ts";
 import { Store } from "../src/store/layout.ts";
 import { Transaction } from "../src/store/txn.ts";
+import { startStubRegistry, type StubRegistry } from "./helpers/registry-stub.ts";
 
 let root: string;
 let store: Store;
@@ -140,5 +141,63 @@ describe("fetchSources", () => {
       fetchOne: async (request) => fakeSource(request.key),
     });
     expect([...result.keys()]).toEqual(["only"]);
+  });
+
+  it("rejects non-finite concurrency explicitly", async () => {
+    let called = 0;
+    await expect(
+      fetchSources({
+        store,
+        registry,
+        txn,
+        requests: [{ key: "a", name: "a", version: "1.0.0" }],
+        concurrency: Number.NaN,
+        fetchOne: async (request) => {
+          called += 1;
+          return fakeSource(request.key);
+        },
+      }),
+    ).rejects.toMatchObject({ code: "NEXU_INTERNAL" });
+    expect(called).toBe(0);
+  });
+
+  it("fetches one source once for peer-split occurrences sharing it (G05)", async () => {
+    const stub = await startStubRegistry([
+      {
+        name: "shared",
+        versions: [
+          {
+            version: "1.0.0",
+            files: { "index.js": { data: 'module.exports = "shared";\n' } },
+          },
+        ],
+      },
+    ]);
+    try {
+      const stubRegistry = new RegistryClient({
+        registry: stub.url,
+        userAgent: "nexu-test/0",
+      });
+      const result = await fetchSources({
+        store,
+        registry: stubRegistry,
+        txn,
+        requests: [
+          { key: "shared@1.0.0#peer1aaaa1111", name: "shared", version: "1.0.0" },
+          { key: "shared@1.0.0#peer2bbbb2222", name: "shared", version: "1.0.0" },
+        ],
+        concurrency: 2,
+      });
+      expect([...result.keys()]).toEqual([
+        "shared@1.0.0#peer1aaaa1111",
+        "shared@1.0.0#peer2bbbb2222",
+      ]);
+      const first = result.get("shared@1.0.0#peer1aaaa1111");
+      const second = result.get("shared@1.0.0#peer2bbbb2222");
+      expect(first?.sourceId).toBeDefined();
+      expect(second?.sourceId).toBe(first?.sourceId);
+    } finally {
+      await stub.close();
+    }
   });
 });

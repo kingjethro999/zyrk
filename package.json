@@ -1,6 +1,6 @@
 {
   "name": "nexu",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",

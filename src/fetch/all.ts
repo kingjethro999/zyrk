@@ -94,10 +94,32 @@ export async function fetchSources(
   const sorted = [...options.requests].sort((a, b) =>
     compareStrings(a.key, b.key),
   );
-  const workers = Math.max(
-    1,
-    Math.floor(options.concurrency ?? DEFAULT_FETCH_CONCURRENCY),
-  );
+  const rawConcurrency = options.concurrency ?? DEFAULT_FETCH_CONCURRENCY;
+  if (!Number.isFinite(rawConcurrency) || rawConcurrency < 1) {
+    throw new NexuError(
+      "NEXU_INTERNAL",
+      `fetch concurrency must be a finite number >= 1, got ${String(options.concurrency)}`,
+      {
+        detail: { concurrency: options.concurrency },
+      },
+    );
+  }
+  const workers = Math.max(1, Math.floor(rawConcurrency));
+  // G05: requests for the same name@version through one registry client
+  // address the same origin-qualified source, so they share one download
+  // (peer-split occurrences collide on the staging filename otherwise).
+  // Results fan out to every requesting key afterward.
+  const groups = new Map<string, { representative: SourceFetchRequest; members: number[] }>();
+  sorted.forEach((request, index) => {
+    const identity = JSON.stringify([request.name, request.version]);
+    const group = groups.get(identity);
+    if (group === undefined) {
+      groups.set(identity, { representative: request, members: [index] });
+    } else {
+      group.members.push(index);
+    }
+  });
+  const unique = [...groups.values()];
   const fetchOne = options.fetchOne ?? defaultFetchOne;
   const context = {
     store: options.store,
@@ -123,20 +145,28 @@ export async function fetchSources(
     for (;;) {
       const index = next;
       next += 1;
-      const request = sorted[index];
-      if (request === undefined) return;
+      const group = unique[index];
+      if (group === undefined) return;
       try {
-        results[index] = await fetchOne(request, context);
+        const fetched = await fetchOne(group.representative, context);
+        for (const member of group.members) results[member] = fetched;
       } catch (error) {
-        failures[index] = {
-          key: request.key,
-          error: toNexuError(error, `failed to fetch ${request.key}`),
-        };
+        const failure = toNexuError(
+          error,
+          `failed to fetch ${group.representative.key}`,
+        );
+        for (const member of group.members) {
+          const request = sorted[member];
+          failures[member] = {
+            key: request === undefined ? group.representative.key : request.key,
+            error: failure,
+          };
+        }
       }
     }
   };
   await Promise.all(
-    Array.from({ length: Math.min(workers, sorted.length) }, () => runWorker()),
+    Array.from({ length: Math.min(workers, unique.length) }, () => runWorker()),
   );
 
   let selected: { key: string; error: NexuError } | undefined;
