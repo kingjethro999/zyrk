@@ -1,14 +1,10 @@
 # Private planning documents: kept in the working tree, never released.
 
-SPEC.md
-SNPM_SPEC_v1.2.md
-NEXU_SPEC_v1.2.md
+plan_files/
 
 node_modules/
 dist/
 *.tsbuildinfo
 .nexu-local/
-.snpm-local/
 coverage/
 tmp/
-plan_files/
