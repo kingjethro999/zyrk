@@ -1,6 +1,6 @@
 {
   "name": "zyrk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",
@@ -36,12 +36,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kingjethro999/nexu.git"
+    "url": "git+https://github.com/kingjethro999/zyrk.git"
   },
   "bugs": {
-    "url": "https://github.com/kingjethro999/nexu/issues"
+    "url": "https://github.com/kingjethro999/zyrk/issues"
   },
-  "homepage": "https://github.com/kingjethro999/nexu#readme",
+  "homepage": "https://github.com/kingjethro999/zyrk#readme",
   "keywords": [
     "package-manager",
     "npm",
