@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+# Check first: a broken commit must never land, and no version is spent on it.
+if [ -x node_modules/.bin/tsc ]; then
+  npm run check
+else
+  echo "pre-commit: the TypeScript toolchain is not installed; run npm install to typecheck and test before committing." >&2
+fi
+
+# The first commit records v0.0.1. Every later commit bumps the version.
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+  node scripts/bump-version.js
+  git add package.json package-lock.json VERSION
+fi

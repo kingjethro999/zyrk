@@ -1,0 +1,14 @@
+#!/bin/sh
+# The pre-commit hook cannot tag the commit it is creating: the commit object
+# does not exist yet. This hook records the version from VERSION as an
+# annotated tag, once per version, and never fails a commit.
+set -u
+
+if [ -f VERSION ]; then
+  tag=$(cat VERSION)
+  if [ -n "$tag" ] && ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+    git tag -a "$tag" -m "$tag" HEAD >/dev/null 2>&1 || true
+  fi
+fi
+
+exit 0
