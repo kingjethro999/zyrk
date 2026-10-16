@@ -1,0 +1,10 @@
+# Private planning documents: kept in the working tree, never released.
+AGENTS.md
+SPEC.md
+
+node_modules/
+dist/
+*.tsbuildinfo
+.snpm-local/
+coverage/
+tmp/
