@@ -1,5 +1,5 @@
 # Private planning documents: kept in the working tree, never released.
-AGENTS.md
+
 SPEC.md
 SNPM_SPEC_v1.2.md
 
@@ -9,3 +9,4 @@ dist/
 .snpm-local/
 coverage/
 tmp/
+plan_files/

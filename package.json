@@ -1,6 +1,6 @@
 {
   "name": "snpm",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
