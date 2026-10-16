@@ -1,6 +1,16 @@
 #!/bin/sh
 set -eu
 
+# Format what this commit touches so the tree stays gate-clean. Only files
+# already staged are reformatted and restaged; everything else on disk is
+# left alone.
+if [ -x node_modules/.bin/prettier ]; then
+  git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r ./node_modules/.bin/prettier --write --ignore-unknown --
+  git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r git add --
+else
+  echo "pre-commit: prettier is not installed; run npm install to format before committing." >&2
+fi
+
 # Check first: a broken commit must never land, and no version is spent on it.
 if [ -x node_modules/.bin/tsc ]; then
   npm run check
