@@ -1,34 +1,34 @@
 /**
  * Stable error codes and the one error type the CLI turns into output.
  *
- * The table in SPEC 29.1 is the contract. Codes beginning with SNPM_ that are
+ * The table in SPEC 29.1 is the contract. Codes beginning with NEXU_ that are
  * not listed there are internal extensions; they follow the same rules:
  * name the failed action, name the subject, and carry a remedy.
  */
 
 export const SPEC_ERROR_CODES = [
-  "SNPM_MANIFEST_INVALID",
-  "SNPM_LOCK_MISMATCH",
-  "SNPM_RESOLUTION_FAILED",
-  "SNPM_PEER_CONFLICT",
-  "SNPM_INTEGRITY_FAILED",
-  "SNPM_SIGNATURE_INVALID",
-  "SNPM_EXTRACTION_UNSAFE",
-  "SNPM_SCRIPT_BLOCKED",
-  "SNPM_BUILD_FAILED",
-  "SNPM_WORKSPACE_BUILD_CONTEXT_UNSUPPORTED",
-  "SNPM_OFFLINE_MISSING",
-  "SNPM_LINK_UNSUPPORTED",
-  "SNPM_STORE_CORRUPT",
-  "SNPM_PROJECT_LOCKED",
-  "SNPM_DISK_FULL",
-  "SNPM_DEPLOY_ESCAPE",
-  "SNPM_DEPLOY_NONRELOCATABLE",
-  "SNPM_PLATFORM_UNSUPPORTED",
-  "SNPM_REGISTRY_AUTH",
-  "SNPM_POLICY_DENIED",
-  /** Global installation requested through snpm; added by SPEC v1.2 §29.1. */
-  "SNPM_GLOBAL_INSTALL_UNSUPPORTED",
+  "NEXU_MANIFEST_INVALID",
+  "NEXU_LOCK_MISMATCH",
+  "NEXU_RESOLUTION_FAILED",
+  "NEXU_PEER_CONFLICT",
+  "NEXU_INTEGRITY_FAILED",
+  "NEXU_SIGNATURE_INVALID",
+  "NEXU_EXTRACTION_UNSAFE",
+  "NEXU_SCRIPT_BLOCKED",
+  "NEXU_BUILD_FAILED",
+  "NEXU_WORKSPACE_BUILD_CONTEXT_UNSUPPORTED",
+  "NEXU_OFFLINE_MISSING",
+  "NEXU_LINK_UNSUPPORTED",
+  "NEXU_STORE_CORRUPT",
+  "NEXU_PROJECT_LOCKED",
+  "NEXU_DISK_FULL",
+  "NEXU_DEPLOY_ESCAPE",
+  "NEXU_DEPLOY_NONRELOCATABLE",
+  "NEXU_PLATFORM_UNSUPPORTED",
+  "NEXU_REGISTRY_AUTH",
+  "NEXU_POLICY_DENIED",
+  /** Global installation requested through nexu; added by SPEC v1.2 §29.1. */
+  "NEXU_GLOBAL_INSTALL_UNSUPPORTED",
 ] as const;
 
 export type SpecErrorCode = (typeof SPEC_ERROR_CODES)[number];
@@ -36,37 +36,37 @@ export type SpecErrorCode = (typeof SPEC_ERROR_CODES)[number];
 /** Internal extensions. Keep this list short and justified. */
 export const INTERNAL_ERROR_CODES = [
   /** Bad invocation: unknown command, contradictory flags, missing argument. */
-  "SNPM_USAGE",
+  "NEXU_USAGE",
   /** A documented command or mode that has not been implemented yet. */
-  "SNPM_NOT_IMPLEMENTED",
+  "NEXU_NOT_IMPLEMENTED",
   /** npm executable missing for an explicitly delegated command (D-3). */
-  "SNPM_NPM_UNAVAILABLE",
+  "NEXU_NPM_UNAVAILABLE",
   /** Store root fails ownership/permission safety checks. */
-  "SNPM_STORE_UNSAFE",
+  "NEXU_STORE_UNSAFE",
   /** Store format marker missing or newer/older than this CLI understands. */
-  "SNPM_STORE_FORMAT_UNSUPPORTED",
+  "NEXU_STORE_FORMAT_UNSUPPORTED",
   /**
    * A fetched artifact was refused before use: download exceeded the
    * configured size bound, or a bounded retry budget was exhausted on a
-   * refusal-worthy response. Distinct from SNPM_INTEGRITY_FAILED: nothing
+   * refusal-worthy response. Distinct from NEXU_INTEGRITY_FAILED: nothing
    * was verified or accepted.
    */
-  "SNPM_FETCH_REFUSED",
+  "NEXU_FETCH_REFUSED",
   /**
    * Transport failure reaching the registry (DNS, TLS, connect, timeout,
    * HTTP 5xx) after bounded retries. Retryable later; not an integrity or
    * resolution verdict.
    */
-  "SNPM_FETCH_FAILED",
+  "NEXU_FETCH_FAILED",
   /** Unexpected internal failure; always a bug. */
-  "SNPM_INTERNAL",
+  "NEXU_INTERNAL",
 ] as const;
 
 export type InternalErrorCode = (typeof INTERNAL_ERROR_CODES)[number];
 
 export type ErrorCode = SpecErrorCode | InternalErrorCode;
 
-export type SnpmErrorOptions = {
+export type NexuErrorOptions = {
   /** Structured facts about the failure. Never include credentials. */
   detail?: Record<string, unknown>;
   /** One actionable line: what the user can do next. */
@@ -74,7 +74,7 @@ export type SnpmErrorOptions = {
   cause?: unknown;
 };
 
-export class SnpmError extends Error {
+export class NexuError extends Error {
   readonly code: ErrorCode;
   readonly detail: Record<string, unknown> | undefined;
   readonly remedy: string | undefined;
@@ -82,21 +82,21 @@ export class SnpmError extends Error {
   constructor(
     code: ErrorCode,
     message: string,
-    options: SnpmErrorOptions = {},
+    options: NexuErrorOptions = {},
   ) {
     super(
       message,
       options.cause === undefined ? undefined : { cause: options.cause },
     );
-    this.name = "SnpmError";
+    this.name = "NexuError";
     this.code = code;
     this.detail = options.detail;
     this.remedy = options.remedy;
   }
 }
 
-export function isSnpmError(error: unknown): error is SnpmError {
-  return error instanceof SnpmError;
+export function isNexuError(error: unknown): error is NexuError {
+  return error instanceof NexuError;
 }
 
 /**
@@ -104,11 +104,11 @@ export function isSnpmError(error: unknown): error is SnpmError {
  * in `detail.errno` so disk-full and permission failures stay diagnosable
  * without dumping the environment.
  */
-export function toSnpmError(
+export function toNexuError(
   error: unknown,
   fallbackMessage: string,
-): SnpmError {
-  if (isSnpmError(error)) return error;
+): NexuError {
+  if (isNexuError(error)) return error;
 
   const detail: Record<string, unknown> = {};
   let message = fallbackMessage;
@@ -118,7 +118,7 @@ export function toSnpmError(
     if (typeof errno === "string") {
       detail.errno = errno;
       if (errno === "ENOSPC") {
-        return new SnpmError("SNPM_DISK_FULL", message, {
+        return new NexuError("NEXU_DISK_FULL", message, {
           detail,
           cause: error,
         });
@@ -128,7 +128,7 @@ export function toSnpmError(
       }
     }
   }
-  return new SnpmError("SNPM_INTERNAL", message, { detail, cause: error });
+  return new NexuError("NEXU_INTERNAL", message, { detail, cause: error });
 }
 
 /**
@@ -137,6 +137,6 @@ export function toSnpmError(
  * required builds; 1 covers all of those. Usage errors use 2 so scripts can
  * tell "you called it wrong" from "the operation failed".
  */
-export function exitCodeFor(error: SnpmError): number {
-  return error.code === "SNPM_USAGE" ? 2 : 1;
+export function exitCodeFor(error: NexuError): number {
+  return error.code === "NEXU_USAGE" ? 2 : 1;
 }

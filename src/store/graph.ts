@@ -1,4 +1,4 @@
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import { sha512Hex } from "../util/hash.ts";
 import { canonicalJson } from "../util/json.ts";
 import { CONTEXT_CANONICALIZATION_VERSION } from "../version.ts";
@@ -171,5 +171,5 @@ function compareStrings(a: string, b: string): number {
 }
 
 function fail(message: string): never {
-  throw new SnpmError("SNPM_INTERNAL", message);
+  throw new NexuError("NEXU_INTERNAL", message);
 }

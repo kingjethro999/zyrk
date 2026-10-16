@@ -17,7 +17,7 @@ export const CLI_VERSION = "0.0.0";
 export const STORE_FORMAT_VERSION = 1;
 
 /** Domain separator for content-object keys; see SPEC 8.2. */
-export const OBJECT_KEY_SCHEME = "snpm-obj1";
+export const OBJECT_KEY_SCHEME = "nexu-obj1";
 
 export const SOURCE_MANIFEST_SCHEMA_VERSION = 1;
 
@@ -27,8 +27,8 @@ export const CONTEXT_CANONICALIZATION_VERSION = 1;
 
 export const RESOLVER_POLICY_VERSION = 1;
 
-/** Version of the `snpm` extension namespace inside package-lock.json (D-1). */
-export const LOCKFILE_SNPM_EXTENSION_VERSION = 1;
+/** Version of the `nexu` extension namespace inside package-lock.json (D-1). */
+export const LOCKFILE_NEXU_EXTENSION_VERSION = 1;
 
 /** Store format marker file name at the store root. */
 export const STORE_FORMAT_FILE = "format.json";

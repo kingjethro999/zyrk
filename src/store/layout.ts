@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import { resolveStoreRoot } from "../config/paths.ts";
 import {
   ensureDirWithMode,
@@ -74,7 +74,7 @@ export type StoreFormatMarker = {
 };
 
 export type OpenStoreOptions = {
-  /** Explicit root; defaults to the platform location or SNPM_STORE_DIR. */
+  /** Explicit root; defaults to the platform location or NEXU_STORE_DIR. */
   root?: string;
   /** Create and initialize the store if it does not exist. */
   create?: boolean;
@@ -136,13 +136,13 @@ export class Store {
   /** Throw unless the store is initialized and usable. */
   requireInitialized(): StoreFormatMarker {
     if (this.format === undefined) {
-      throw new SnpmError(
-        "SNPM_STORE_UNSAFE",
-        `the snpm store at ${this.root} is not initialized`,
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
+        `the nexu store at ${this.root} is not initialized`,
         {
           detail: { storeRoot: this.root },
           remedy:
-            "run an install or fetch command to initialize the store, or set SNPM_STORE_DIR to an existing initialized store",
+            "run an install or fetch command to initialize the store, or set NEXU_STORE_DIR to an existing initialized store",
         },
       );
     }
@@ -187,7 +187,7 @@ export class Store {
         extractionPolicyVersion: EXTRACTION_POLICY_VERSION,
         contextCanonicalizationVersion: CONTEXT_CANONICALIZATION_VERSION,
         createdAt: new Date().toISOString(),
-        tool: { name: "snpm", version: CLI_VERSION },
+        tool: { name: "nexu", version: CLI_VERSION },
       };
       await writeFileAtomic(
         paths.formatFile,
@@ -209,8 +209,8 @@ export class Store {
     const resolved = await fs.realpath(root);
     const stat = await fs.stat(resolved);
     if (!stat.isDirectory()) {
-      throw new SnpmError(
-        "SNPM_STORE_UNSAFE",
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
         `store path is not a directory: ${root}`,
         {
           detail: { storeRoot: root },
@@ -223,8 +223,8 @@ export class Store {
     if (process.platform === "win32") {
       // Windows ACL verification arrives with Windows platform support
       // (SPEC 27); until then the store is not advertised as supported there.
-      throw new SnpmError(
-        "SNPM_PLATFORM_UNSUPPORTED",
+      throw new NexuError(
+        "NEXU_PLATFORM_UNSUPPORTED",
         "Windows store permission checks are not implemented yet",
         {
           detail: { storeRoot: root, platform: process.platform },
@@ -238,18 +238,18 @@ export class Store {
 
     const uid = process.getuid?.();
     if (uid !== undefined && stat.uid !== uid) {
-      throw new SnpmError(
-        "SNPM_STORE_UNSAFE",
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
         `store is owned by another user (uid ${stat.uid}, running as ${uid}): ${root}`,
         {
           detail: { storeRoot: root, ownerUid: stat.uid, runningUid: uid },
           remedy:
-            "if this store was created by root, move it under your own account or point SNPM_STORE_DIR at a user-owned location; snpm never rewrites ownership recursively",
+            "if this store was created by root, move it under your own account or point NEXU_STORE_DIR at a user-owned location; nexu never rewrites ownership recursively",
         },
       );
     }
     if (uid !== undefined && stat.uid === 0 && uid !== 0) {
-      throw new SnpmError("SNPM_STORE_UNSAFE", `store is root-owned: ${root}`, {
+      throw new NexuError("NEXU_STORE_UNSAFE", `store is root-owned: ${root}`, {
         detail: { storeRoot: root, ownerUid: stat.uid },
         remedy:
           "create a fresh store under your account instead of reusing a root-owned one",
@@ -258,8 +258,8 @@ export class Store {
 
     const mode = stat.mode & 0o777;
     if ((mode & 0o022) !== 0) {
-      throw new SnpmError(
-        "SNPM_STORE_UNSAFE",
+      throw new NexuError(
+        "NEXU_STORE_UNSAFE",
         `store is group- or world-writable (mode ${mode.toString(8)}): ${root}`,
         {
           detail: { storeRoot: root, mode: mode.toString(8) },
@@ -276,8 +276,8 @@ async function readStoreFormatMarker(
   try {
     return await readJsonFile<StoreFormatMarker>(markerPath);
   } catch (error) {
-    throw new SnpmError(
-      "SNPM_STORE_CORRUPT",
+    throw new NexuError(
+      "NEXU_STORE_CORRUPT",
       `store format marker is unreadable: ${markerPath}`,
       {
         detail: { formatFile: markerPath },
@@ -294,9 +294,9 @@ function validateStoreFormatMarker(
   markerPath: string,
 ): void {
   if (marker.storeFormatVersion !== STORE_FORMAT_VERSION) {
-    throw new SnpmError(
-      "SNPM_STORE_FORMAT_UNSUPPORTED",
-      `store format ${marker.storeFormatVersion} is not supported by this snpm (expects ${STORE_FORMAT_VERSION})`,
+    throw new NexuError(
+      "NEXU_STORE_FORMAT_UNSUPPORTED",
+      `store format ${marker.storeFormatVersion} is not supported by this nexu (expects ${STORE_FORMAT_VERSION})`,
       {
         detail: {
           formatFile: markerPath,
@@ -304,13 +304,13 @@ function validateStoreFormatMarker(
           supported: STORE_FORMAT_VERSION,
         },
         remedy:
-          "use a CLI matching this store format, or initialize a fresh store at a new location; if this store is newer, upgrade snpm first",
+          "use a CLI matching this store format, or initialize a fresh store at a new location; if this store is newer, upgrade nexu first",
       },
     );
   }
   if (marker.objectKeyScheme !== OBJECT_KEY_SCHEME) {
-    throw new SnpmError(
-      "SNPM_STORE_FORMAT_UNSUPPORTED",
+    throw new NexuError(
+      "NEXU_STORE_FORMAT_UNSUPPORTED",
       `object key scheme ${marker.objectKeyScheme} is not supported`,
       {
         detail: {

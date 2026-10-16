@@ -8,7 +8,7 @@
  */
 
 import npa from "npm-package-arg";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 
 export type RequirementKind = "exact" | "range" | "tag" | "alias";
 
@@ -24,9 +24,9 @@ export type ParsedRequirement = {
   targetKind: "exact" | "range" | "tag";
 };
 
-function unsupported(what: string, spec: string): SnpmError {
-  return new SnpmError(
-    "SNPM_RESOLUTION_FAILED",
+function unsupported(what: string, spec: string): NexuError {
+  return new NexuError(
+    "NEXU_RESOLUTION_FAILED",
     `unsupported dependency protocol in "${spec}" (${what})`,
     {
       detail: { spec },
@@ -48,8 +48,8 @@ export function parseRequirement(
   try {
     parsed = npa(spec === "" ? edgeName : `${edgeName}@${spec}`);
   } catch (error) {
-    throw new SnpmError(
-      "SNPM_RESOLUTION_FAILED",
+    throw new NexuError(
+      "NEXU_RESOLUTION_FAILED",
       `invalid requirement "${edgeName}@${spec}"`,
       {
         detail: { edgeName, spec },
@@ -59,8 +59,8 @@ export function parseRequirement(
     );
   }
   if (parsed.name !== edgeName) {
-    throw new SnpmError(
-      "SNPM_INTERNAL",
+    throw new NexuError(
+      "NEXU_INTERNAL",
       `requirement name mismatch: ${edgeName} parsed as ${parsed.name}`,
       {
         detail: { edgeName, parsed: parsed.name },
@@ -70,8 +70,8 @@ export function parseRequirement(
   switch (parsed.type) {
     case "version": {
       if (parsed.fetchSpec === null) {
-        throw new SnpmError(
-          "SNPM_INTERNAL",
+        throw new NexuError(
+          "NEXU_INTERNAL",
           `no fetch spec in "${edgeName}@${spec}"`,
           {
             detail: { edgeName, spec },
@@ -89,8 +89,8 @@ export function parseRequirement(
     case "range":
     case "tag": {
       if (parsed.fetchSpec === null) {
-        throw new SnpmError(
-          "SNPM_INTERNAL",
+        throw new NexuError(
+          "NEXU_INTERNAL",
           `no fetch spec in "${edgeName}@${spec}"`,
           {
             detail: { edgeName, spec },
@@ -108,8 +108,8 @@ export function parseRequirement(
     case "alias": {
       const sub = parsed.subSpec;
       if (sub === undefined) {
-        throw new SnpmError(
-          "SNPM_INTERNAL",
+        throw new NexuError(
+          "NEXU_INTERNAL",
           `alias "${edgeName}@${spec}" has no target`,
           {
             detail: { edgeName, spec },

@@ -1,6 +1,6 @@
 /**
  * Registry adapter (SPEC 13.1-13.3). Fetches metadata and tarballs through
- * npm-maintained libraries behind a typed surface with snpm's own policy:
+ * npm-maintained libraries behind a typed surface with nexu's own policy:
  * bounded retries, bounded download size, mandatory integrity verification of
  * the bytes we accept, and stable error mapping.
  *
@@ -15,7 +15,7 @@ import regFetch, {
   json as fetchJson,
   type FetchOptions,
 } from "npm-registry-fetch";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import type { Logger } from "../log.ts";
 import {
   assertIntegrityOk,
@@ -177,8 +177,8 @@ export class RegistryClient {
       handle = await open(options.destPath, "wx", 0o600);
     } catch (error) {
       if (isErrnoCode(error, "EEXIST")) {
-        throw new SnpmError(
-          "SNPM_INTERNAL",
+        throw new NexuError(
+          "NEXU_INTERNAL",
           `staging file already exists: ${options.destPath}`,
           {
             detail: { destPath: options.destPath },
@@ -214,8 +214,8 @@ export class RegistryClient {
         written += buffer.byteLength;
         if (written > maxBytes) {
           response.body.destroy();
-          throw new SnpmError(
-            "SNPM_FETCH_REFUSED",
+          throw new NexuError(
+            "NEXU_FETCH_REFUSED",
             `tarball for ${options.label} exceeds the ${formatMiB(maxBytes)} download bound`,
             {
               detail: {
@@ -304,8 +304,8 @@ function normalizeRegistryUrl(registry: string): string {
   try {
     url = new URL(registry);
   } catch (error) {
-    throw new SnpmError(
-      "SNPM_MANIFEST_INVALID",
+    throw new NexuError(
+      "NEXU_MANIFEST_INVALID",
       `registry URL is not valid: ${registry}`,
       {
         remedy: "set a registry URL such as https://registry.npmjs.org/",
@@ -314,8 +314,8 @@ function normalizeRegistryUrl(registry: string): string {
     );
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new SnpmError(
-      "SNPM_MANIFEST_INVALID",
+    throw new NexuError(
+      "NEXU_MANIFEST_INVALID",
       `registry URL must be http(s): ${registry}`,
       {
         remedy: "set an http(s) registry URL",
@@ -323,8 +323,8 @@ function normalizeRegistryUrl(registry: string): string {
     );
   }
   if (url.username !== "" || url.password !== "") {
-    throw new SnpmError(
-      "SNPM_MANIFEST_INVALID",
+    throw new NexuError(
+      "NEXU_MANIFEST_INVALID",
       "registry URL must not embed credentials",
       {
         remedy:
@@ -354,8 +354,8 @@ function credentialFreeOrigin(registry: string): string {
  */
 export function validateRegistryPackageName(name: string): void {
   const bad = (why: string): never => {
-    throw new SnpmError(
-      "SNPM_RESOLUTION_FAILED",
+    throw new NexuError(
+      "NEXU_RESOLUTION_FAILED",
       `invalid package name "${name}" (${why})`,
       {
         remedy: "use a real npm package name",
@@ -384,20 +384,20 @@ function parseTarballUrl(url: string, label: string): URL {
   try {
     parsed = new URL(url);
   } catch (error) {
-    throw new SnpmError(
-      "SNPM_FETCH_REFUSED",
+    throw new NexuError(
+      "NEXU_FETCH_REFUSED",
       `registry metadata for ${label} has an invalid tarball URL`,
       {
         detail: { label, url },
         remedy:
-          "report the registry response; snpm refuses to fetch a malformed URL",
+          "report the registry response; nexu refuses to fetch a malformed URL",
         cause: error,
       },
     );
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new SnpmError(
-      "SNPM_FETCH_REFUSED",
+    throw new NexuError(
+      "NEXU_FETCH_REFUSED",
       `tarball URL for ${label} uses unsupported protocol ${parsed.protocol}`,
       {
         detail: { label, url },
@@ -439,8 +439,8 @@ const RETRYABLE_NETWORK_CODES = new Set([
  * Map library/transport errors to stable codes. Keeps the library's message
  * and status available in `detail` without dumping config or headers.
  */
-function mapFetchError(error: unknown, what: string): SnpmError {
-  if (error instanceof SnpmError) return error;
+function mapFetchError(error: unknown, what: string): NexuError {
+  if (error instanceof NexuError) return error;
 
   const record = (error ?? {}) as {
     message?: unknown;
@@ -455,13 +455,13 @@ function mapFetchError(error: unknown, what: string): SnpmError {
   const code = typeof record.code === "string" ? record.code : undefined;
 
   if (status === 401 || status === 403 || code === "EOTP") {
-    return new SnpmError(
-      "SNPM_REGISTRY_AUTH",
+    return new NexuError(
+      "NEXU_REGISTRY_AUTH",
       `registry authorization failed while trying to ${what}`,
       {
         detail: { status, code },
         remedy:
-          "verify the credentials configured for this registry (and their scope); snpm never falls back to the public registry",
+          "verify the credentials configured for this registry (and their scope); nexu never falls back to the public registry",
         cause: error,
       },
     );
@@ -470,8 +470,8 @@ function mapFetchError(error: unknown, what: string): SnpmError {
     return httpStatusError(status, what, undefined, error);
   }
   if (code !== undefined && RETRYABLE_NETWORK_CODES.has(code)) {
-    return new SnpmError(
-      "SNPM_FETCH_FAILED",
+    return new NexuError(
+      "NEXU_FETCH_FAILED",
       `network failure while trying to ${what}: ${message}`,
       {
         detail: { errno: code },
@@ -481,7 +481,7 @@ function mapFetchError(error: unknown, what: string): SnpmError {
       },
     );
   }
-  return new SnpmError("SNPM_FETCH_FAILED", `failed to ${what}: ${message}`, {
+  return new NexuError("NEXU_FETCH_FAILED", `failed to ${what}: ${message}`, {
     ...(code === undefined ? {} : { detail: { errno: code } }),
     remedy: "check registry availability, then retry",
     cause: error,
@@ -493,12 +493,12 @@ function httpStatusError(
   what: string,
   url?: string,
   cause?: unknown,
-): SnpmError {
+): NexuError {
   const detail: Record<string, unknown> = { status };
   if (url !== undefined) detail.url = url;
   if (status === 404) {
-    return new SnpmError(
-      "SNPM_RESOLUTION_FAILED",
+    return new NexuError(
+      "NEXU_RESOLUTION_FAILED",
       `not found while trying to ${what} (HTTP 404)`,
       {
         detail,
@@ -509,8 +509,8 @@ function httpStatusError(
     );
   }
   if (status === 401 || status === 403) {
-    return new SnpmError(
-      "SNPM_REGISTRY_AUTH",
+    return new NexuError(
+      "NEXU_REGISTRY_AUTH",
       `registry authorization failed while trying to ${what} (HTTP ${status})`,
       {
         detail,
@@ -519,8 +519,8 @@ function httpStatusError(
       },
     );
   }
-  return new SnpmError(
-    "SNPM_FETCH_FAILED",
+  return new NexuError(
+    "NEXU_FETCH_FAILED",
     `registry responded HTTP ${status} while trying to ${what}`,
     {
       detail,
@@ -536,8 +536,8 @@ function validatePackument(
   origin: string,
 ): Packument {
   const bad = (why: string): never => {
-    throw new SnpmError(
-      "SNPM_RESOLUTION_FAILED",
+    throw new NexuError(
+      "NEXU_RESOLUTION_FAILED",
       `registry returned a malformed packument for ${requestedName} (${why})`,
       {
         detail: { name: requestedName, origin },

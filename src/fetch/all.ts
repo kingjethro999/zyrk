@@ -9,7 +9,7 @@
  * diagnostics are reproducible and never depend on completion order.
  */
 
-import { SnpmError, toSnpmError } from "../errors.ts";
+import { NexuError, toNexuError } from "../errors.ts";
 import { Store } from "../store/layout.ts";
 import { Transaction } from "../store/txn.ts";
 import type { StoreDb } from "../store/db.ts";
@@ -115,7 +115,7 @@ export async function fetchSources(
   };
 
   const results = new Array<FetchedSource | undefined>(sorted.length);
-  const failures = new Array<{ key: string; error: SnpmError } | undefined>(
+  const failures = new Array<{ key: string; error: NexuError } | undefined>(
     sorted.length,
   );
   let next = 0;
@@ -130,7 +130,7 @@ export async function fetchSources(
       } catch (error) {
         failures[index] = {
           key: request.key,
-          error: toSnpmError(error, `failed to fetch ${request.key}`),
+          error: toNexuError(error, `failed to fetch ${request.key}`),
         };
       }
     }
@@ -139,7 +139,7 @@ export async function fetchSources(
     Array.from({ length: Math.min(workers, sorted.length) }, () => runWorker()),
   );
 
-  let selected: { key: string; error: SnpmError } | undefined;
+  let selected: { key: string; error: NexuError } | undefined;
   for (const failure of failures) {
     if (failure === undefined) continue;
     if (
@@ -155,8 +155,8 @@ export async function fetchSources(
   for (const [index, request] of sorted.entries()) {
     const result = results[index];
     if (result === undefined) {
-      throw new SnpmError(
-        "SNPM_INTERNAL",
+      throw new NexuError(
+        "NEXU_INTERNAL",
         `fetch produced no result for ${request.key}`,
         {
           detail: { key: request.key },

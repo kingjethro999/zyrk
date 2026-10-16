@@ -15,7 +15,7 @@ let root: string;
 let lockPath: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-locks-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-locks-"));
   lockPath = path.join(root, "locks", "project.lock");
 });
 
@@ -96,7 +96,7 @@ describe("acquireLock", () => {
           timeoutMs: 400,
           onWait: (_owner, waitedMs) => waits.push(waitedMs),
         }),
-      ).rejects.toMatchObject({ code: "SNPM_PROJECT_LOCKED" });
+      ).rejects.toMatchObject({ code: "NEXU_PROJECT_LOCKED" });
     } finally {
       await holder.release();
     }

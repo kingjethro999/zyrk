@@ -83,7 +83,7 @@ describe("dispatch", () => {
   it("prints help when no command is given", () => {
     const result = dispatch(parseArgs([]), { version: VERSION, env: {} });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Usage: snpm <command>");
+    expect(result.stdout).toContain("Usage: nexu <command>");
     expect(result.stdout).toContain("install");
     expect(result.stderr).toBe("");
   });
@@ -103,8 +103,8 @@ describe("dispatch", () => {
       env: {},
     });
     expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("SNPM_USAGE");
-    expect(result.stdout).toContain("Usage: snpm <command>");
+    expect(result.stderr).toContain("NEXU_USAGE");
+    expect(result.stdout).toContain("Usage: nexu <command>");
   });
 
   it("rejects global installs before any work", () => {
@@ -113,7 +113,7 @@ describe("dispatch", () => {
       env: {},
     });
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("SNPM_GLOBAL_INSTALL_UNSUPPORTED");
+    expect(result.stderr).toContain("NEXU_GLOBAL_INSTALL_UNSUPPORTED");
     expect(result.stderr).toContain("npm install --global");
     expect(result.stdout).toBe("");
   });
@@ -124,7 +124,7 @@ describe("dispatch", () => {
       env: {},
     });
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("SNPM_NOT_IMPLEMENTED");
+    expect(result.stderr).toContain("NEXU_NOT_IMPLEMENTED");
   });
 
   it("emits the JSON envelope when requested", () => {
@@ -137,7 +137,7 @@ describe("dispatch", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       schemaVersion: 1,
       status: "error",
-      code: "SNPM_GLOBAL_INSTALL_UNSUPPORTED",
+      code: "NEXU_GLOBAL_INSTALL_UNSUPPORTED",
     });
   });
 });

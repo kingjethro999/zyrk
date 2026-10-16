@@ -7,12 +7,12 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import { isErrno, pathExists } from "../util/fsx.ts";
 import {
-  SNPM_LOCK_EXTENSION_VERSION,
+  NEXU_LOCK_EXTENSION_VERSION,
   type NpmLockDoc,
-  type SnpmLockExtension,
+  type NexuLockExtension,
 } from "./types.ts";
 
 export type ReadLockResult = {
@@ -35,8 +35,8 @@ export async function readLockfile(
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new SnpmError(
-      "SNPM_MANIFEST_INVALID",
+    throw new NexuError(
+      "NEXU_MANIFEST_INVALID",
       `lockfile at ${lockPath} is not valid JSON`,
       {
         detail: { path: lockPath },
@@ -50,9 +50,9 @@ export async function readLockfile(
 }
 
 export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
-  const bad = (why: string): SnpmError =>
-    new SnpmError(
-      "SNPM_MANIFEST_INVALID",
+  const bad = (why: string): NexuError =>
+    new NexuError(
+      "NEXU_MANIFEST_INVALID",
       `lockfile ${label} is malformed (${why})`,
       {
         detail: { path: label },
@@ -74,9 +74,9 @@ export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
     );
   }
   if (record["lockfileVersion"] === 1) {
-    throw new SnpmError(
-      "SNPM_MANIFEST_INVALID",
-      `lockfile ${label} uses the legacy v1 layout, which snpm cannot use`,
+    throw new NexuError(
+      "NEXU_MANIFEST_INVALID",
+      `lockfile ${label} uses the legacy v1 layout, which nexu cannot use`,
       {
         detail: { path: label },
         remedy:
@@ -100,21 +100,21 @@ export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
       }
     }
   }
-  if (record["snpm"] !== undefined) validateExtension(record["snpm"], label);
+  if (record["nexu"] !== undefined) validateExtension(record["nexu"], label);
   return doc as NpmLockDoc;
 }
 
 function validateExtension(
   extension: unknown,
   label: string,
-): asserts extension is SnpmLockExtension {
-  const bad = (why: string): SnpmError =>
-    new SnpmError(
-      "SNPM_LOCK_MISMATCH",
-      `lockfile ${label} has an unusable snpm extension (${why})`,
+): asserts extension is NexuLockExtension {
+  const bad = (why: string): NexuError =>
+    new NexuError(
+      "NEXU_LOCK_MISMATCH",
+      `lockfile ${label} has an unusable nexu extension (${why})`,
       {
         detail: { path: label },
-        remedy: "refresh the lockfile intentionally with snpm",
+        remedy: "refresh the lockfile intentionally with nexu",
       },
     );
   if (
@@ -125,7 +125,7 @@ function validateExtension(
     throw bad("extension is not an object");
   }
   const record = extension as Record<string, unknown>;
-  if (record["version"] !== SNPM_LOCK_EXTENSION_VERSION) {
+  if (record["version"] !== NEXU_LOCK_EXTENSION_VERSION) {
     throw bad(
       `extension version ${String(record["version"])} is not supported`,
     );
@@ -156,25 +156,25 @@ export type FrozenFingerprints = {
  * Frozen-install compatibility (D-1): the extension must exist, come from a
  * supported writer, and match the current manifests, portable script
  * policy, and resolution configuration. Any disagreement fails with
- * SNPM_LOCK_MISMATCH; a frozen install never silently re-resolves.
+ * NEXU_LOCK_MISMATCH; a frozen install never silently re-resolves.
  */
 export function assertFrozenCompatible(
   doc: NpmLockDoc,
   expected: FrozenFingerprints,
 ): void {
-  const mismatch = (what: string, remedy: string): SnpmError =>
-    new SnpmError(
-      "SNPM_LOCK_MISMATCH",
+  const mismatch = (what: string, remedy: string): NexuError =>
+    new NexuError(
+      "NEXU_LOCK_MISMATCH",
       `frozen lockfile is not compatible (${what})`,
       {
         remedy,
       },
     );
-  const extension = doc.snpm;
+  const extension = doc.nexu;
   if (extension === undefined) {
     throw mismatch(
-      "no snpm extension",
-      "this lockfile was written without snpm metadata; refresh it intentionally with snpm",
+      "no nexu extension",
+      "this lockfile was written without nexu metadata; refresh it intentionally with nexu",
     );
   }
   if (extension.manifest !== expected.manifest) {

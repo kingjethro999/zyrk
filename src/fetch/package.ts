@@ -10,7 +10,7 @@
 
 import { rm } from "node:fs/promises";
 import * as path from "node:path";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import { extractTarball, type ExtractionLimits } from "../extract/tarball.ts";
 import type { Logger } from "../log.ts";
 import { ensureDirWithMode } from "../util/fsx.ts";
@@ -66,8 +66,8 @@ export async function fetchAndCommitSource(
     const tags = Object.entries(packument.distTags)
       .map(([tag, target]) => `${tag}=${target}`)
       .join(", ");
-    throw new SnpmError(
-      "SNPM_RESOLUTION_FAILED",
+    throw new NexuError(
+      "NEXU_RESOLUTION_FAILED",
       `registry has no version ${version} of ${name}`,
       {
         detail: {
@@ -86,8 +86,8 @@ export async function fetchAndCommitSource(
 
   const expectedIntegrity = expectedIntegrityFromDist(entry.dist);
   if (expectedIntegrity === undefined && options.allowWeakIntegrity !== true) {
-    throw new SnpmError(
-      "SNPM_INTEGRITY_FAILED",
+    throw new NexuError(
+      "NEXU_INTEGRITY_FAILED",
       `registry metadata for ${label} carries no integrity digest`,
       {
         detail: { name, version },
@@ -128,7 +128,7 @@ export async function fetchAndCommitSource(
       ...(options.limits === undefined ? {} : { limits: options.limits }),
     });
   } catch (error) {
-    if (error instanceof SnpmError && error.code === "SNPM_EXTRACTION_UNSAFE") {
+    if (error instanceof NexuError && error.code === "NEXU_EXTRACTION_UNSAFE") {
       throw error;
     }
     throw error;

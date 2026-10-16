@@ -7,7 +7,7 @@ import {
   IntegrityHasher,
   parseSri,
 } from "../src/util/integrity.ts";
-import { SnpmError } from "../src/errors.ts";
+import { NexuError } from "../src/errors.ts";
 
 // Real, published test vectors: sha512("abc") and sha1("abc").
 const ABC_SHA512_HEX =
@@ -44,7 +44,7 @@ describe("IntegrityHasher", () => {
   it("refuses use after finalize", () => {
     const hasher = new IntegrityHasher();
     hasher.finalize();
-    expect(() => hasher.update(Buffer.from("x"))).toThrow(SnpmError);
+    expect(() => hasher.update(Buffer.from("x"))).toThrow(NexuError);
   });
 });
 
@@ -99,11 +99,11 @@ describe("checkIntegrity and assertIntegrityOk", () => {
     expect(outcome.status).toBe("mismatch");
     expect(() =>
       assertIntegrityOk(hashed, wrong, { what: "tarball x" }),
-    ).toThrow(SnpmError);
+    ).toThrow(NexuError);
     try {
       assertIntegrityOk(hashed, wrong, { what: "tarball x" });
     } catch (error) {
-      expect((error as SnpmError).code).toBe("SNPM_INTEGRITY_FAILED");
+      expect((error as NexuError).code).toBe("NEXU_INTEGRITY_FAILED");
     }
   });
 
@@ -112,7 +112,7 @@ describe("checkIntegrity and assertIntegrityOk", () => {
     expect(checkIntegrity(hashed, weak).status).toBe("weak-verified");
     expect(() =>
       assertIntegrityOk(hashed, weak, { what: "tarball x" }),
-    ).toThrow(SnpmError);
+    ).toThrow(NexuError);
     const allowed = assertIntegrityOk(hashed, weak, {
       what: "tarball x",
       allowWeak: true,
@@ -127,7 +127,7 @@ describe("checkIntegrity and assertIntegrityOk", () => {
     );
     expect(() =>
       assertIntegrityOk(hashed, undefined, { what: "tarball x" }),
-    ).toThrow(SnpmError);
+    ).toThrow(NexuError);
     const allowed = assertIntegrityOk(hashed, undefined, {
       what: "tarball x",
       allowMissing: true,
@@ -139,6 +139,6 @@ describe("checkIntegrity and assertIntegrityOk", () => {
     expect(checkIntegrity(hashed, "garbage").status).toBe("malformed");
     expect(() =>
       assertIntegrityOk(hashed, "garbage", { what: "tarball x" }),
-    ).toThrow(SnpmError);
+    ).toThrow(NexuError);
   });
 });

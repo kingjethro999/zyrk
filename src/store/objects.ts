@@ -1,6 +1,6 @@
 import { open, rename, rm, stat, chmod } from "node:fs/promises";
 import * as path from "node:path";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import {
   Digest,
   committedMode,
@@ -63,8 +63,8 @@ export async function commitObjectFromStaging(
     if (existing.size !== staged.bytes) {
       // Same key, different bytes: digest reuse across content. Never silently
       // accept (I-001); quarantine and report.
-      throw new SnpmError(
-        "SNPM_STORE_CORRUPT",
+      throw new NexuError(
+        "NEXU_STORE_CORRUPT",
         `object ${objectId} exists with ${existing.size} bytes but the verified staged file has ${staged.bytes}`,
         {
           detail: {
@@ -73,7 +73,7 @@ export async function commitObjectFromStaging(
             foundBytes: existing.size,
           },
           remedy:
-            "run `snpm store verify --full` and re-fetch the affected source",
+            "run `nexu store verify --full` and re-fetch the affected source",
         },
       );
     }
@@ -90,8 +90,8 @@ export async function commitObjectFromStaging(
     await rename(staged.stagingPath, target);
   } catch (error) {
     if (isErrno(error, "ENOENT")) {
-      throw new SnpmError(
-        "SNPM_STORE_CORRUPT",
+      throw new NexuError(
+        "NEXU_STORE_CORRUPT",
         `staged object vanished before commit: ${staged.stagingPath}`,
         {
           detail: { stagingPath: staged.stagingPath, objectId },

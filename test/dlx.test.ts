@@ -17,7 +17,7 @@ let registry: StubRegistry;
 let client: RegistryClient;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-"));
   store = await Store.open({ root: path.join(root, "store"), create: true });
   registry = await startStubRegistry([
     {
@@ -109,7 +109,7 @@ beforeEach(async () => {
   ]);
   client = new RegistryClient({
     registry: registry.url,
-    userAgent: "snpm-test/0",
+    userAgent: "nexu-test/0",
   });
 });
 
@@ -122,7 +122,7 @@ function toolEnv(): NodeJS.ProcessEnv {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("SNPM_") &&
+        !key.startsWith("NEXU_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS",
     ),
@@ -159,7 +159,7 @@ describe("splitDlxSpec", () => {
 
 describe("runDlx", () => {
   it("resolves, fetches, realizes, and runs a tool with its dependencies", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       const result = await runDlx({
         store,
@@ -182,7 +182,7 @@ describe("runDlx", () => {
   });
 
   it("reuses shared realizations on the second run", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       const env = toolEnv();
       const first = await runDlx({
@@ -211,7 +211,7 @@ describe("runDlx", () => {
   });
 
   it("resolves tags to their exact version", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       const result = await runDlx({
         store,
@@ -230,7 +230,7 @@ describe("runDlx", () => {
   });
 
   it("fails unknown versions without running anything", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       await expect(
         runDlx({
@@ -240,14 +240,14 @@ describe("runDlx", () => {
           cwd: project,
           env: toolEnv(),
         }),
-      ).rejects.toMatchObject({ code: "SNPM_RESOLUTION_FAILED" });
+      ).rejects.toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
     } finally {
       await rm(project, { recursive: true, force: true });
     }
   });
 
   it("blocks scripted closures before anything executes", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       await expect(
         runDlx({
@@ -257,7 +257,7 @@ describe("runDlx", () => {
           cwd: project,
           env: toolEnv(),
         }),
-      ).rejects.toMatchObject({ code: "SNPM_SCRIPT_BLOCKED" });
+      ).rejects.toMatchObject({ code: "NEXU_SCRIPT_BLOCKED" });
       expect(await pathExists(path.join(project, "PWNED"))).toBe(false);
     } finally {
       await rm(project, { recursive: true, force: true });
@@ -265,7 +265,7 @@ describe("runDlx", () => {
   });
 
   it("fails tools without a usable bin entry", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       await expect(
         runDlx({
@@ -275,7 +275,7 @@ describe("runDlx", () => {
           cwd: project,
           env: toolEnv(),
         }),
-      ).rejects.toMatchObject({ code: "SNPM_RESOLUTION_FAILED" });
+      ).rejects.toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
       await expect(
         runDlx({
           store,
@@ -284,14 +284,14 @@ describe("runDlx", () => {
           cwd: project,
           env: toolEnv(),
         }),
-      ).rejects.toMatchObject({ code: "SNPM_RESOLUTION_FAILED" });
+      ).rejects.toMatchObject({ code: "NEXU_RESOLUTION_FAILED" });
     } finally {
       await rm(project, { recursive: true, force: true });
     }
   });
 
   it("propagates the tool exit code and still cleans up", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       const result = await runDlx({
         store,
@@ -309,7 +309,7 @@ describe("runDlx", () => {
   });
 
   it("writes the tool output to a file through the working directory", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-dlx-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-dlx-cwd-"));
     try {
       await writeFile(path.join(project, "marker.txt"), "cwd-ok\n");
       const result = await runDlx({

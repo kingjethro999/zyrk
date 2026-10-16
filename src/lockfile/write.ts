@@ -1,25 +1,25 @@
 /**
- * package-lock.json writer: refresh npm-owned selections, record the snpm
+ * package-lock.json writer: refresh npm-owned selections, record the nexu
  * extension, preserve everything else byte-identically (D-1).
  *
  * npm `packages` entries are maintained only for the root importer and its
  * direct dependencies (the links a project projection actually creates);
- * the transitive closure lives in the snpm extension. Existing npm entries
+ * the transitive closure lives in the nexu extension. Existing npm entries
  * — including transitive ones from an npm-written lock — are preserved as
  * found and never deleted: the writer updates what it owns and leaves the
  * rest alone. Same inputs always produce byte-identical output.
  */
 
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import type { ResolvedOccurrence } from "../resolve/resolver.ts";
 import { CONTEXT_CANONICALIZATION_VERSION } from "../version.ts";
 import { writeFileAtomic } from "../util/fsx.ts";
 import {
-  SNPM_LOCK_EXTENSION_VERSION,
-  SNPM_RESOLVER_POLICY,
+  NEXU_LOCK_EXTENSION_VERSION,
+  NEXU_RESOLVER_POLICY,
   type NpmLockDoc,
-  type SnpmLockExtension,
-  type SnpmLockNode,
+  type NexuLockExtension,
+  type NexuLockNode,
 } from "./types.ts";
 
 export type WriteLockResolution = {
@@ -48,9 +48,9 @@ export async function writeLockfile(
       ? {}
       : (JSON.parse(JSON.stringify(options.existing)) as NpmLockDoc);
   if (existing.lockfileVersion === 1) {
-    throw new SnpmError(
-      "SNPM_MANIFEST_INVALID",
-      "existing lockfile uses the legacy v1 layout, which snpm cannot refresh",
+    throw new NexuError(
+      "NEXU_MANIFEST_INVALID",
+      "existing lockfile uses the legacy v1 layout, which nexu cannot refresh",
       {
         detail: { path: options.path },
         remedy:
@@ -61,8 +61,8 @@ export async function writeLockfile(
   const lockfileVersion =
     options.lockfileVersion ?? existing.lockfileVersion ?? 3;
   if (lockfileVersion !== 2 && lockfileVersion !== 3) {
-    throw new SnpmError(
-      "SNPM_INTERNAL",
+    throw new NexuError(
+      "NEXU_INTERNAL",
       `unsupported lockfileVersion ${lockfileVersion}`,
       {
         detail: { path: options.path },
@@ -91,8 +91,8 @@ export async function writeLockfile(
   )) {
     const node = byKey.get(root.target);
     if (node === undefined) {
-      throw new SnpmError(
-        "SNPM_INTERNAL",
+      throw new NexuError(
+        "NEXU_INTERNAL",
         `resolution root ${root.name} has no node`,
         {
           detail: { root: root.name, target: root.target },
@@ -113,7 +113,7 @@ export async function writeLockfile(
     if (entry !== undefined) sortedPackages[location] = entry;
   }
 
-  const nodes: Record<string, SnpmLockNode> = {};
+  const nodes: Record<string, NexuLockNode> = {};
   for (const node of [...options.resolution.nodes].sort((a, b) =>
     compareStrings(a.key, b.key),
   )) {
@@ -148,9 +148,9 @@ export async function writeLockfile(
   )) {
     rootMap[root.name] = root.target;
   }
-  const extension: SnpmLockExtension = {
-    version: SNPM_LOCK_EXTENSION_VERSION,
-    resolver: SNPM_RESOLVER_POLICY,
+  const extension: NexuLockExtension = {
+    version: NEXU_LOCK_EXTENSION_VERSION,
+    resolver: NEXU_RESOLVER_POLICY,
     contextCanonicalization: CONTEXT_CANONICALIZATION_VERSION,
     manifest: options.fingerprints.manifest,
     scripts: options.fingerprints.scripts,
@@ -177,13 +177,13 @@ export async function writeLockfile(
       key === "requires" ||
       key === "packages" ||
       key === "dependencies" ||
-      key === "snpm"
+      key === "nexu"
     ) {
       continue;
     }
     doc[key] = existing[key];
   }
-  doc.snpm = extension;
+  doc.nexu = extension;
 
   await writeFileAtomic(options.path, `${JSON.stringify(doc, null, 2)}\n`, {
     mode: 0o644,

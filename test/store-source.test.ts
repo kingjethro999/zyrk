@@ -37,7 +37,7 @@ let store: Store;
 let counter = 0;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-source-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-source-"));
   store = await Store.open({ root, create: true });
 });
 
@@ -219,7 +219,7 @@ describe("commitExtractedSource", () => {
     await expect(
       commitExtractedSource(commitInput(empty)),
     ).rejects.toMatchObject({
-      code: "SNPM_EXTRACTION_UNSAFE",
+      code: "NEXU_EXTRACTION_UNSAFE",
     });
   });
 
@@ -237,7 +237,7 @@ describe("commitExtractedSource", () => {
     await expect(
       commitExtractedSource(commitInput(duplicate)),
     ).rejects.toMatchObject({
-      code: "SNPM_EXTRACTION_UNSAFE",
+      code: "NEXU_EXTRACTION_UNSAFE",
     });
   });
 });
@@ -260,7 +260,7 @@ describe("readSourceManifest integrity", () => {
     await expect(
       readSourceManifest(store, result.sourceId),
     ).rejects.toMatchObject({
-      code: "SNPM_STORE_CORRUPT",
+      code: "NEXU_STORE_CORRUPT",
     });
   });
 
@@ -277,7 +277,7 @@ describe("readSourceManifest integrity", () => {
     await expect(
       readSourceManifest(store, result.sourceId),
     ).rejects.toMatchObject({
-      code: "SNPM_STORE_CORRUPT",
+      code: "NEXU_STORE_CORRUPT",
     });
   });
 
@@ -285,7 +285,7 @@ describe("readSourceManifest integrity", () => {
     await expect(
       readSourceManifest(store, "src-missing-source"),
     ).rejects.toMatchObject({
-      code: "SNPM_STORE_CORRUPT",
+      code: "NEXU_STORE_CORRUPT",
     });
   });
 });

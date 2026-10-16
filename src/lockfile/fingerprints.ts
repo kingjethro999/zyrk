@@ -5,7 +5,7 @@
  * - manifest: importer dependency declarations (prod/dev/optional/peer
  *   groups, overrides, workspace membership). Any requirement change alters
  *   the allowed set, so the frozen lock must be refreshed intentionally.
- * - scripts: the portable project script policy (D-2 `snpm.scripts`
+ * - scripts: the portable project script policy (D-2 `nexu.scripts`
  *   field, or the documented default). Local trust changes live outside
  *   the lock; only portable intent is fingerprinted.
  * - config: resolution-affecting configuration (registry origin, linker

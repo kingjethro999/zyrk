@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import type { ModeClass } from "../util/hash.ts";
 
 /**
@@ -43,13 +43,13 @@ export function migrate(db: StoreDb): void {
   const version = userVersion(db);
   if (version === SCHEMA_VERSION) return;
   if (version > SCHEMA_VERSION) {
-    throw new SnpmError(
-      "SNPM_STORE_FORMAT_UNSUPPORTED",
-      `metadata schema ${version} is newer than this snpm understands (${SCHEMA_VERSION})`,
+    throw new NexuError(
+      "NEXU_STORE_FORMAT_UNSUPPORTED",
+      `metadata schema ${version} is newer than this nexu understands (${SCHEMA_VERSION})`,
       {
         detail: { schemaVersion: version, supported: SCHEMA_VERSION },
         remedy:
-          "upgrade snpm, or point SNPM_STORE_DIR at a store created by this version",
+          "upgrade nexu, or point NEXU_STORE_DIR at a store created by this version",
       },
     );
   }
@@ -65,8 +65,8 @@ export function migrate(db: StoreDb): void {
     }
     return;
   }
-  throw new SnpmError(
-    "SNPM_INTERNAL",
+  throw new NexuError(
+    "NEXU_INTERNAL",
     `no migration path from metadata schema ${version}`,
     {
       detail: { schemaVersion: version },

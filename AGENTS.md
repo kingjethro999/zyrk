@@ -1,4 +1,4 @@
-# snpm contributor guide (humans and agents)
+# nexu contributor guide (humans and agents)
 
 > **################################################################**
 > **# MAINTAINER BANNER — READ THIS FIRST #**
@@ -16,7 +16,7 @@
 > **# carry on — this file is your guidance. #**
 > **################################################################**
 
-snpm is an npm-compatible package manager: one verified package store per
+nexu is an npm-compatible package manager: one verified package store per
 OS user, with dependency-aware shared realizations linked into projects.
 Application code keeps using ordinary imports. Status: pre-release, under
 construction — nothing here is a supported capability until it is built,
@@ -36,7 +36,7 @@ npm run typecheck    # tsc --noEmit
 npm test             # vitest
 npm run check        # typecheck + tests (this is the gate)
 npm run format       # prettier --write . (keep the tree formatted)
-node bin/snpm.js --help  # current command surface
+node bin/nexu.js --help  # current command surface
 ```
 
 ## Commit discipline
@@ -60,7 +60,7 @@ node bin/snpm.js --help  # current command surface
 - Every behavior ships with a test that proves it. Prefer hermetic fixtures
   (see `test/helpers/`) over network access. A test that only passes with
   wifi is a bad test.
-- Errors use the stable `SNPM_*` codes in `src/errors.ts`, name the failed
+- Errors use the stable `NEXU_*` codes in `src/errors.ts`, name the failed
   action and the subject, state a remedy, and never leak credentials, tokens,
   or local paths. Human and `--json` output must agree.
 - Docs, help text, and the README must never imply a capability that has not
@@ -71,8 +71,8 @@ node bin/snpm.js --help  # current command surface
 - Never run `npm install` into a temporary tree as an install path, and
   never claim shared storage is a new idea (pnpm hard-links too) or report
   folder-size sums as disk savings.
-- Never install packages globally through snpm and never forward such a
-  request to npm: fail with `SNPM_GLOBAL_INSTALL_UNSUPPORTED` and tell the
+- Never install packages globally through nexu and never forward such a
+  request to npm: fail with `NEXU_GLOBAL_INSTALL_UNSUPPORTED` and tell the
   user to run npm directly.
 - Never substitute a cached version for a resolved version, never edit a
   committed shared realization in place, and never let one project change

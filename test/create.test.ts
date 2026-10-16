@@ -39,7 +39,7 @@ describe("runCreate", () => {
   let client: RegistryClient;
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(os.tmpdir(), "snpm-create-"));
+    root = await mkdtemp(path.join(os.tmpdir(), "nexu-create-"));
     store = await Store.open({ root: path.join(root, "store"), create: true });
     registry = await startStubRegistry([
       {
@@ -60,7 +60,7 @@ describe("runCreate", () => {
     ]);
     client = new RegistryClient({
       registry: registry.url,
-      userAgent: "snpm-test/0",
+      userAgent: "nexu-test/0",
     });
   });
 
@@ -70,12 +70,12 @@ describe("runCreate", () => {
   });
 
   it("runs the starter package for a bare initializer", async () => {
-    const project = await mkdtemp(path.join(os.tmpdir(), "snpm-create-cwd-"));
+    const project = await mkdtemp(path.join(os.tmpdir(), "nexu-create-cwd-"));
     try {
       const env = Object.fromEntries(
         Object.entries(process.env).filter(
           ([key]) =>
-            !key.startsWith("SNPM_") &&
+            !key.startsWith("NEXU_") &&
             key !== "NODE_PATH" &&
             key !== "NODE_OPTIONS",
         ),

@@ -18,7 +18,7 @@ import { parseArgs } from "../src/cli/parse.ts";
 /**
  * D-3 evidence: registry write-side and account commands run the user's own
  * npm with verbatim arguments, a stderr disclosure, and unchanged exit
- * behavior. snpm interprets nothing after the command token.
+ * behavior. nexu interprets nothing after the command token.
  *
  * The fake-npm fixtures are POSIX-only; the Windows platform gate re-covers
  * this scenario there.
@@ -26,7 +26,7 @@ import { parseArgs } from "../src/cli/parse.ts";
 
 const BIN = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../bin/snpm.js",
+  "../bin/nexu.js",
 );
 
 let root: string;
@@ -34,7 +34,7 @@ let project: string;
 let fakeBin: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-delegate-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-delegate-"));
   project = path.join(root, "project");
   fakeBin = path.join(root, "bin");
   await mkdir(project, { recursive: true });
@@ -49,7 +49,7 @@ afterEach(async () => {
 async function installFakeNpm(exitCode: string): Promise<void> {
   const script = [
     "#!/bin/sh",
-    'echo "$@" > "$SNPM_TEST_NPM_ARGS"',
+    'echo "$@" > "$NEXU_TEST_NPM_ARGS"',
     `exit ${exitCode}`,
     "",
   ].join("\n");
@@ -64,7 +64,7 @@ function childEnv(
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("SNPM_") &&
+        !key.startsWith("NEXU_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS",
     ),
@@ -77,7 +77,7 @@ function childEnv(
   return env;
 }
 
-function runSnpm(
+function runNexu(
   args: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -150,13 +150,13 @@ describe.skipIf(process.platform === "win32")(
     it("forwards publish arguments verbatim with a disclosure", async () => {
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runSnpm(
+      const result = await runNexu(
         ["publish", "--tag", "beta", "--access", "public"],
-        childEnv({ SNPM_TEST_NPM_ARGS: argsPath }),
+        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toContain("delegating `snpm publish` to npm");
+      expect(result.stderr).toContain("delegating `nexu publish` to npm");
       expect(await readFile(argsPath, "utf8")).toBe(
         "publish --tag beta --access public\n",
       );
@@ -165,24 +165,24 @@ describe.skipIf(process.platform === "win32")(
     it("propagates the npm exit code unchanged", async () => {
       await installFakeNpm("3");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runSnpm(
+      const result = await runNexu(
         ["dist-tag", "ls", "some-package"],
-        childEnv({ SNPM_TEST_NPM_ARGS: argsPath }),
+        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
       );
 
       expect(result.exitCode).toBe(3);
-      expect(result.stderr).toContain("delegating `snpm dist-tag` to npm");
+      expect(result.stderr).toContain("delegating `nexu dist-tag` to npm");
       expect(await readFile(argsPath, "utf8")).toBe(
         "dist-tag ls some-package\n",
       );
     });
 
-    it("forwards flags snpm would otherwise interpret, including -g", async () => {
+    it("forwards flags nexu would otherwise interpret, including -g", async () => {
       await installFakeNpm("0");
       const argsPath = path.join(root, "npm-args.txt");
-      const result = await runSnpm(
+      const result = await runNexu(
         ["whoami", "--json", "-g"],
-        childEnv({ SNPM_TEST_NPM_ARGS: argsPath }),
+        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
       );
 
       expect(result.exitCode).toBe(0);
@@ -201,7 +201,7 @@ describe.skipIf(process.platform === "win32")(
       });
 
       expect(code).toBe(1);
-      expect(errOut.join("")).toContain("SNPM_NPM_UNAVAILABLE");
+      expect(errOut.join("")).toContain("NEXU_NPM_UNAVAILABLE");
     });
 
     it("maps a signaled npm to the shell-convention exit code", async () => {
@@ -209,7 +209,7 @@ describe.skipIf(process.platform === "win32")(
       const recorderPath = path.join(fakeBin, "npm");
       await writeFile(recorderPath, script);
       await chmod(recorderPath, 0o755);
-      const result = await runSnpm(["ping"], childEnv());
+      const result = await runNexu(["ping"], childEnv());
 
       expect(result.exitCode).toBe(143);
     });

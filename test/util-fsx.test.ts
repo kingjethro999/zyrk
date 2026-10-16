@@ -15,7 +15,7 @@ import { pathExists, rmrfNoFollow } from "../src/util/fsx.ts";
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-fsx-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-fsx-"));
 });
 
 afterEach(async () => {

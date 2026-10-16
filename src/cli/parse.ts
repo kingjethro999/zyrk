@@ -1,11 +1,11 @@
 /**
- * Minimal argv parsing for the snpm CLI (SPEC 15).
+ * Minimal argv parsing for the nexu CLI (SPEC 15).
  *
- * snpm takes no global configuration file of its own here: flags are parsed
+ * nexu takes no global configuration file of its own here: flags are parsed
  * per invocation. `--json` anywhere before the `--` separator selects the
  * machine-readable envelope. Everything after `--` belongs to the requested
  * user command (SPEC 15.3.1: flags following the separator for `run`/`exec`
- * remain user arguments, never snpm options).
+ * remain user arguments, never nexu options).
  */
 
 export type ParsedArgs = {
@@ -70,7 +70,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   return parsed;
 }
 
-/** Commands whose global-install mode snpm rejects (SPEC 15.3.1, 22.3). */
+/** Commands whose global-install mode nexu rejects (SPEC 15.3.1, 22.3). */
 const GLOBAL_INSTALL_COMMANDS = new Set(["install", "i", "add"]);
 
 /**
@@ -78,8 +78,8 @@ const GLOBAL_INSTALL_COMMANDS = new Set(["install", "i", "add"]);
  *
  * Exact tokens `-g` and `--global` in any position, plus the `--global=true`
  * spelling, select global mode; `install`/`add` take no `--` payload, so
- * tokens after a separator are still snpm's. Explicit local selections
- * (`--no-global`, `--global=false`) do not trigger. snpm defines no
+ * tokens after a separator are still nexu's. Explicit local selections
+ * (`--no-global`, `--global=false`) do not trigger. nexu defines no
  * configuration that selects global-install mode, so the only remaining
  * channel is the environment npm itself documents: `npm_config_global=true`
  * is honored as a fail-safe, never as a silent conversion.

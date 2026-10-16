@@ -20,7 +20,7 @@
  */
 
 import { maxSatisfying, satisfies, valid } from "semver";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 import {
   expectedIntegrityFromDist,
   type Packument,
@@ -183,8 +183,8 @@ class ResolverState {
     const { version, entry } = await selectVersion(this, req);
     const integrity = expectedIntegrityFromDist(entry.dist);
     if (integrity === undefined) {
-      throw new SnpmError(
-        "SNPM_INTEGRITY_FAILED",
+      throw new NexuError(
+        "NEXU_INTEGRITY_FAILED",
         `registry metadata for ${req.realName}@${version} carries no integrity digest`,
         {
           detail: { name: req.realName, version },
@@ -336,8 +336,8 @@ class ResolverState {
     });
     const integrity = expectedIntegrityFromDist(entry.dist);
     if (integrity === undefined) {
-      throw new SnpmError(
-        "SNPM_INTEGRITY_FAILED",
+      throw new NexuError(
+        "NEXU_INTEGRITY_FAILED",
         `registry metadata for ${req.realName}@${version} carries no integrity digest`,
         {
           detail: { name: req.realName, version },
@@ -449,8 +449,8 @@ async function selectVersion(
   },
 ): Promise<{ version: string; entry: PackumentVersion }> {
   const packument = await state.packumentOf(req.realName);
-  const fail = (message: string, remedy: string): SnpmError =>
-    new SnpmError("SNPM_RESOLUTION_FAILED", message, {
+  const fail = (message: string, remedy: string): NexuError =>
+    new NexuError("NEXU_RESOLUTION_FAILED", message, {
       detail: { name: req.realName, spec: req.targetSpec },
       remedy,
     });
@@ -548,13 +548,13 @@ function peerConflict(
   occ: Occurrence,
   spec: PeerSpec,
   found: Array<{ version: string; via: string }>,
-): SnpmError {
+): NexuError {
   const chain = [
     ...occ.chain.map((frame) => frame.label),
     `${occ.name}@${occ.version}`,
   ];
-  return new SnpmError(
-    "SNPM_PEER_CONFLICT",
+  return new NexuError(
+    "NEXU_PEER_CONFLICT",
     `incompatible peer ${spec.name}@${spec.range} required by ${occ.name}@${occ.version}`,
     {
       detail: {
@@ -612,8 +612,8 @@ function assertMergeable(
   const sourceA = sourceIdForOccurrence(a, origin);
   const sourceB = sourceIdForOccurrence(b, origin);
   if (sourceA !== sourceB) {
-    throw new SnpmError(
-      "SNPM_RESOLUTION_FAILED",
+    throw new NexuError(
+      "NEXU_RESOLUTION_FAILED",
       `same occurrence key selects different sources for ${a.name}@${a.version}`,
       {
         detail: { key: keys.get(a), sources: [sourceA, sourceB] },
@@ -752,6 +752,6 @@ function compareStrings(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function internal(message: string): SnpmError {
-  return new SnpmError("SNPM_INTERNAL", message);
+function internal(message: string): NexuError {
+  return new NexuError("NEXU_INTERNAL", message);
 }

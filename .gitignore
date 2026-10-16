@@ -2,10 +2,12 @@
 
 SPEC.md
 SNPM_SPEC_v1.2.md
+NEXU_SPEC_v1.2.md
 
 node_modules/
 dist/
 *.tsbuildinfo
+.nexu-local/
 .snpm-local/
 coverage/
 tmp/

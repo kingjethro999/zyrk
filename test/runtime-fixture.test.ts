@@ -38,7 +38,7 @@ import { craftTar, type CraftEntry } from "./helpers/tar.ts";
  * P-001 evidence: the shared realization layout runs under ordinary Node.
  * Fixture packages are committed through the real extraction and commit
  * pipeline, then executed with plain `node app.cjs` / `node app.mjs` against a
- * projection. Every SNPM_* variable, NODE_PATH, and NODE_OPTIONS is stripped
+ * projection. Every NEXU_* variable, NODE_PATH, and NODE_OPTIONS is stripped
  * from the child environment: the layout must need no loader and no help.
  */
 
@@ -49,7 +49,7 @@ let store: Store;
 let counter = 0;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-runtime-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-runtime-"));
   store = await Store.open({ root: path.join(root, "store"), create: true });
 });
 
@@ -101,7 +101,7 @@ function runNode(cwd: string, file: string): Promise<string> {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
-        !key.startsWith("SNPM_") &&
+        !key.startsWith("NEXU_") &&
         key !== "NODE_PATH" &&
         key !== "NODE_OPTIONS",
     ),
@@ -323,7 +323,7 @@ describe("shared realizations", () => {
 
     const state = JSON.parse(
       await readFile(
-        path.join(projectA, "node_modules", ".snpm", "install-state.json"),
+        path.join(projectA, "node_modules", ".nexu", "install-state.json"),
         "utf8",
       ),
     ) as {
@@ -381,7 +381,7 @@ describe("shared realizations", () => {
       false,
     );
     const leftovers = (await readdir(project)).filter((name) =>
-      name.startsWith("node_modules.snpm-"),
+      name.startsWith("node_modules.nexu-"),
     );
     expect(leftovers).toEqual([]);
 
@@ -396,15 +396,15 @@ describe("shared realizations", () => {
 describe("projection recovery", () => {
   it("restores the previous complete projection after an interrupted swap", async () => {
     const project = path.join(root, "crash-project");
-    const oldDir = path.join(project, "node_modules.snpm-old-gen1_crash");
+    const oldDir = path.join(project, "node_modules.nexu-old-gen1_crash");
     await mkdir(oldDir, { recursive: true });
     await writeFile(path.join(oldDir, "marker.txt"), "old-complete\n");
-    await mkdir(path.join(project, "node_modules.snpm-staging-gen1_crash"), {
+    await mkdir(path.join(project, "node_modules.nexu-staging-gen1_crash"), {
       recursive: true,
     });
-    await mkdir(path.join(project, ".snpm-local"), { recursive: true });
+    await mkdir(path.join(project, ".nexu-local"), { recursive: true });
     await writeFile(
-      path.join(project, ".snpm-local", "journal.jsonl"),
+      path.join(project, ".nexu-local", "journal.jsonl"),
       `${JSON.stringify({ at: new Date().toISOString(), event: "old-moved", generationId: "gen1_crash" })}\n`,
     );
 
@@ -414,13 +414,13 @@ describe("projection recovery", () => {
       await readFile(path.join(project, "node_modules", "marker.txt"), "utf8"),
     ).toBe("old-complete\n");
     await expect(
-      lstat(path.join(project, "node_modules.snpm-staging-gen1_crash")),
+      lstat(path.join(project, "node_modules.nexu-staging-gen1_crash")),
     ).rejects.toThrow();
     await expect(
-      lstat(path.join(project, "node_modules.snpm-old-gen1_crash")),
+      lstat(path.join(project, "node_modules.nexu-old-gen1_crash")),
     ).rejects.toThrow();
     await expect(
-      lstat(path.join(project, ".snpm-local", "journal.jsonl")),
+      lstat(path.join(project, ".nexu-local", "journal.jsonl")),
     ).rejects.toThrow();
   });
 
@@ -428,9 +428,9 @@ describe("projection recovery", () => {
     const project = path.join(root, "noisy-project");
     await mkdir(path.join(project, "node_modules"), { recursive: true });
     await writeFile(path.join(project, "node_modules", "marker.txt"), "live\n");
-    const stray = path.join(project, "node_modules.snpm-old-gen1_stray");
+    const stray = path.join(project, "node_modules.nexu-old-gen1_stray");
     await mkdir(stray, { recursive: true });
-    await mkdir(path.join(project, "node_modules.snpm-staging-gen1_stray"), {
+    await mkdir(path.join(project, "node_modules.nexu-staging-gen1_stray"), {
       recursive: true,
     });
 
@@ -441,7 +441,7 @@ describe("projection recovery", () => {
     ).toBe("live\n");
     expect((await lstat(stray)).isDirectory()).toBe(true);
     await expect(
-      lstat(path.join(project, "node_modules.snpm-staging-gen1_stray")),
+      lstat(path.join(project, "node_modules.nexu-staging-gen1_stray")),
     ).rejects.toThrow();
   });
 });

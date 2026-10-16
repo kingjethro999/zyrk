@@ -1,6 +1,6 @@
 {
-  "name": "snpm",
-  "version": "0.1.5",
+  "name": "nexu",
+  "version": "0.1.6",
   "private": true,
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "node": ">=24.0.0"
   },
   "bin": {
-    "snpm": "bin/snpm.js"
+    "nexu": "bin/nexu.js"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -34,5 +34,13 @@
     "prettier": "3.9.10",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingjethro999/nexu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kingjethro999/nexu/issues"
+  },
+  "homepage": "https://github.com/kingjethro999/nexu#readme"
 }

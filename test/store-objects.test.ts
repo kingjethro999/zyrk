@@ -10,7 +10,7 @@ import {
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SnpmError } from "../src/errors.ts";
+import { NexuError } from "../src/errors.ts";
 import { Store } from "../src/store/layout.ts";
 import {
   commitObjectFromStaging,
@@ -25,7 +25,7 @@ let root: string;
 let store: Store;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "snpm-objects-"));
+  root = await mkdtemp(path.join(os.tmpdir(), "nexu-objects-"));
   store = await Store.open({ root, create: true });
 });
 
@@ -122,7 +122,7 @@ describe("commitObjectFromStaging", () => {
         modeClass: "plain",
         bytes: impostor.bytes,
       }),
-    ).rejects.toMatchObject({ code: "SNPM_STORE_CORRUPT" });
+    ).rejects.toMatchObject({ code: "NEXU_STORE_CORRUPT" });
   });
 });
 
@@ -214,18 +214,18 @@ describe("store safety", () => {
   it("refuses a group- or world-writable store root instead of chmodding it", async () => {
     const unsafeRoot = path.join(
       os.tmpdir(),
-      `snpm-unsafe-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      `nexu-unsafe-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     );
     await mkdir(unsafeRoot, { recursive: true });
     await chmod(unsafeRoot, 0o777);
     try {
       await expect(Store.open({ root: unsafeRoot })).rejects.toMatchObject({
-        code: "SNPM_STORE_UNSAFE",
+        code: "NEXU_STORE_UNSAFE",
       });
       await expect(
         Store.open({ root: unsafeRoot, create: true }),
       ).rejects.toMatchObject({
-        code: "SNPM_STORE_UNSAFE",
+        code: "NEXU_STORE_UNSAFE",
       });
       // The refusal must not quietly repair the permissions it objected to.
       expect((await stat(unsafeRoot)).mode & 0o777).toBe(0o777);
@@ -237,7 +237,7 @@ describe("store safety", () => {
   it("initializes through the explicit unsafe-permissions escape hatch", async () => {
     const unsafeRoot = path.join(
       os.tmpdir(),
-      `snpm-unsafe-ok-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      `nexu-unsafe-ok-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     );
     await mkdir(unsafeRoot, { recursive: true });
     await chmod(unsafeRoot, 0o777);
@@ -256,7 +256,7 @@ describe("store safety", () => {
   it("reports an uninitialized store without creating one", async () => {
     const absent = path.join(
       os.tmpdir(),
-      `snpm-absent-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      `nexu-absent-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     );
     const store = await Store.open({ root: absent });
     expect(store.initialized).toBe(false);

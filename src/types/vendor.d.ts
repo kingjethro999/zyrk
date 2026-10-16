@@ -1,7 +1,7 @@
 /**
  * Minimal ambient declarations for vendored npm libraries.
  *
- * These cover only the API subset snpm actually uses, verified against the
+ * These cover only the API subset nexu actually uses, verified against the
  * installed versions (npm-registry-fetch 20.x). Third-party `@types` packages
  * trail the real majors too far to be trusted here; when we need more surface,
  * extend these deliberately and re-verify against the installed source.
@@ -84,7 +84,7 @@ declare module "npm-registry-fetch" {
 
 /**
  * Minimal npm-package-arg surface (verified against the installed 14.x).
- * Only the spec kinds snpm resolves are modeled; anything else is rejected
+ * Only the spec kinds nexu resolves are modeled; anything else is rejected
  * by the resolver with an explicit unsupported-protocol error.
  */
 declare module "npm-package-arg" {

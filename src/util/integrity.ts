@@ -1,7 +1,7 @@
 /**
  * Subresource-Integrity handling for fetched archives (§13.5).
  *
- * snpm verifies integrity itself rather than trusting a library flag: while a
+ * nexu verifies integrity itself rather than trusting a library flag: while a
  * tarball streams to disk we hash it (sha512 and sha1, so legacy `shasum`
  * metadata can also be checked), then compare against the expected SRI string.
  * Nothing unverified ever reaches the store (I-001, I-009).
@@ -16,12 +16,12 @@
  */
 
 import { createHash, type Hash } from "node:crypto";
-import { SnpmError } from "../errors.ts";
+import { NexuError } from "../errors.ts";
 
 export const SRI_ALGORITHMS = ["sha512", "sha384", "sha256", "sha1"] as const;
 export type SriAlgorithm = (typeof SRI_ALGORITHMS)[number];
 
-/** Algorithms that snpm treats as strong integrity. */
+/** Algorithms that nexu treats as strong integrity. */
 export const STRONG_ALGORITHMS: readonly SriAlgorithm[] = [
   "sha512",
   "sha384",
@@ -129,8 +129,8 @@ export class IntegrityHasher {
 
   update(chunk: Buffer | Uint8Array): void {
     if (this.#finalized !== undefined) {
-      throw new SnpmError(
-        "SNPM_INTERNAL",
+      throw new NexuError(
+        "NEXU_INTERNAL",
         "IntegrityHasher used after finalize()",
       );
     }
@@ -212,8 +212,8 @@ export function checkIntegrity(
 function digestFor(hashed: HashedBytes, algorithm: SriAlgorithm): string {
   if (algorithm === "sha512") return hashed.sha512Base64;
   if (algorithm === "sha1") return base64FromHex(hashed.sha1Hex);
-  throw new SnpmError(
-    "SNPM_INTEGRITY_FAILED",
+  throw new NexuError(
+    "NEXU_INTEGRITY_FAILED",
     `Integrity algorithm ${algorithm} is accepted in metadata but not implemented`,
   );
 }
@@ -221,7 +221,7 @@ function digestFor(hashed: HashedBytes, algorithm: SriAlgorithm): string {
 /**
  * Enforce the integrity outcome under the given policy.
  * Returns the verified digest (always sha512 when the hashes are ours to pin).
- * Throws SnpmError(SNPM_INTEGRITY_FAILED) on mismatch, and on weak or missing
+ * Throws NexuError(NEXU_INTEGRITY_FAILED) on mismatch, and on weak or missing
  * integrity unless the policy explicitly allows them.
  */
 export function assertIntegrityOk(
@@ -243,26 +243,26 @@ export function assertIntegrityOk(
           weak: true,
         };
       }
-      throw new SnpmError(
-        "SNPM_INTEGRITY_FAILED",
+      throw new NexuError(
+        "NEXU_INTEGRITY_FAILED",
         `${options.what} provides only legacy sha1 integrity; refusing under the current policy (set weak-integrity policy explicitly to accept)`,
       );
     case "no-expected-integrity":
       if (options.allowMissing === true) {
         return { verifiedSri: hashed.sha512Sri, weak: false };
       }
-      throw new SnpmError(
-        "SNPM_INTEGRITY_FAILED",
+      throw new NexuError(
+        "NEXU_INTEGRITY_FAILED",
         `${options.what} has no expected integrity metadata; strict policy rejects it`,
       );
     case "malformed":
-      throw new SnpmError(
-        "SNPM_INTEGRITY_FAILED",
+      throw new NexuError(
+        "NEXU_INTEGRITY_FAILED",
         `${options.what} has a malformed integrity string: ${String(expectedSRI)}`,
       );
     case "mismatch":
-      throw new SnpmError(
-        "SNPM_INTEGRITY_FAILED",
+      throw new NexuError(
+        "NEXU_INTEGRITY_FAILED",
         `${options.what} failed integrity verification: expected ${outcome.algorithm}-${outcome.expected}, got ${outcome.algorithm}-${outcome.actual}`,
       );
   }
