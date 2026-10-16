@@ -46,7 +46,9 @@ export type VerifyRealizationOptions = {
   contextId: string;
 };
 
-export async function verifyRealization(options: VerifyRealizationOptions): Promise<void> {
+export async function verifyRealization(
+  options: VerifyRealizationOptions,
+): Promise<void> {
   const { store, graph, rootKey, contextId } = options;
   const node = graph.nodes.find((candidate) => candidate.key === rootKey);
   if (node === undefined) throw internal(`unknown context root ${rootKey}`);
@@ -75,7 +77,12 @@ class RealizationChecker {
   /** Relative posix dirs allowed without a manifest listing (ancestors). */
   private readonly allowedDirs = new Set<string>([""]);
 
-  constructor(store: Store, graph: GraphDoc, node: GraphNode, contextId: string) {
+  constructor(
+    store: Store,
+    graph: GraphDoc,
+    node: GraphNode,
+    contextId: string,
+  ) {
     this.store = store;
     this.graph = graph;
     this.node = node;
@@ -83,14 +90,18 @@ class RealizationChecker {
     this.contextDir = realizationDirFor(store, contextId);
     this.modulesDir = path.join(this.contextDir, "node_modules");
     this.packageDir = packageDirIn(this.contextDir, node.name);
-    this.byKey = new Map(graph.nodes.map((candidate) => [candidate.key, candidate]));
+    this.byKey = new Map(
+      graph.nodes.map((candidate) => [candidate.key, candidate]),
+    );
   }
 
   async run(): Promise<void> {
     await this.checkRealDir(this.contextDir, "context directory");
     const top = await this.readDir(this.contextDir, "context directory");
     if (top.length !== 1 || top[0] !== "node_modules") {
-      throw this.corrupt("unexpected entries in context directory", { entries: top });
+      throw this.corrupt("unexpected entries in context directory", {
+        entries: top,
+      });
     }
     await this.checkRealDir(this.packageDir, "package directory");
     const manifest = await this.readManifest();
@@ -101,12 +112,24 @@ class RealizationChecker {
     await this.checkNoExtras();
   }
 
-  private corrupt(reason: string, detail: Record<string, unknown> = {}): NexuError {
-    return new NexuError("NEXU_STORE_CORRUPT", `stored realization failed verification: ${reason}`, {
-      detail: { context: this.contextId, node: this.node.key, path: this.contextDir, ...detail },
-      remedy:
-        "remove the reported realization directory and reinstall the affected projects; do not edit shared realizations in place",
-    });
+  private corrupt(
+    reason: string,
+    detail: Record<string, unknown> = {},
+  ): NexuError {
+    return new NexuError(
+      "NEXU_STORE_CORRUPT",
+      `stored realization failed verification: ${reason}`,
+      {
+        detail: {
+          context: this.contextId,
+          node: this.node.key,
+          path: this.contextDir,
+          ...detail,
+        },
+        remedy:
+          "remove the reported realization directory and reinstall the affected projects; do not edit shared realizations in place",
+      },
+    );
   }
 
   private async checkRealDir(dir: string, what: string): Promise<void> {
@@ -114,7 +137,8 @@ class RealizationChecker {
     try {
       stat = await lstat(dir);
     } catch (error) {
-      if (isErrno(error, "ENOENT")) throw this.corrupt(`${what} is missing`, { dir });
+      if (isErrno(error, "ENOENT"))
+        throw this.corrupt(`${what} is missing`, { dir });
       throw error;
     }
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -126,7 +150,8 @@ class RealizationChecker {
     try {
       return [...(await readdir(dir))].sort();
     } catch (error) {
-      if (isErrno(error, "ENOENT")) throw this.corrupt(`${what} is missing`, { dir });
+      if (isErrno(error, "ENOENT"))
+        throw this.corrupt(`${what} is missing`, { dir });
       throw error;
     }
   }
@@ -142,7 +167,10 @@ class RealizationChecker {
       });
     }
     const manifest = doc.manifest;
-    if (manifest.name !== this.node.name || manifest.version !== this.node.version) {
+    if (
+      manifest.name !== this.node.name ||
+      manifest.version !== this.node.version
+    ) {
       throw this.corrupt("source identity does not match the recorded node", {
         expected: this.node.key,
         found: `${manifest.name}@${manifest.version}`,
@@ -160,7 +188,8 @@ class RealizationChecker {
     const siblingNames = new Set<string>([this.node.name]);
     for (const edge of this.node.edges) {
       const dependency = this.byKey.get(edge.target);
-      if (dependency === undefined) throw internal(`edge ${edge.name} has no resolved node`);
+      if (dependency === undefined)
+        throw internal(`edge ${edge.name} has no resolved node`);
       const targetText = packageDirIn(
         realizationDirFor(this.store, contextIdFor(this.graph, edge.target)),
         dependency.name,
@@ -168,7 +197,8 @@ class RealizationChecker {
       const linkPath = siblingNames.has(edge.name)
         ? path.join(this.packageDir, "node_modules", ...edge.name.split("/"))
         : path.join(this.modulesDir, ...edge.name.split("/"));
-      if (this.expectedLinks.has(linkPath)) throw internal(`duplicate link slot for ${edge.name}`);
+      if (this.expectedLinks.has(linkPath))
+        throw internal(`duplicate link slot for ${edge.name}`);
       this.expectedLinks.set(linkPath, targetText);
       siblingNames.add(edge.name);
     }
@@ -178,24 +208,31 @@ class RealizationChecker {
     for (const entry of this.manifestByPath.values()) {
       const full = path.join(this.packageDir, ...entry.path.split("/"));
       if (this.expectedLinks.has(full)) {
-        throw this.corrupt("bundled content collides with a dependency slot", { path: entry.path });
+        throw this.corrupt("bundled content collides with a dependency slot", {
+          path: entry.path,
+        });
       }
       let stat;
       try {
         stat = await lstat(full);
       } catch (error) {
-        if (isErrno(error, "ENOENT")) throw this.corrupt("manifest file is missing", { path: entry.path });
+        if (isErrno(error, "ENOENT"))
+          throw this.corrupt("manifest file is missing", { path: entry.path });
         throw error;
       }
       switch (entry.type) {
         case "dir":
           if (!stat.isDirectory() || stat.isSymbolicLink()) {
-            throw this.corrupt("manifest directory is not a real directory", { path: entry.path });
+            throw this.corrupt("manifest directory is not a real directory", {
+              path: entry.path,
+            });
           }
           break;
         case "file": {
           if (!stat.isFile() || stat.isSymbolicLink()) {
-            throw this.corrupt("manifest file is not a regular file", { path: entry.path });
+            throw this.corrupt("manifest file is not a regular file", {
+              path: entry.path,
+            });
           }
           if (stat.size !== entry.size) {
             throw this.corrupt("manifest file size changed", {
@@ -212,17 +249,23 @@ class RealizationChecker {
           }
           const digest = await sha512HexOfFile(full);
           if (digest !== entry.innerDigest) {
-            throw this.corrupt("manifest file content changed", { path: entry.path });
+            throw this.corrupt("manifest file content changed", {
+              path: entry.path,
+            });
           }
           break;
         }
         case "symlink": {
           if (!stat.isSymbolicLink()) {
-            throw this.corrupt("manifest symlink is not a link", { path: entry.path });
+            throw this.corrupt("manifest symlink is not a link", {
+              path: entry.path,
+            });
           }
           const target = await readlink(full);
           if (target !== entry.target) {
-            throw this.corrupt("manifest symlink target changed", { path: entry.path });
+            throw this.corrupt("manifest symlink target changed", {
+              path: entry.path,
+            });
           }
           break;
         }
@@ -246,7 +289,9 @@ class RealizationChecker {
       }
       const target = await readlink(linkPath);
       if (target !== expected) {
-        throw this.corrupt("dependency link target changed", { link: linkPath });
+        throw this.corrupt("dependency link target changed", {
+          link: linkPath,
+        });
       }
     }
   }
@@ -256,7 +301,9 @@ class RealizationChecker {
       this.allowAncestors(entry);
     }
     for (const linkPath of this.expectedLinks.keys()) {
-      this.allowAncestors(path.relative(this.packageDir, linkPath).split(path.sep).join("/"));
+      this.allowAncestors(
+        path.relative(this.packageDir, linkPath).split(path.sep).join("/"),
+      );
     }
     await this.walkPackageDir(this.packageDir, "");
     const top = await this.readDir(this.modulesDir, "node_modules directory");
@@ -268,7 +315,9 @@ class RealizationChecker {
     }
     for (const name of top) {
       if (!expectedTop.has(name)) {
-        throw this.corrupt("unexpected entry in node_modules directory", { entry: name });
+        throw this.corrupt("unexpected entry in node_modules directory", {
+          entry: name,
+        });
       }
     }
     const selfTop = this.node.name.split("/")[0] ?? "";
@@ -298,7 +347,8 @@ class RealizationChecker {
     try {
       stat = await lstat(dir);
     } catch (error) {
-      if (isErrno(error, "ENOENT")) throw this.corrupt("scoped directory is missing", { scope });
+      if (isErrno(error, "ENOENT"))
+        throw this.corrupt("scoped directory is missing", { scope });
       throw error;
     }
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -307,7 +357,8 @@ class RealizationChecker {
     const expected = new Set<string>();
     const pushChild = (name: string): void => {
       const segments = name.split("/");
-      if (segments[0] === scope && segments[1] !== undefined) expected.add(segments[1]);
+      if (segments[0] === scope && segments[1] !== undefined)
+        expected.add(segments[1]);
     };
     pushChild(this.node.name);
     for (const edge of this.node.edges) {
@@ -316,11 +367,15 @@ class RealizationChecker {
     const actual = await this.readDir(dir, "scoped directory");
     for (const name of actual) {
       if (!expected.has(name)) {
-        throw this.corrupt("unexpected entry in scoped directory", { scope, entry: name });
+        throw this.corrupt("unexpected entry in scoped directory", {
+          scope,
+          entry: name,
+        });
       }
     }
     for (const name of expected) {
-      if (!actual.includes(name)) throw this.corrupt("scoped entry is missing", { scope, entry: name });
+      if (!actual.includes(name))
+        throw this.corrupt("scoped entry is missing", { scope, entry: name });
     }
   }
 
@@ -339,7 +394,9 @@ class RealizationChecker {
       if (this.expectedLinks.has(full)) continue;
       if (stat.isSymbolicLink()) {
         if (!this.manifestByPath.has(rel)) {
-          throw this.corrupt("unexpected symlink in package directory", { path: rel });
+          throw this.corrupt("unexpected symlink in package directory", {
+            path: rel,
+          });
         }
         continue;
       }
@@ -349,18 +406,24 @@ class RealizationChecker {
           throw this.corrupt("package entry changed type", { path: rel });
         }
         if (entry === undefined && !this.allowedDirs.has(rel)) {
-          throw this.corrupt("unexpected directory in package directory", { path: rel });
+          throw this.corrupt("unexpected directory in package directory", {
+            path: rel,
+          });
         }
         await this.walkPackageDir(full, rel);
         continue;
       }
       if (stat.isFile()) {
         if (!this.manifestByPath.has(rel)) {
-          throw this.corrupt("unexpected file in package directory", { path: rel });
+          throw this.corrupt("unexpected file in package directory", {
+            path: rel,
+          });
         }
         continue;
       }
-      throw this.corrupt("unsupported entry type in package directory", { path: rel });
+      throw this.corrupt("unsupported entry type in package directory", {
+        path: rel,
+      });
     }
   }
 }

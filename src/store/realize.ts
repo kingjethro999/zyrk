@@ -95,7 +95,12 @@ export async function realizeGraph(options: {
         // S01: existence alone never authorizes reuse. The exact tree is
         // verified before it backs anything.
         if (verify) {
-          await verifyRealization({ store, graph, rootKey: node.key, contextId });
+          await verifyRealization({
+            store,
+            graph,
+            rootKey: node.key,
+            contextId,
+          });
         }
         result.reused.push(contextId);
         continue;
@@ -115,7 +120,12 @@ export async function realizeGraph(options: {
         // A concurrent publisher won the race; their tree is verified
         // before it is trusted, exactly like any other reuse.
         if (verify) {
-          await verifyRealization({ store, graph, rootKey: node.key, contextId });
+          await verifyRealization({
+            store,
+            graph,
+            rootKey: node.key,
+            contextId,
+          });
         }
         result.reused.push(contextId);
         continue;

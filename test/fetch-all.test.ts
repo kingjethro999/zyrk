@@ -8,7 +8,10 @@ import type { FetchedSource } from "../src/fetch/package.ts";
 import { RegistryClient } from "../src/fetch/registry.ts";
 import { Store } from "../src/store/layout.ts";
 import { Transaction } from "../src/store/txn.ts";
-import { startStubRegistry, type StubRegistry } from "./helpers/registry-stub.ts";
+import {
+  startStubRegistry,
+  type StubRegistry,
+} from "./helpers/registry-stub.ts";
 
 let root: string;
 let store: Store;
@@ -183,8 +186,16 @@ describe("fetchSources", () => {
         registry: stubRegistry,
         txn,
         requests: [
-          { key: "shared@1.0.0#peer1aaaa1111", name: "shared", version: "1.0.0" },
-          { key: "shared@1.0.0#peer2bbbb2222", name: "shared", version: "1.0.0" },
+          {
+            key: "shared@1.0.0#peer1aaaa1111",
+            name: "shared",
+            version: "1.0.0",
+          },
+          {
+            key: "shared@1.0.0#peer2bbbb2222",
+            name: "shared",
+            version: "1.0.0",
+          },
         ],
         concurrency: 2,
       });

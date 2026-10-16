@@ -16,9 +16,17 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { extractTarball } from "../src/extract/tarball.ts";
 import { installProjection } from "../src/project/projection.ts";
-import { contextIdFor, createGraphDoc, type GraphDoc } from "../src/store/graph.ts";
+import {
+  contextIdFor,
+  createGraphDoc,
+  type GraphDoc,
+} from "../src/store/graph.ts";
 import { Store } from "../src/store/layout.ts";
-import { packageDirIn, realizationDirFor, realizeGraph } from "../src/store/realize.ts";
+import {
+  packageDirIn,
+  realizationDirFor,
+  realizeGraph,
+} from "../src/store/realize.ts";
 import { commitExtractedSource } from "../src/store/source.ts";
 import { rmrfNoFollow } from "../src/util/fsx.ts";
 import { craftTar, type CraftEntry } from "./helpers/tar.ts";
@@ -55,16 +63,17 @@ async function commitPackage(options: {
   const tarballPath = path.join(staging, "archive.tgz");
   const entries: CraftEntry[] = [
     { path: "package", type: "dir" },
-    ...options.files.map(
-      (file): CraftEntry => ({
-        path: `package/${file.path}`,
-        data: file.data,
-        mode: file.mode ?? 0o644,
-      }),
-    ),
+    ...options.files.map((file): CraftEntry => ({
+      path: `package/${file.path}`,
+      data: file.data,
+      mode: file.mode ?? 0o644,
+    })),
   ];
   await writeFile(tarballPath, craftTar(entries));
-  const extraction = await extractTarball({ tarballPath, destDir: path.join(staging, "extract") });
+  const extraction = await extractTarball({
+    tarballPath,
+    destDir: path.join(staging, "extract"),
+  });
   const committed = await commitExtractedSource({
     store,
     extraction,
@@ -81,12 +90,19 @@ function packageJson(value: Record<string, unknown>): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-async function fixtureGraph(): Promise<{ graph: GraphDoc; libSource: string; toolSource: string }> {
+async function fixtureGraph(): Promise<{
+  graph: GraphDoc;
+  libSource: string;
+  toolSource: string;
+}> {
   const libSource = await commitPackage({
     name: "lib",
     version: "2.0.0",
     files: [
-      { path: "package.json", data: packageJson({ name: "lib", version: "2.0.0", main: "index.js" }) },
+      {
+        path: "package.json",
+        data: packageJson({ name: "lib", version: "2.0.0", main: "index.js" }),
+      },
       { path: "index.js", data: 'module.exports = "lib-ok";\n' },
     ],
   });
@@ -94,8 +110,14 @@ async function fixtureGraph(): Promise<{ graph: GraphDoc; libSource: string; too
     name: "tool",
     version: "1.0.0",
     files: [
-      { path: "package.json", data: packageJson({ name: "tool", version: "1.0.0", main: "index.js" }) },
-      { path: "index.js", data: 'module.exports = "tool+" + require("lib");\n' },
+      {
+        path: "package.json",
+        data: packageJson({ name: "tool", version: "1.0.0", main: "index.js" }),
+      },
+      {
+        path: "index.js",
+        data: 'module.exports = "tool+" + require("lib");\n',
+      },
     ],
   });
   const graph = createGraphDoc([
@@ -111,7 +133,11 @@ async function fixtureGraph(): Promise<{ graph: GraphDoc; libSource: string; too
 }
 
 /** Make a committed path writable, run the callback, then restore its mode. */
-async function asWritable(target: string, mode: number, task: () => Promise<void>): Promise<void> {
+async function asWritable(
+  target: string,
+  mode: number,
+  task: () => Promise<void>,
+): Promise<void> {
   await chmod(target, mode);
   try {
     await task();
@@ -120,10 +146,16 @@ async function asWritable(target: string, mode: number, task: () => Promise<void
   }
 }
 
-function runNode(cwd: string, file: string): Promise<{ code: number; stdout: string }> {
+function runNode(
+  cwd: string,
+  file: string,
+): Promise<{ code: number; stdout: string }> {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !key.startsWith("NEXU_") && key !== "NODE_PATH" && key !== "NODE_OPTIONS",
+      ([key]) =>
+        !key.startsWith("NEXU_") &&
+        key !== "NODE_PATH" &&
+        key !== "NODE_OPTIONS",
     ),
   ) as NodeJS.ProcessEnv;
   return new Promise((resolve, reject) => {
@@ -170,7 +202,9 @@ describe("realization reuse verification (S01)", () => {
       (error: unknown) => error,
     );
     expect(failure).toMatchObject({ code: "NEXU_STORE_CORRUPT" });
-    expect(failure).toMatchObject({ detail: expect.objectContaining({ node: "lib@2.0.0" }) });
+    expect(failure).toMatchObject({
+      detail: expect.objectContaining({ node: "lib@2.0.0" }),
+    });
     // The corruption is reported, not repaired in place: bytes stay damaged.
     expect(await readFile(indexFile, "utf8")).toBe(modified);
   });
@@ -223,28 +257,40 @@ describe("realization reuse verification (S01)", () => {
   it("rejects a retargeted dependency link", async () => {
     const { graph } = await fixtureGraph();
     const realized = await realizeGraph({ store, graph });
-    const toolContext = realizationDirFor(store, contextIdFor(graph, "tool@1.0.0"));
+    const toolContext = realizationDirFor(
+      store,
+      contextIdFor(graph, "tool@1.0.0"),
+    );
     const link = path.join(toolContext, "node_modules", "lib");
     const before = await readlink(link);
     const toolDir = realized.packageDirByKey.get("tool@1.0.0");
     if (toolDir === undefined) throw new Error("expected tool package dir");
-    await asWritable(path.join(toolContext, "node_modules"), 0o755, async () => {
-      await unlink(link);
-      await symlink(toolDir, link);
-    });
+    await asWritable(
+      path.join(toolContext, "node_modules"),
+      0o755,
+      async () => {
+        await unlink(link);
+        await symlink(toolDir, link);
+      },
+    );
     expect(await readlink(link)).not.toBe(before);
     const failure = await realizeGraph({ store, graph }).then(
       () => null,
       (error: unknown) => error,
     );
     expect(failure).toMatchObject({ code: "NEXU_STORE_CORRUPT" });
-    expect(failure).toMatchObject({ detail: expect.objectContaining({ node: "tool@1.0.0" }) });
+    expect(failure).toMatchObject({
+      detail: expect.objectContaining({ node: "tool@1.0.0" }),
+    });
   });
 
   it("rejects a corrupted transitive child when re-realizing the parents", async () => {
     const { graph } = await fixtureGraph();
     await realizeGraph({ store, graph });
-    const libDir = packageDirIn(realizationDirFor(store, contextIdFor(graph, "lib@2.0.0")), "lib");
+    const libDir = packageDirIn(
+      realizationDirFor(store, contextIdFor(graph, "lib@2.0.0")),
+      "lib",
+    );
     const indexFile = path.join(libDir, "index.js");
     const original = await readFile(indexFile, "utf8");
     await asWritable(indexFile, 0o644, async () => {
@@ -255,7 +301,9 @@ describe("realization reuse verification (S01)", () => {
       (error: unknown) => error,
     );
     expect(failure).toMatchObject({ code: "NEXU_STORE_CORRUPT" });
-    expect(failure).toMatchObject({ detail: expect.objectContaining({ node: "lib@2.0.0" }) });
+    expect(failure).toMatchObject({
+      detail: expect.objectContaining({ node: "lib@2.0.0" }),
+    });
   });
 
   it("leaves unrelated projects runnable after a failed reuse", async () => {
@@ -266,14 +314,23 @@ describe("realization reuse verification (S01)", () => {
     const project = path.join(root, "app");
     await mkdir(project, { recursive: true });
     await installProjection(project, [{ name: "tool", linkTarget: toolDir }]);
-    await writeFile(path.join(project, "app.cjs"), 'console.log(require("tool"));\n');
+    await writeFile(
+      path.join(project, "app.cjs"),
+      'console.log(require("tool"));\n',
+    );
     const alphaLink = path.join(project, "node_modules", "tool");
     const linkBefore = await readlink(alphaLink);
     expect((await runNode(project, "app.cjs")).code).toBe(0);
 
-    const libDir = packageDirIn(realizationDirFor(store, contextIdFor(graph, "lib@2.0.0")), "lib");
+    const libDir = packageDirIn(
+      realizationDirFor(store, contextIdFor(graph, "lib@2.0.0")),
+      "lib",
+    );
     await asWritable(path.join(libDir, "index.js"), 0o644, async () => {
-      await writeFile(path.join(libDir, "index.js"), 'module.exports = "damaged";\n');
+      await writeFile(
+        path.join(libDir, "index.js"),
+        'module.exports = "damaged";\n',
+      );
     });
     await expect(realizeGraph({ store, graph })).rejects.toMatchObject({
       code: "NEXU_STORE_CORRUPT",
@@ -287,10 +344,12 @@ describe("realization reuse verification (S01)", () => {
   it("survives concurrent publishers without corruption", async () => {
     const { graph } = await fixtureGraph();
     const attempts = await Promise.all(
-      [0, 1, 2, 3].map(() => realizeGraph({ store, graph }).then(
-        (result) => ({ ok: true as const, result }),
-        (error: unknown) => ({ ok: false as const, error }),
-      )),
+      [0, 1, 2, 3].map(() =>
+        realizeGraph({ store, graph }).then(
+          (result) => ({ ok: true as const, result }),
+          (error: unknown) => ({ ok: false as const, error }),
+        ),
+      ),
     );
     for (const attempt of attempts) {
       expect(attempt.ok).toBe(true);

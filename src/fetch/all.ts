@@ -109,7 +109,10 @@ export async function fetchSources(
   // address the same origin-qualified source, so they share one download
   // (peer-split occurrences collide on the staging filename otherwise).
   // Results fan out to every requesting key afterward.
-  const groups = new Map<string, { representative: SourceFetchRequest; members: number[] }>();
+  const groups = new Map<
+    string,
+    { representative: SourceFetchRequest; members: number[] }
+  >();
   sorted.forEach((request, index) => {
     const identity = JSON.stringify([request.name, request.version]);
     const group = groups.get(identity);

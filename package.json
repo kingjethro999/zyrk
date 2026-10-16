@@ -1,6 +1,6 @@
 {
-  "name": "nexu",
-  "version": "0.2.2",
+  "name": "@moxies/nexu",
+  "version": "0.2.3",
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",
@@ -18,9 +18,7 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "version:bump": "node scripts/bump-version.js",
-    "setup:hooks": "git config core.hooksPath .githooks",
-    "package:check": "node scripts/check-package.mjs",
-    "release:check": "node scripts/check-release.mjs"
+    "setup:hooks": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "npm-package-arg": "^14.0.0",
