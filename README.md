@@ -24,3 +24,7 @@ npm run typecheck    # tsc --noEmit
 npm test             # vitest
 npm run check        # typecheck + tests
 ```
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
