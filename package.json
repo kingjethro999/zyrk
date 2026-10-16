@@ -1,6 +1,6 @@
 {
   "name": "snpm",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "UNLICENSED",
