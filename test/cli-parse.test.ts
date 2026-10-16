@@ -26,6 +26,16 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["-g", "install", "alpha"]);
     expect(parsed.command).toBe("install");
     expect(parsed.commandArgs).toEqual(["-g", "alpha"]);
+    expect(parsed.argsBeforeCommand).toEqual(["-g"]);
+    expect(parsed.argsAfterCommand).toEqual(["alpha"]);
+  });
+
+  it("records leading options for delegation without consuming them", () => {
+    const parsed = parseArgs(["--dry-run", "publish", "--tag", "beta"]);
+    expect(parsed.command).toBe("publish");
+    expect(parsed.argsBeforeCommand).toEqual(["--dry-run"]);
+    expect(parsed.argsAfterCommand).toEqual(["--tag", "beta"]);
+    expect(parseArgs(["publish"]).argsBeforeCommand).toEqual([]);
   });
 
   it("passes everything after -- through untouched", () => {

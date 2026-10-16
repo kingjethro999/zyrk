@@ -17,6 +17,12 @@ export type ParsedArgs = {
   commandArgs: string[];
   /** Raw tokens after the command token, verbatim, for npm delegation. */
   argsAfterCommand: string[];
+  /**
+   * Non-nexu tokens placed before the command token, in order. Delegation
+   * forwards these too: a leading protective flag such as `--dry-run`
+   * belongs to npm, and dropping it would silently change what runs (S05).
+   */
+  argsBeforeCommand: string[];
   json: boolean;
 };
 
@@ -27,6 +33,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     command: undefined,
     commandArgs: [],
     argsAfterCommand: [],
+    argsBeforeCommand: [],
     json: false,
   };
   let separator = false;
@@ -64,6 +71,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       commandIndex = index;
       return;
     }
+    if (parsed.command === undefined) parsed.argsBeforeCommand.push(token);
     parsed.commandArgs.push(token);
   });
   if (commandIndex >= 0) parsed.argsAfterCommand = argv.slice(commandIndex + 1);

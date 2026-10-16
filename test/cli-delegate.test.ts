@@ -49,13 +49,19 @@ afterEach(async () => {
 async function installFakeNpm(exitCode: string): Promise<void> {
   const script = [
     "#!/bin/sh",
-    'echo "$@" > "$NEXU_TEST_NPM_ARGS"',
+    // One argument per line, so values containing spaces stay exact.
+    'printf "%s\\n" "$@" > "$NEXU_TEST_NPM_ARGS"',
     `exit ${exitCode}`,
     "",
   ].join("\n");
   const recorderPath = path.join(fakeBin, "npm");
   await writeFile(recorderPath, script);
   await chmod(recorderPath, 0o755);
+}
+
+async function recordedArgs(argsPath: string): Promise<string[]> {
+  const text = await readFile(argsPath, "utf8");
+  return text === "" ? [] : text.slice(0, -1).split("\n");
 }
 
 function childEnv(
@@ -157,9 +163,13 @@ describe.skipIf(process.platform === "win32")(
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toContain("delegating `nexu publish` to npm");
-      expect(await readFile(argsPath, "utf8")).toBe(
-        "publish --tag beta --access public\n",
-      );
+      expect(await recordedArgs(argsPath)).toEqual([
+        "publish",
+        "--tag",
+        "beta",
+        "--access",
+        "public",
+      ]);
     });
 
     it("propagates the npm exit code unchanged", async () => {
@@ -172,9 +182,11 @@ describe.skipIf(process.platform === "win32")(
 
       expect(result.exitCode).toBe(3);
       expect(result.stderr).toContain("delegating `nexu dist-tag` to npm");
-      expect(await readFile(argsPath, "utf8")).toBe(
-        "dist-tag ls some-package\n",
-      );
+      expect(await recordedArgs(argsPath)).toEqual([
+        "dist-tag",
+        "ls",
+        "some-package",
+      ]);
     });
 
     it("forwards flags nexu would otherwise interpret, including -g", async () => {
@@ -186,7 +198,83 @@ describe.skipIf(process.platform === "win32")(
       );
 
       expect(result.exitCode).toBe(0);
-      expect(await readFile(argsPath, "utf8")).toBe("whoami --json -g\n");
+      expect(await recordedArgs(argsPath)).toEqual(["whoami", "--json", "-g"]);
+    });
+
+    it("forwards leading protective flags instead of dropping them (S05)", async () => {
+      await installFakeNpm("0");
+      const argsPath = path.join(root, "npm-args.txt");
+      const forwarded: Array<{ argv: string[]; expected: string[] }> = [
+        {
+          argv: ["--dry-run", "publish"],
+          expected: ["publish", "--dry-run"],
+        },
+        {
+          argv: ["--dry-run", "unpublish", "private-fixture@1.0.0"],
+          expected: ["unpublish", "--dry-run", "private-fixture@1.0.0"],
+        },
+        {
+          argv: ["--ignore-scripts", "pack"],
+          expected: ["pack", "--ignore-scripts"],
+        },
+        {
+          argv: ["--registry=https://registry.example.invalid", "publish"],
+          expected: ["publish", "--registry=https://registry.example.invalid"],
+        },
+      ];
+      for (const { argv, expected } of forwarded) {
+        const result = await runNexu(
+          argv,
+          childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        );
+        expect(result.exitCode).toBe(0);
+        expect(await recordedArgs(argsPath)).toEqual(expected);
+      }
+    });
+
+    it("fails separate-value leading options before spawning anything (S05)", async () => {
+      // A bare value before the command is indistinguishable from the
+      // command itself without npm's option schema, so nexu fails closed
+      // instead of guessing: the remedy teaches the two working spellings.
+      await installFakeNpm("0");
+      const argsPath = path.join(root, "npm-args.txt");
+      for (const argv of [
+        ["--registry", "https://registry.example.invalid", "publish"],
+        ["--tag", "my tag", "publish"],
+      ]) {
+        const before = await recordedArgs(argsPath).catch(() => null);
+        const result = await runNexu(
+          argv,
+          childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+        );
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stderr).toContain("NEXU_USAGE");
+        expect(result.stderr).toContain("--flag=value");
+        // No npm process launched, and a previous recording is untouched.
+        expect(await recordedArgs(argsPath).catch(() => null)).toEqual(before);
+      }
+    });
+
+    it("keeps nexu --json visible to npm instead of swallowing it", async () => {
+      await installFakeNpm("0");
+      const argsPath = path.join(root, "npm-args.txt");
+      const result = await runNexu(
+        ["--json", "whoami"],
+        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(await recordedArgs(argsPath)).toEqual(["whoami", "--json"]);
+    });
+
+    it("passes npm --help through to npm itself", async () => {
+      await installFakeNpm("0");
+      const argsPath = path.join(root, "npm-args.txt");
+      const result = await runNexu(
+        ["publish", "--help"],
+        childEnv({ NEXU_TEST_NPM_ARGS: argsPath }),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(await recordedArgs(argsPath)).toEqual(["publish", "--help"]);
     });
 
     it("reports a missing npm instead of failing silently", async () => {

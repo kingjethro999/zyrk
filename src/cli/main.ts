@@ -132,6 +132,30 @@ function fail(
   };
 }
 
+/**
+ * Echo a command token back safely: drop control characters, cap length,
+ * and strip URL userinfo so error output cannot leak credentials or forge
+ * terminal sequences. Full structured output redaction is S03; this covers
+ * the one place CLI dispatch interpolates an arbitrary token today.
+ */
+/**
+ * Drop C0 control characters and DEL without regex escapes.
+ */
+function stripControlChars(token: string): string {
+  let out = "";
+  for (const ch of token) {
+    const code = ch.codePointAt(0);
+    if (code !== undefined && code >= 32 && code !== 127) out += ch;
+  }
+  return out;
+}
+
+function sanitizeCommandToken(token: string): string {
+  const oneLine = stripControlChars(token);
+  const capped = oneLine.length > 64 ? `${oneLine.slice(0, 64)}…` : oneLine;
+  return capped.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^@/]*@)?/, "$1");
+}
+
 function globalInstallError(command: string): NexuError {
   return new NexuError(
     "NEXU_GLOBAL_INSTALL_UNSUPPORTED",
@@ -164,10 +188,15 @@ export function dispatch(
     return fail(globalInstallError(command), parsed);
   }
   if (!KNOWN_COMMANDS.has(command)) {
+    const shown = sanitizeCommandToken(command);
+    const placementHint =
+      command.includes("://") || parsed.argsBeforeCommand.length > 0
+        ? " If this was an option value, use the --flag=value form or place the command first."
+        : "";
     return fail(
-      new NexuError("NEXU_USAGE", `unknown command: ${command}.`, {
-        detail: { command },
-        remedy: "Run `nexu --help` for the documented command list.",
+      new NexuError("NEXU_USAGE", `unknown command: ${shown}.`, {
+        detail: { command: shown },
+        remedy: `Run \`nexu --help\` for the documented command list.${placementHint}`,
       }),
       parsed,
       helpText(context.version),
@@ -238,8 +267,13 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     if (result.stderr !== "") options.stderr.write(result.stderr);
     return result.exitCode;
   };
-  // Delegation bypasses dispatch: nexu interprets nothing after the command
-  // token, adds no JSON envelope, and forwards the raw tail verbatim.
+  // Delegation bypasses dispatch: nexu interprets no command arguments
+  // itself, adds no JSON envelope, and forwards every non-nexu token
+  // verbatim — before the command as well as after it. A leading
+  // protective flag such as `--dry-run` belongs to npm; dropping it would
+  // silently change what runs (S05). The only tokens nexu consumes are its
+  // own `--json`/`--help`/`--version`, and `--json` is passed on so npm
+  // still sees exactly what it was given.
   if (
     !parsed.help &&
     !parsed.version &&
@@ -247,9 +281,14 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     isDelegatedCommand(parsed.command)
   ) {
     try {
+      const forwarded = [...parsed.argsBeforeCommand];
+      if (parsed.json && !parsed.argsAfterCommand.includes("--json")) {
+        forwarded.push("--json");
+      }
+      forwarded.push(...parsed.argsAfterCommand);
       return await delegateToNpm({
         command: parsed.command,
-        args: parsed.argsAfterCommand,
+        args: forwarded,
         env: options.env,
         stderr: options.stderr,
       });

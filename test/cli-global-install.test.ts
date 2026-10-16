@@ -229,4 +229,19 @@ describe("basic CLI behavior", () => {
     expect(result.stdout).toContain("Usage: nexu <command>");
     expect(await npmLaunched()).toBe(false);
   });
+
+  it("redacts credentials when the unknown token is a URL (S05)", async () => {
+    const before = await snapshot(project);
+    const result = await runNexu(
+      ["https://user:hunter2@registry.example.invalid", "publish"],
+      childEnv(),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("NEXU_USAGE");
+    expect(result.stderr).toContain("https://registry.example.invalid");
+    expect(result.stderr).not.toContain("hunter2");
+    expect(result.stderr).toContain("--flag=value");
+    expect(await npmLaunched()).toBe(false);
+    expect(await snapshot(project)).toEqual(before);
+  });
 });
