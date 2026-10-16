@@ -11,10 +11,18 @@
  */
 
 import { open, rm } from "node:fs/promises";
-import regFetch, { json as fetchJson, type FetchOptions } from "npm-registry-fetch";
+import regFetch, {
+  json as fetchJson,
+  type FetchOptions,
+} from "npm-registry-fetch";
 import { SnpmError } from "../errors.ts";
 import type { Logger } from "../log.ts";
-import { assertIntegrityOk, IntegrityHasher, base64FromHex, type HashedBytes } from "../util/integrity.ts";
+import {
+  assertIntegrityOk,
+  IntegrityHasher,
+  base64FromHex,
+  type HashedBytes,
+} from "../util/integrity.ts";
 
 /** 512 MiB: large for an npm package, small enough to bound mishaps. */
 export const DEFAULT_MAX_TARBALL_BYTES = 512 * 1024 * 1024;
@@ -93,13 +101,20 @@ export class RegistryClient {
     this.#origin = credentialFreeOrigin(registry);
     this.#userAgent = options.userAgent;
     this.#logger = options.logger;
-    this.#maxTarballBytes = options.maxTarballBytes ?? DEFAULT_MAX_TARBALL_BYTES;
+    this.#maxTarballBytes =
+      options.maxTarballBytes ?? DEFAULT_MAX_TARBALL_BYTES;
 
     const retries = options.retries ?? 2;
     const base: FetchOptions = {
       registry,
       userAgent: options.userAgent,
-      retry: { retries, factor: 2, minTimeout: 250, maxTimeout: 8_000, randomize: true },
+      retry: {
+        retries,
+        factor: 2,
+        minTimeout: 250,
+        maxTimeout: 8_000,
+        randomize: true,
+      },
     };
     if (options.timeoutMs !== undefined) base.timeout = options.timeoutMs;
     this.#fetchOptions = { ...base, ...options.fetchOptions };
@@ -149,16 +164,23 @@ export class RegistryClient {
   }): Promise<DownloadResult> {
     const parsedUrl = parseTarballUrl(options.url, options.label);
     const maxBytes = options.maxBytes ?? this.#maxTarballBytes;
-    this.#logger?.debug("downloading tarball", { label: options.label, url: parsedUrl.href });
+    this.#logger?.debug("downloading tarball", {
+      label: options.label,
+      url: parsedUrl.href,
+    });
 
     let handle;
     try {
       handle = await open(options.destPath, "wx", 0o600);
     } catch (error) {
       if (isErrnoCode(error, "EEXIST")) {
-        throw new SnpmError("SNPM_INTERNAL", `staging file already exists: ${options.destPath}`, {
-          detail: { destPath: options.destPath },
-        });
+        throw new SnpmError(
+          "SNPM_INTERNAL",
+          `staging file already exists: ${options.destPath}`,
+          {
+            detail: { destPath: options.destPath },
+          },
+        );
       }
       throw error;
     }
@@ -174,12 +196,18 @@ export class RegistryClient {
         // Drain a little of the body so the connection can be reused, then
         // report by status.
         response.body.resume();
-        throw httpStatusError(response.status, `download tarball for ${options.label}`, options.url);
+        throw httpStatusError(
+          response.status,
+          `download tarball for ${options.label}`,
+          options.url,
+        );
       }
 
       let written = 0;
       for await (const chunk of response.body) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+        const buffer = Buffer.isBuffer(chunk)
+          ? chunk
+          : Buffer.from(chunk as Uint8Array);
         written += buffer.byteLength;
         if (written > maxBytes) {
           response.body.destroy();
@@ -187,8 +215,13 @@ export class RegistryClient {
             "SNPM_FETCH_REFUSED",
             `tarball for ${options.label} exceeds the ${formatMiB(maxBytes)} download bound`,
             {
-              detail: { label: options.label, url: options.url, limitBytes: maxBytes },
-              remedy: "verify this is the package you expect; raise the bound deliberately if the artifact is legitimate",
+              detail: {
+                label: options.label,
+                url: options.url,
+                limitBytes: maxBytes,
+              },
+              remedy:
+                "verify this is the package you expect; raise the bound deliberately if the artifact is legitimate",
             },
           );
         }
@@ -205,8 +238,12 @@ export class RegistryClient {
       try {
         verified = assertIntegrityOk(hashed, options.expectedIntegrity, {
           what: `tarball for ${options.label}`,
-          ...(options.allowWeakIntegrity === undefined ? {} : { allowWeak: options.allowWeakIntegrity }),
-          ...(options.allowMissingIntegrity === undefined ? {} : { allowMissing: options.allowMissingIntegrity }),
+          ...(options.allowWeakIntegrity === undefined
+            ? {}
+            : { allowWeak: options.allowWeakIntegrity }),
+          ...(options.allowMissingIntegrity === undefined
+            ? {}
+            : { allowMissing: options.allowMissingIntegrity }),
         });
       } catch (error) {
         await rm(options.destPath, { force: true });
@@ -245,7 +282,9 @@ export class RegistryClient {
  * Pick the expected integrity string from dist metadata: prefer SRI, fall
  * back to synthesizing sha1 from the legacy `shasum` field.
  */
-export function expectedIntegrityFromDist(dist: PackumentDist): string | undefined {
+export function expectedIntegrityFromDist(
+  dist: PackumentDist,
+): string | undefined {
   if (typeof dist.integrity === "string" && dist.integrity.trim() !== "") {
     return dist.integrity;
   }
@@ -262,22 +301,31 @@ function normalizeRegistryUrl(registry: string): string {
   try {
     url = new URL(registry);
   } catch (error) {
-    throw new SnpmError("SNPM_MANIFEST_INVALID", `registry URL is not valid: ${registry}`, {
-      remedy: "set a registry URL such as https://registry.npmjs.org/",
-      cause: error,
-    });
+    throw new SnpmError(
+      "SNPM_MANIFEST_INVALID",
+      `registry URL is not valid: ${registry}`,
+      {
+        remedy: "set a registry URL such as https://registry.npmjs.org/",
+        cause: error,
+      },
+    );
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new SnpmError("SNPM_MANIFEST_INVALID", `registry URL must be http(s): ${registry}`, {
-      remedy: "set an http(s) registry URL",
-    });
+    throw new SnpmError(
+      "SNPM_MANIFEST_INVALID",
+      `registry URL must be http(s): ${registry}`,
+      {
+        remedy: "set an http(s) registry URL",
+      },
+    );
   }
   if (url.username !== "" || url.password !== "") {
     throw new SnpmError(
       "SNPM_MANIFEST_INVALID",
       "registry URL must not embed credentials",
       {
-        remedy: "configure credentials through the supported auth adapter instead of the URL",
+        remedy:
+          "configure credentials through the supported auth adapter instead of the URL",
       },
     );
   }
@@ -290,7 +338,9 @@ function normalizeRegistryUrl(registry: string): string {
 /** scheme://host[:port][/path] with credentials, query and fragment removed. */
 function credentialFreeOrigin(registry: string): string {
   const url = new URL(registry);
-  const path = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+  const path = url.pathname.endsWith("/")
+    ? url.pathname.slice(0, -1)
+    : url.pathname;
   return `${url.protocol}//${url.host}${path}`;
 }
 
@@ -301,15 +351,22 @@ function credentialFreeOrigin(registry: string): string {
  */
 export function validateRegistryPackageName(name: string): void {
   const bad = (why: string): never => {
-    throw new SnpmError("SNPM_RESOLUTION_FAILED", `invalid package name "${name}" (${why})`, {
-      remedy: "use a real npm package name",
-    });
+    throw new SnpmError(
+      "SNPM_RESOLUTION_FAILED",
+      `invalid package name "${name}" (${why})`,
+      {
+        remedy: "use a real npm package name",
+      },
+    );
   };
   if (name === "" || name.length > 214) bad("empty or too long");
-  if (name.includes("\\") || name.includes("%") || name.includes("\0")) bad("forbidden character");
+  if (name.includes("\\") || name.includes("%") || name.includes("\0"))
+    bad("forbidden character");
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u0020\u007f]/.test(name)) bad("control or whitespace character");
-  if (!/^(?:@[^/@]+\/)?[^/@]+$/.test(name)) bad("shape is not `name` or `@scope/name`");
+  if (/[\u0000-\u0020\u007f]/.test(name))
+    bad("control or whitespace character");
+  if (!/^(?:@[^/@]+\/)?[^/@]+$/.test(name))
+    bad("shape is not `name` or `@scope/name`");
   for (const segment of name.split("/")) {
     if (segment === "." || segment === "..") bad("path-like segment");
   }
@@ -324,17 +381,26 @@ function parseTarballUrl(url: string, label: string): URL {
   try {
     parsed = new URL(url);
   } catch (error) {
-    throw new SnpmError("SNPM_FETCH_REFUSED", `registry metadata for ${label} has an invalid tarball URL`, {
-      detail: { label, url },
-      remedy: "report the registry response; snpm refuses to fetch a malformed URL",
-      cause: error,
-    });
+    throw new SnpmError(
+      "SNPM_FETCH_REFUSED",
+      `registry metadata for ${label} has an invalid tarball URL`,
+      {
+        detail: { label, url },
+        remedy:
+          "report the registry response; snpm refuses to fetch a malformed URL",
+        cause: error,
+      },
+    );
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new SnpmError("SNPM_FETCH_REFUSED", `tarball URL for ${label} uses unsupported protocol ${parsed.protocol}`, {
-      detail: { label, url },
-      remedy: "only http(s) tarball URLs are supported",
-    });
+    throw new SnpmError(
+      "SNPM_FETCH_REFUSED",
+      `tarball URL for ${label} uses unsupported protocol ${parsed.protocol}`,
+      {
+        detail: { label, url },
+        remedy: "only http(s) tarball URLs are supported",
+      },
+    );
   }
   return parsed;
 }
@@ -379,26 +445,38 @@ function mapFetchError(error: unknown, what: string): SnpmError {
     statusCode?: unknown;
     errno?: unknown;
   };
-  const message = typeof record.message === "string" ? record.message : String(error);
-  const status = typeof record.statusCode === "number" ? record.statusCode : undefined;
+  const message =
+    typeof record.message === "string" ? record.message : String(error);
+  const status =
+    typeof record.statusCode === "number" ? record.statusCode : undefined;
   const code = typeof record.code === "string" ? record.code : undefined;
 
   if (status === 401 || status === 403 || code === "EOTP") {
-    return new SnpmError("SNPM_REGISTRY_AUTH", `registry authorization failed while trying to ${what}`, {
-      detail: { status, code },
-      remedy: "verify the credentials configured for this registry (and their scope); snpm never falls back to the public registry",
-      cause: error,
-    });
+    return new SnpmError(
+      "SNPM_REGISTRY_AUTH",
+      `registry authorization failed while trying to ${what}`,
+      {
+        detail: { status, code },
+        remedy:
+          "verify the credentials configured for this registry (and their scope); snpm never falls back to the public registry",
+        cause: error,
+      },
+    );
   }
   if (status !== undefined) {
     return httpStatusError(status, what, undefined, error);
   }
   if (code !== undefined && RETRYABLE_NETWORK_CODES.has(code)) {
-    return new SnpmError("SNPM_FETCH_FAILED", `network failure while trying to ${what}: ${message}`, {
-      detail: { errno: code },
-      remedy: "check network connectivity and registry availability, then retry",
-      cause: error,
-    });
+    return new SnpmError(
+      "SNPM_FETCH_FAILED",
+      `network failure while trying to ${what}: ${message}`,
+      {
+        detail: { errno: code },
+        remedy:
+          "check network connectivity and registry availability, then retry",
+        cause: error,
+      },
+    );
   }
   return new SnpmError("SNPM_FETCH_FAILED", `failed to ${what}: ${message}`, {
     ...(code === undefined ? {} : { detail: { errno: code } }),
@@ -407,63 +485,108 @@ function mapFetchError(error: unknown, what: string): SnpmError {
   });
 }
 
-function httpStatusError(status: number, what: string, url?: string, cause?: unknown): SnpmError {
+function httpStatusError(
+  status: number,
+  what: string,
+  url?: string,
+  cause?: unknown,
+): SnpmError {
   const detail: Record<string, unknown> = { status };
   if (url !== undefined) detail.url = url;
   if (status === 404) {
-    return new SnpmError("SNPM_RESOLUTION_FAILED", `not found while trying to ${what} (HTTP 404)`, {
-      detail,
-      remedy: "verify the package name or version exists in the configured registry",
-      ...(cause === undefined ? {} : { cause }),
-    });
+    return new SnpmError(
+      "SNPM_RESOLUTION_FAILED",
+      `not found while trying to ${what} (HTTP 404)`,
+      {
+        detail,
+        remedy:
+          "verify the package name or version exists in the configured registry",
+        ...(cause === undefined ? {} : { cause }),
+      },
+    );
   }
   if (status === 401 || status === 403) {
-    return new SnpmError("SNPM_REGISTRY_AUTH", `registry authorization failed while trying to ${what} (HTTP ${status})`, {
-      detail,
-      remedy: "verify the credentials configured for this registry",
-      ...(cause === undefined ? {} : { cause }),
-    });
+    return new SnpmError(
+      "SNPM_REGISTRY_AUTH",
+      `registry authorization failed while trying to ${what} (HTTP ${status})`,
+      {
+        detail,
+        remedy: "verify the credentials configured for this registry",
+        ...(cause === undefined ? {} : { cause }),
+      },
+    );
   }
-  return new SnpmError("SNPM_FETCH_FAILED", `registry responded HTTP ${status} while trying to ${what}`, {
-    detail,
-    remedy: "retry later; if it persists, check the registry's status",
-    ...(cause === undefined ? {} : { cause }),
-  });
+  return new SnpmError(
+    "SNPM_FETCH_FAILED",
+    `registry responded HTTP ${status} while trying to ${what}`,
+    {
+      detail,
+      remedy: "retry later; if it persists, check the registry's status",
+      ...(cause === undefined ? {} : { cause }),
+    },
+  );
 }
 
-function validatePackument(raw: unknown, requestedName: string, origin: string): Packument {
+function validatePackument(
+  raw: unknown,
+  requestedName: string,
+  origin: string,
+): Packument {
   const bad = (why: string): never => {
-    throw new SnpmError("SNPM_RESOLUTION_FAILED", `registry returned a malformed packument for ${requestedName} (${why})`, {
-      detail: { name: requestedName, origin },
-      remedy: "report the registry response; retry against a well-formed npm registry",
-    });
+    throw new SnpmError(
+      "SNPM_RESOLUTION_FAILED",
+      `registry returned a malformed packument for ${requestedName} (${why})`,
+      {
+        detail: { name: requestedName, origin },
+        remedy:
+          "report the registry response; retry against a well-formed npm registry",
+      },
+    );
   };
   if (typeof raw !== "object" || raw === null) bad("not an object");
   const doc = raw as Record<string, unknown>;
   if (typeof doc["name"] !== "string") bad("missing name");
   if ((doc["name"] as string).toLowerCase() !== requestedName.toLowerCase()) {
-    bad(`name mismatch: asked for ${requestedName}, got ${doc["name"] as string}`);
+    bad(
+      `name mismatch: asked for ${requestedName}, got ${doc["name"] as string}`,
+    );
   }
   const versionsRaw = doc["versions"];
-  if (typeof versionsRaw !== "object" || versionsRaw === null || Array.isArray(versionsRaw)) {
+  if (
+    typeof versionsRaw !== "object" ||
+    versionsRaw === null ||
+    Array.isArray(versionsRaw)
+  ) {
     bad("missing versions map");
   }
   const distTagsRaw = doc["dist-tags"] ?? doc["distTags"];
-  if (distTagsRaw !== undefined && (typeof distTagsRaw !== "object" || distTagsRaw === null)) {
+  if (
+    distTagsRaw !== undefined &&
+    (typeof distTagsRaw !== "object" || distTagsRaw === null)
+  ) {
     bad("dist-tags is not an object");
   }
 
   const versions: Record<string, PackumentVersion> = {};
-  for (const [version, value] of Object.entries(versionsRaw as Record<string, unknown>)) {
-    if (typeof value !== "object" || value === null) bad(`version ${version} is not an object`);
+  for (const [version, value] of Object.entries(
+    versionsRaw as Record<string, unknown>,
+  )) {
+    if (typeof value !== "object" || value === null)
+      bad(`version ${version} is not an object`);
     const entry = value as Record<string, unknown>;
     if (entry["version"] !== undefined && entry["version"] !== version) {
-      bad(`version key ${version} disagrees with entry version ${String(entry["version"])}`);
+      bad(
+        `version key ${version} disagrees with entry version ${String(entry["version"])}`,
+      );
     }
     const dist = entry["dist"];
-    if (typeof dist !== "object" || dist === null) bad(`version ${version} has no dist block`);
+    if (typeof dist !== "object" || dist === null)
+      bad(`version ${version} has no dist block`);
     const distRecord = dist as Record<string, unknown>;
-    if (typeof distRecord["tarball"] !== "string" || distRecord["tarball"] === "") {
+    if (
+      typeof distRecord["tarball"] !== "string" ||
+      distRecord["tarball"] === ""
+    ) {
       bad(`version ${version} has no tarball URL`);
     }
     versions[version] = {
@@ -476,7 +599,9 @@ function validatePackument(raw: unknown, requestedName: string, origin: string):
 
   const distTags: Record<string, string> = {};
   if (distTagsRaw !== undefined) {
-    for (const [tag, target] of Object.entries(distTagsRaw as Record<string, unknown>)) {
+    for (const [tag, target] of Object.entries(
+      distTagsRaw as Record<string, unknown>,
+    )) {
       if (typeof target === "string") distTags[tag] = target;
     }
   }

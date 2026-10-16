@@ -30,7 +30,8 @@ export function platformPaths(
   home: string = os.homedir(),
 ): PlatformPaths {
   if (platform === "win32") {
-    const localAppData = env["LOCALAPPDATA"] ?? path.join(home, "AppData", "Local");
+    const localAppData =
+      env["LOCALAPPDATA"] ?? path.join(home, "AppData", "Local");
     const appData = env["APPDATA"] ?? path.join(home, "AppData", "Roaming");
     return {
       storeRoot: path.join(localAppData, "snpm", "store", "v1"),
@@ -44,36 +45,58 @@ export function platformPaths(
       configFile: path.join(support, "snpm", "config.json"),
     };
   }
-  const dataHome = env["XDG_DATA_HOME"] !== undefined && env["XDG_DATA_HOME"] !== "" ? env["XDG_DATA_HOME"] : path.join(home, ".local", "share");
-  const configHome = env["XDG_CONFIG_HOME"] !== undefined && env["XDG_CONFIG_HOME"] !== "" ? env["XDG_CONFIG_HOME"] : path.join(home, ".config");
+  const dataHome =
+    env["XDG_DATA_HOME"] !== undefined && env["XDG_DATA_HOME"] !== ""
+      ? env["XDG_DATA_HOME"]
+      : path.join(home, ".local", "share");
+  const configHome =
+    env["XDG_CONFIG_HOME"] !== undefined && env["XDG_CONFIG_HOME"] !== ""
+      ? env["XDG_CONFIG_HOME"]
+      : path.join(home, ".config");
   return {
     storeRoot: path.join(dataHome, "snpm", "store", "v1"),
     configFile: path.join(configHome, "snpm", "config.json"),
   };
 }
 
-export function resolveStoreRoot(options: {
-  env?: NodeJS.ProcessEnv;
-  platform?: NodeJS.Platform;
-  home?: string;
-} = {}): StoreRootResolution {
+export function resolveStoreRoot(
+  options: {
+    env?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+    home?: string;
+  } = {},
+): StoreRootResolution {
   const env = options.env ?? process.env;
   const override = env[STORE_DIR_ENV];
   if (override !== undefined && override !== "") {
-    return { root: path.resolve(override), source: "env-override", overrideVariable: STORE_DIR_ENV };
+    return {
+      root: path.resolve(override),
+      source: "env-override",
+      overrideVariable: STORE_DIR_ENV,
+    };
   }
-  const defaults = platformPaths(env, options.platform ?? process.platform, options.home ?? os.homedir());
+  const defaults = platformPaths(
+    env,
+    options.platform ?? process.platform,
+    options.home ?? os.homedir(),
+  );
   return { root: defaults.storeRoot, source: "default" };
 }
 
 /** Config file location for the current environment. */
-export function resolveConfigFile(options: {
-  env?: NodeJS.ProcessEnv;
-  platform?: NodeJS.Platform;
-  home?: string;
-} = {}): string {
+export function resolveConfigFile(
+  options: {
+    env?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+    home?: string;
+  } = {},
+): string {
   const env = options.env ?? process.env;
-  return platformPaths(env, options.platform ?? process.platform, options.home ?? os.homedir()).configFile;
+  return platformPaths(
+    env,
+    options.platform ?? process.platform,
+    options.home ?? os.homedir(),
+  ).configFile;
 }
 
 /**
@@ -81,7 +104,9 @@ export function resolveConfigFile(options: {
  * a `package.json`. Workspace-aware boundaries arrive with the resolver
  * milestone; this function answers "which directory does a command act on".
  */
-export async function findProjectBoundary(startDir: string): Promise<string | null> {
+export async function findProjectBoundary(
+  startDir: string,
+): Promise<string | null> {
   let current = path.resolve(startDir);
   for (;;) {
     if (await pathExists(path.join(current, "package.json"))) {

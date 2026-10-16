@@ -17,7 +17,10 @@ import { ensureDirWithMode } from "../util/fsx.ts";
 import { randomId } from "../util/ids.ts";
 import { recordTransactionStart, type StoreDb } from "../store/db.ts";
 import { Store } from "../store/layout.ts";
-import { commitExtractedSource, type CommittedSource } from "../store/source.ts";
+import {
+  commitExtractedSource,
+  type CommittedSource,
+} from "../store/source.ts";
 import { Transaction } from "../store/txn.ts";
 import { RegistryClient, expectedIntegrityFromDist } from "./registry.ts";
 
@@ -50,7 +53,9 @@ export interface FetchedSource extends CommittedSource {
  * Fetch one exact `name@version` and commit it as a verified source.
  * Callers resolve the version first; this function never guesses.
  */
-export async function fetchAndCommitSource(options: FetchSourceOptions): Promise<FetchedSource> {
+export async function fetchAndCommitSource(
+  options: FetchSourceOptions,
+): Promise<FetchedSource> {
   const { store, registry, txn, name, version } = options;
   const label = `${name}@${version}`;
 
@@ -61,14 +66,19 @@ export async function fetchAndCommitSource(options: FetchSourceOptions): Promise
     const tags = Object.entries(packument.distTags)
       .map(([tag, target]) => `${tag}=${target}`)
       .join(", ");
-    throw new SnpmError("SNPM_RESOLUTION_FAILED", `registry has no version ${version} of ${name}`, {
-      detail: {
-        name,
-        version,
-        ...(tags === "" ? {} : { distTags: tags }),
+    throw new SnpmError(
+      "SNPM_RESOLUTION_FAILED",
+      `registry has no version ${version} of ${name}`,
+      {
+        detail: {
+          name,
+          version,
+          ...(tags === "" ? {} : { distTags: tags }),
+        },
+        remedy:
+          "check the requested version or refresh the lockfile intentionally",
       },
-      remedy: "check the requested version or refresh the lockfile intentionally",
-    });
+    );
   }
   if (entry.deprecated !== undefined && entry.deprecated !== "") {
     options.logger?.warn(`${label} is deprecated: ${entry.deprecated}`);
@@ -76,10 +86,15 @@ export async function fetchAndCommitSource(options: FetchSourceOptions): Promise
 
   const expectedIntegrity = expectedIntegrityFromDist(entry.dist);
   if (expectedIntegrity === undefined && options.allowWeakIntegrity !== true) {
-    throw new SnpmError("SNPM_INTEGRITY_FAILED", `registry metadata for ${label} carries no integrity digest`, {
-      detail: { name, version },
-      remedy: "strict policy rejects unpinned archives; configure the origin-verification policy explicitly to accept and pin one",
-    });
+    throw new SnpmError(
+      "SNPM_INTEGRITY_FAILED",
+      `registry metadata for ${label} carries no integrity digest`,
+      {
+        detail: { name, version },
+        remedy:
+          "strict policy rejects unpinned archives; configure the origin-verification policy explicitly to accept and pin one",
+      },
+    );
   }
 
   // ---- 2. Download to transaction staging with bounded size ----
@@ -92,7 +107,9 @@ export async function fetchAndCommitSource(options: FetchSourceOptions): Promise
     expectedIntegrity,
     destPath: tarballPath,
     label,
-    ...(options.allowWeakIntegrity === undefined ? {} : { allowWeakIntegrity: options.allowWeakIntegrity }),
+    ...(options.allowWeakIntegrity === undefined
+      ? {}
+      : { allowWeakIntegrity: options.allowWeakIntegrity }),
   });
 
   if (options.db !== undefined) {
@@ -157,5 +174,8 @@ export async function fetchAndCommitSource(options: FetchSourceOptions): Promise
 
 /** Filesystem-safe label for staging paths; never used as an identity. */
 function sanitizeLabel(label: string): string {
-  return label.replaceAll("/", "+").replaceAll("@", "at-").replaceAll(/[^A-Za-z0-9._+-]/g, "_");
+  return label
+    .replaceAll("/", "+")
+    .replaceAll("@", "at-")
+    .replaceAll(/[^A-Za-z0-9._+-]/g, "_");
 }

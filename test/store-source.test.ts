@@ -1,13 +1,31 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { extractTarball, type ExtractionResult } from "../src/extract/tarball.ts";
+import {
+  extractTarball,
+  type ExtractionResult,
+} from "../src/extract/tarball.ts";
 import { getObject, getSource, openStoreDb } from "../src/store/db.ts";
 import { Store } from "../src/store/layout.ts";
-import { readSourceManifest, sourceManifestPath } from "../src/store/manifests.ts";
+import {
+  readSourceManifest,
+  sourceManifestPath,
+} from "../src/store/manifests.ts";
 import { objectPathFor } from "../src/store/objects.ts";
-import { commitExtractedSource, type CommitSourceInput } from "../src/store/source.ts";
+import {
+  commitExtractedSource,
+  type CommitSourceInput,
+} from "../src/store/source.ts";
 import { manifestHashOf, sourceIdOf } from "../src/util/hash.ts";
 import { craftTar, type CraftEntry } from "./helpers/tar.ts";
 
@@ -33,10 +51,16 @@ async function extract(entries: CraftEntry[]): Promise<ExtractionResult> {
   const tarballPath = path.join(staging, `archive-${counter}.tgz`);
   await mkdir(staging, { recursive: true });
   await writeFile(tarballPath, craftTar(entries));
-  return extractTarball({ tarballPath, destDir: path.join(staging, `extract-${counter}`) });
+  return extractTarball({
+    tarballPath,
+    destDir: path.join(staging, `extract-${counter}`),
+  });
 }
 
-function commitInput(extraction: ExtractionResult, overrides: Partial<CommitSourceInput> = {}): CommitSourceInput {
+function commitInput(
+  extraction: ExtractionResult,
+  overrides: Partial<CommitSourceInput> = {},
+): CommitSourceInput {
   return {
     store,
     extraction,
@@ -70,7 +94,9 @@ describe("commitExtractedSource", () => {
     ]);
     const db = openStoreDb(store.paths.dbFile);
     try {
-      const result = await commitExtractedSource(commitInput(extraction, { db }));
+      const result = await commitExtractedSource(
+        commitInput(extraction, { db }),
+      );
 
       expect(result.created).toBe(true);
       expect(result.sourceId).toBe(
@@ -92,23 +118,36 @@ describe("commitExtractedSource", () => {
       const paths = doc.manifest.entries.map((entry) => entry.path);
       expect(paths).toEqual([...paths].sort());
 
-      const byPath = new Map(doc.manifest.entries.map((entry) => [entry.path, entry]));
+      const byPath = new Map(
+        doc.manifest.entries.map((entry) => [entry.path, entry]),
+      );
       const cli = byPath.get("cli.js");
-      if (cli?.type !== "file") throw new Error("expected cli.js as a file entry");
-      expect((await stat(objectPathFor(store, cli.objectId))).mode & 0o777).toBe(0o555);
+      if (cli?.type !== "file")
+        throw new Error("expected cli.js as a file entry");
+      expect(
+        (await stat(objectPathFor(store, cli.objectId))).mode & 0o777,
+      ).toBe(0o555);
 
       const index = byPath.get("index.js");
-      if (index?.type !== "file") throw new Error("expected index.js as a file entry");
-      expect((await stat(objectPathFor(store, index.objectId))).mode & 0o777).toBe(0o444);
+      if (index?.type !== "file")
+        throw new Error("expected index.js as a file entry");
+      expect(
+        (await stat(objectPathFor(store, index.objectId))).mode & 0o777,
+      ).toBe(0o444);
 
       const link = byPath.get("link.js");
-      if (link?.type !== "symlink") throw new Error("expected link.js as a symlink entry");
+      if (link?.type !== "symlink")
+        throw new Error("expected link.js as a symlink entry");
       expect(link.target).toBe("index.js");
 
       const source = getSource(db, result.sourceId);
       expect(source?.manifestHash).toBe(doc.manifestHash);
       const cliObject = getObject(db, cli.objectId);
-      expect(cliObject).toMatchObject({ modeClass: "exec", innerDigest: cli.innerDigest, bytes: cli.size });
+      expect(cliObject).toMatchObject({
+        modeClass: "exec",
+        innerDigest: cli.innerDigest,
+        bytes: cli.size,
+      });
     } finally {
       db.close();
     }
@@ -124,13 +163,16 @@ describe("commitExtractedSource", () => {
 
     const a = doc.manifest.entries.find((entry) => entry.path === "a.txt");
     const b = doc.manifest.entries.find((entry) => entry.path === "b.txt");
-    if (a?.type !== "file" || b?.type !== "file") throw new Error("expected two file entries");
+    if (a?.type !== "file" || b?.type !== "file")
+      throw new Error("expected two file entries");
     expect(a.objectId).toBe(b.objectId);
     expect(await objectCount()).toBe(1);
   });
 
   it("reuses an identical source instead of re-committing it", async () => {
-    const extraction = await extract([{ path: "package/index.js", data: "x\n" }]);
+    const extraction = await extract([
+      { path: "package/index.js", data: "x\n" },
+    ]);
     const first = await commitExtractedSource(commitInput(extraction));
     const second = await commitExtractedSource(commitInput(extraction));
 
@@ -138,16 +180,25 @@ describe("commitExtractedSource", () => {
     expect(second.created).toBe(false);
     expect(second.sourceId).toBe(first.sourceId);
     expect(second.manifestHash).toBe(first.manifestHash);
-    await expect(readSourceManifest(store, first.sourceId)).resolves.toMatchObject({
+    await expect(
+      readSourceManifest(store, first.sourceId),
+    ).resolves.toMatchObject({
       manifestHash: first.manifestHash,
     });
   });
 
   it("treats a different verified archive as a different source identity", async () => {
-    const extraction = await extract([{ path: "package/index.js", data: "x\n" }]);
-    const otherIntegrity = "sha512-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";
-    const a = await commitExtractedSource(commitInput(extraction, { integrity: INTEGRITY }));
-    const b = await commitExtractedSource(commitInput(extraction, { integrity: otherIntegrity }));
+    const extraction = await extract([
+      { path: "package/index.js", data: "x\n" },
+    ]);
+    const otherIntegrity =
+      "sha512-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=";
+    const a = await commitExtractedSource(
+      commitInput(extraction, { integrity: INTEGRITY }),
+    );
+    const b = await commitExtractedSource(
+      commitInput(extraction, { integrity: otherIntegrity }),
+    );
 
     expect(a.sourceId).not.toBe(b.sourceId);
     expect(b.created).toBe(true);
@@ -165,7 +216,9 @@ describe("commitExtractedSource", () => {
       commonRoot: null,
       observations: [],
     };
-    await expect(commitExtractedSource(commitInput(empty))).rejects.toMatchObject({
+    await expect(
+      commitExtractedSource(commitInput(empty)),
+    ).rejects.toMatchObject({
       code: "SNPM_EXTRACTION_UNSAFE",
     });
   });
@@ -181,7 +234,9 @@ describe("commitExtractedSource", () => {
       commonRoot: null,
       observations: [],
     };
-    await expect(commitExtractedSource(commitInput(duplicate))).rejects.toMatchObject({
+    await expect(
+      commitExtractedSource(commitInput(duplicate)),
+    ).rejects.toMatchObject({
       code: "SNPM_EXTRACTION_UNSAFE",
     });
   });
@@ -189,35 +244,47 @@ describe("commitExtractedSource", () => {
 
 describe("readSourceManifest integrity", () => {
   it("rejects a manifest whose recorded hash no longer matches its content", async () => {
-    const extraction = await extract([{ path: "package/index.js", data: "x\n" }]);
+    const extraction = await extract([
+      { path: "package/index.js", data: "x\n" },
+    ]);
     const result = await commitExtractedSource(commitInput(extraction));
     const manifestPath = sourceManifestPath(store, result.sourceId);
 
     await chmod(manifestPath, 0o644);
-    const doc = JSON.parse(await readFile(manifestPath, "utf8")) as { manifest: { version: string } };
+    const doc = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      manifest: { version: string };
+    };
     doc.manifest.version = "9.9.9";
     await writeFile(manifestPath, JSON.stringify(doc));
 
-    await expect(readSourceManifest(store, result.sourceId)).rejects.toMatchObject({
+    await expect(
+      readSourceManifest(store, result.sourceId),
+    ).rejects.toMatchObject({
       code: "SNPM_STORE_CORRUPT",
     });
   });
 
   it("rejects a manifest that is not valid JSON", async () => {
-    const extraction = await extract([{ path: "package/index.js", data: "x\n" }]);
+    const extraction = await extract([
+      { path: "package/index.js", data: "x\n" },
+    ]);
     const result = await commitExtractedSource(commitInput(extraction));
     const manifestPath = sourceManifestPath(store, result.sourceId);
 
     await chmod(manifestPath, 0o644);
     await writeFile(manifestPath, "{ not json");
 
-    await expect(readSourceManifest(store, result.sourceId)).rejects.toMatchObject({
+    await expect(
+      readSourceManifest(store, result.sourceId),
+    ).rejects.toMatchObject({
       code: "SNPM_STORE_CORRUPT",
     });
   });
 
   it("reports a missing manifest as store corruption, not a silent miss", async () => {
-    await expect(readSourceManifest(store, "src-missing-source")).rejects.toMatchObject({
+    await expect(
+      readSourceManifest(store, "src-missing-source"),
+    ).rejects.toMatchObject({
       code: "SNPM_STORE_CORRUPT",
     });
   });

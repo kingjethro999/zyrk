@@ -1,7 +1,12 @@
 import { open, readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { canonicalJson } from "../util/json.ts";
-import { ensureDirWithMode, isErrno, mkdirp, rmrfNoFollow } from "../util/fsx.ts";
+import {
+  ensureDirWithMode,
+  isErrno,
+  mkdirp,
+  rmrfNoFollow,
+} from "../util/fsx.ts";
 import { randomId } from "../util/ids.ts";
 import { Store } from "./layout.ts";
 
@@ -92,7 +97,11 @@ export class Transaction {
       if (line === "") continue;
       try {
         const parsed = JSON.parse(line) as Partial<JournalEntry>;
-        if (parsed.event === "state" && typeof parsed.state === "string" && (TXN_STATES as readonly string[]).includes(parsed.state)) {
+        if (
+          parsed.event === "state" &&
+          typeof parsed.state === "string" &&
+          (TXN_STATES as readonly string[]).includes(parsed.state)
+        ) {
           last = parsed.state as TransactionState;
         }
       } catch {

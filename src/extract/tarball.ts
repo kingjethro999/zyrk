@@ -64,13 +64,23 @@ export type ExtractedFileEntry = {
 
 export type ExtractedDirEntry = { path: string; type: "dir" };
 
-export type ExtractedSymlinkEntry = { path: string; type: "symlink"; target: string };
+export type ExtractedSymlinkEntry = {
+  path: string;
+  type: "symlink";
+  target: string;
+};
 
-export type ExtractedEntry = ExtractedFileEntry | ExtractedDirEntry | ExtractedSymlinkEntry;
+export type ExtractedEntry =
+  ExtractedFileEntry | ExtractedDirEntry | ExtractedSymlinkEntry;
 
 export type ExtractionResult = {
   entries: ExtractedEntry[];
-  totals: { files: number; dirs: number; symlinks: number; logicalBytes: number };
+  totals: {
+    files: number;
+    dirs: number;
+    symlinks: number;
+    logicalBytes: number;
+  };
   /** Deterministic, sorted outcome codes; stored in the source manifest. */
   outcomes: string[];
   /** The stripped common root directory, if one was found. */
@@ -97,7 +107,10 @@ export async function extractTarball(options: {
   destDir: string;
   limits?: Partial<ExtractionLimits>;
 }): Promise<ExtractionResult> {
-  const limits: ExtractionLimits = { ...DEFAULT_EXTRACTION_LIMITS, ...options.limits };
+  const limits: ExtractionLimits = {
+    ...DEFAULT_EXTRACTION_LIMITS,
+    ...options.limits,
+  };
   await ensureDirWithMode(options.destDir, 0o700);
   const destRoot = path.resolve(options.destDir);
 
@@ -109,13 +122,18 @@ export async function extractTarball(options: {
 
   await runParser(options.tarballPath, async (entry, index) => {
     if (plans.length >= limits.maxEntries) {
-      throw unsafe(`archive has more than ${limits.maxEntries} entries`, { maxEntries: limits.maxEntries });
+      throw unsafe(`archive has more than ${limits.maxEntries} entries`, {
+        maxEntries: limits.maxEntries,
+      });
     }
     const size = entry.size ?? 0;
     if (size > limits.maxTotalBytes) {
-      throw unsafe(`archive entry declares ${size} bytes, beyond the limit of ${limits.maxTotalBytes}`, {
-        entryPath: entry.path,
-      });
+      throw unsafe(
+        `archive entry declares ${size} bytes, beyond the limit of ${limits.maxTotalBytes}`,
+        {
+          entryPath: entry.path,
+        },
+      );
     }
     const check = normalizeArchivePath(entry.path ?? "", limits);
     if (check.reserved) observedReserved += 1;
@@ -128,7 +146,10 @@ export async function extractTarball(options: {
       type: planType(entry),
       size,
       mode: typeof entry.mode === "number" ? entry.mode : 0o644,
-      linkpath: typeof entry.linkpath === "string" && entry.linkpath !== "" ? entry.linkpath : null,
+      linkpath:
+        typeof entry.linkpath === "string" && entry.linkpath !== ""
+          ? entry.linkpath
+          : null,
     });
     entry.resume();
   });
@@ -141,7 +162,10 @@ export async function extractTarball(options: {
   const commonRoot = findCommonRoot(plans);
   const finalPlans: EntryPlan[] = [];
   for (const plan of plans) {
-    plan.effectivePath = commonRoot === null ? plan.rawPath : stripPrefix(plan.rawPath, commonRoot);
+    plan.effectivePath =
+      commonRoot === null
+        ? plan.rawPath
+        : stripPrefix(plan.rawPath, commonRoot);
     if (plan.effectivePath !== "") finalPlans.push(plan);
   }
 
@@ -152,31 +176,43 @@ export async function extractTarball(options: {
   for (const plan of finalPlans) {
     const check = normalizeArchivePath(plan.effectivePath, limits);
     if (check.normalized !== plan.effectivePath) {
-      throw unsafe(`entry path changes meaning when normalized: ${plan.rawPath}`, { entryPath: plan.rawPath });
+      throw unsafe(
+        `entry path changes meaning when normalized: ${plan.rawPath}`,
+        { entryPath: plan.rawPath },
+      );
     }
     if (effectiveByPath.has(plan.effectivePath)) {
-      throw unsafe(`archive contains ${JSON.stringify(plan.effectivePath)} more than once`, {
-        entryPath: plan.effectivePath,
-      });
+      throw unsafe(
+        `archive contains ${JSON.stringify(plan.effectivePath)} more than once`,
+        {
+          entryPath: plan.effectivePath,
+        },
+      );
     }
     effectiveByPath.set(plan.effectivePath, plan);
 
     const folded = casefold(plan.effectivePath);
     const clash = foldedSeen.get(folded);
     if (clash !== undefined) {
-      throw unsafe(`case-folding collision between ${JSON.stringify(clash)} and ${JSON.stringify(plan.effectivePath)}`, {
-        pathA: clash,
-        pathB: plan.effectivePath,
-      });
+      throw unsafe(
+        `case-folding collision between ${JSON.stringify(clash)} and ${JSON.stringify(plan.effectivePath)}`,
+        {
+          pathA: clash,
+          pathB: plan.effectivePath,
+        },
+      );
     }
     foldedSeen.set(folded, plan.effectivePath);
 
     if (plan.type === "file" || plan.type === "hardlink") {
       totalBytes += plan.size;
       if (totalBytes > limits.maxTotalBytes) {
-        throw unsafe(`archive expands to more than ${limits.maxTotalBytes} bytes`, {
-          maxTotalBytes: limits.maxTotalBytes,
-        });
+        throw unsafe(
+          `archive expands to more than ${limits.maxTotalBytes} bytes`,
+          {
+            maxTotalBytes: limits.maxTotalBytes,
+          },
+        );
       }
     }
   }
@@ -185,16 +221,24 @@ export async function extractTarball(options: {
   for (const plan of finalPlans) {
     if (plan.type !== "hardlink") continue;
     if (plan.linkpath === null) {
-      throw unsafe(`hard link without a target: ${plan.effectivePath}`, { entryPath: plan.effectivePath });
+      throw unsafe(`hard link without a target: ${plan.effectivePath}`, {
+        entryPath: plan.effectivePath,
+      });
     }
     const targetCheck = normalizeArchivePath(plan.linkpath, limits);
-    const target = commonRoot === null ? targetCheck.normalized : stripPrefix(targetCheck.normalized, commonRoot);
+    const target =
+      commonRoot === null
+        ? targetCheck.normalized
+        : stripPrefix(targetCheck.normalized, commonRoot);
     const targetPlan = target === "" ? undefined : effectiveByPath.get(target);
     if (targetPlan === undefined || targetPlan.type !== "file") {
-      throw unsafe(`hard link target is not an extracted regular file: ${plan.effectivePath} -> ${plan.linkpath}`, {
-        entryPath: plan.effectivePath,
-        target: plan.linkpath,
-      });
+      throw unsafe(
+        `hard link target is not an extracted regular file: ${plan.effectivePath} -> ${plan.linkpath}`,
+        {
+          entryPath: plan.effectivePath,
+          target: plan.linkpath,
+        },
+      );
     }
     plan.linkpath = target;
   }
@@ -204,15 +248,23 @@ export async function extractTarball(options: {
     if (plan.type !== "symlink") continue;
     const target = plan.linkpath;
     if (target === null || target === "") {
-      throw unsafe(`symlink without a target: ${plan.effectivePath}`, { entryPath: plan.effectivePath });
-    }
-    if (target.length > limits.maxSymlinkTargetLength) {
-      throw unsafe(`symlink target longer than ${limits.maxSymlinkTargetLength} characters: ${plan.effectivePath}`, {
+      throw unsafe(`symlink without a target: ${plan.effectivePath}`, {
         entryPath: plan.effectivePath,
       });
     }
+    if (target.length > limits.maxSymlinkTargetLength) {
+      throw unsafe(
+        `symlink target longer than ${limits.maxSymlinkTargetLength} characters: ${plan.effectivePath}`,
+        {
+          entryPath: plan.effectivePath,
+        },
+      );
+    }
     if (target.includes("\\")) {
-      throw unsafe(`symlink target contains a backslash: ${plan.effectivePath}`, { entryPath: plan.effectivePath });
+      throw unsafe(
+        `symlink target contains a backslash: ${plan.effectivePath}`,
+        { entryPath: plan.effectivePath },
+      );
     }
     if (target.startsWith("/") || /^[A-Za-z]:/.test(target)) {
       throw unsafe(`symlink target is absolute: ${plan.effectivePath}`, {
@@ -255,7 +307,11 @@ export async function extractTarball(options: {
 
     switch (plan.type) {
       case "dir": {
-        await ensureDirsFor(rootRelative(destRoot, plan.effectivePath), destRoot, symlinks);
+        await ensureDirsFor(
+          rootRelative(destRoot, plan.effectivePath),
+          destRoot,
+          symlinks,
+        );
         dirs.add(plan.effectivePath);
         dirCount += 1;
         entries.push({ path: plan.effectivePath, type: "dir" });
@@ -263,15 +319,26 @@ export async function extractTarball(options: {
         return;
       }
       case "file": {
-        await ensureDirsFor(rootRelative(destRoot, path.dirname(plan.effectivePath)), destRoot, symlinks);
-        const observed = await writeEntryFile(entry, destRoot, plan.effectivePath);
+        await ensureDirsFor(
+          rootRelative(destRoot, path.dirname(plan.effectivePath)),
+          destRoot,
+          symlinks,
+        );
+        const observed = await writeEntryFile(
+          entry,
+          destRoot,
+          plan.effectivePath,
+        );
         if (observed.size !== plan.size) {
           await rm(observed.stagingPath, { force: true }).catch(() => {});
-          throw unsafe(`file size mismatch while extracting ${plan.effectivePath}`, {
-            entryPath: plan.effectivePath,
-            declared: plan.size,
-            actual: observed.size,
-          });
+          throw unsafe(
+            `file size mismatch while extracting ${plan.effectivePath}`,
+            {
+              entryPath: plan.effectivePath,
+              declared: plan.size,
+              actual: observed.size,
+            },
+          );
         }
         fileCount += 1;
         logicalBytes += observed.size;
@@ -289,7 +356,11 @@ export async function extractTarball(options: {
       }
       case "symlink": {
         const target = plan.linkpath!;
-        await ensureDirsFor(rootRelative(destRoot, path.dirname(plan.effectivePath)), destRoot, symlinks);
+        await ensureDirsFor(
+          rootRelative(destRoot, path.dirname(plan.effectivePath)),
+          destRoot,
+          symlinks,
+        );
         await fsSymlink(target, rootRelative(destRoot, plan.effectivePath));
         symlinks.set(plan.effectivePath, target);
         symlinkCount += 1;
@@ -301,12 +372,19 @@ export async function extractTarball(options: {
         const target = plan.linkpath!;
         const targetEntry = fileEntries.get(target);
         if (targetEntry === undefined) {
-          throw unsafe(`hard link target was not extracted: ${plan.effectivePath} -> ${target}`, {
-            entryPath: plan.effectivePath,
-            target,
-          });
+          throw unsafe(
+            `hard link target was not extracted: ${plan.effectivePath} -> ${target}`,
+            {
+              entryPath: plan.effectivePath,
+              target,
+            },
+          );
         }
-        await ensureDirsFor(rootRelative(destRoot, path.dirname(plan.effectivePath)), destRoot, symlinks);
+        await ensureDirsFor(
+          rootRelative(destRoot, path.dirname(plan.effectivePath)),
+          destRoot,
+          symlinks,
+        );
         const dest = rootRelative(destRoot, plan.effectivePath);
         try {
           await fsLink(rootRelative(destRoot, target), dest);
@@ -318,7 +396,11 @@ export async function extractTarball(options: {
         }
         fileCount += 1;
         logicalBytes += targetEntry.size;
-        const fileEntry: ExtractedFileEntry = { ...targetEntry, path: plan.effectivePath, stagingPath: dest };
+        const fileEntry: ExtractedFileEntry = {
+          ...targetEntry,
+          path: plan.effectivePath,
+          stagingPath: dest,
+        };
         fileEntries.set(plan.effectivePath, fileEntry);
         entries.push(fileEntry);
         entry.resume();
@@ -334,13 +416,20 @@ export async function extractTarball(options: {
   for (const [linkPath, target] of symlinks) {
     const chased = chaseSymlinkChain(linkPath, target, symlinks);
     if (chased.escaped) {
-      throw unsafe(`symlink chain escapes the package root: ${linkPath}`, { entryPath: linkPath, target });
+      throw unsafe(`symlink chain escapes the package root: ${linkPath}`, {
+        entryPath: linkPath,
+        target,
+      });
     }
     if (chased.cyclic) {
       cyclic += 1;
       continue;
     }
-    if (!fileEntries.has(chased.finalPath) && !dirs.has(chased.finalPath) && !symlinks.has(chased.finalPath)) {
+    if (
+      !fileEntries.has(chased.finalPath) &&
+      !dirs.has(chased.finalPath) &&
+      !symlinks.has(chased.finalPath)
+    ) {
       dangling += 1;
     }
   }
@@ -356,16 +445,24 @@ export async function extractTarball(options: {
     "symlink-closure-validated",
   ]);
   if (symlinkCount > 0) outcomes.add("symlinks-present");
-  if (finalPlans.some((plan) => plan.type === "hardlink")) outcomes.add("hardlinks-present");
+  if (finalPlans.some((plan) => plan.type === "hardlink"))
+    outcomes.add("hardlinks-present");
   if (dangling > 0) outcomes.add(`internal-dangling-symlinks:${dangling}`);
   if (cyclic > 0) outcomes.add(`cyclic-symlinks:${cyclic}`);
   if (commonRoot !== null) outcomes.add(`common-root-stripped:${commonRoot}`);
-  if (observedReserved > 0) outcomes.add(`reserved-windows-names:${observedReserved}`);
-  if (observedWindowsInvalid > 0) outcomes.add(`windows-invalid-characters:${observedWindowsInvalid}`);
+  if (observedReserved > 0)
+    outcomes.add(`reserved-windows-names:${observedReserved}`);
+  if (observedWindowsInvalid > 0)
+    outcomes.add(`windows-invalid-characters:${observedWindowsInvalid}`);
 
   return {
     entries,
-    totals: { files: fileCount, dirs: dirCount, symlinks: symlinkCount, logicalBytes },
+    totals: {
+      files: fileCount,
+      dirs: dirCount,
+      symlinks: symlinkCount,
+      logicalBytes,
+    },
     outcomes: [...outcomes].sort(),
     commonRoot,
     observations,
@@ -376,13 +473,22 @@ export async function extractTarball(options: {
 // Path validation
 // ---------------------------------------------------------------------------
 
-export type PathCheck = { normalized: string; reserved: boolean; invalidWindows: boolean };
+export type PathCheck = {
+  normalized: string;
+  reserved: boolean;
+  invalidWindows: boolean;
+};
 
 /** Normalize and validate an archive path; anything that can escape fails. */
-export function normalizeArchivePath(rawInput: string, limits: ExtractionLimits): PathCheck {
+export function normalizeArchivePath(
+  rawInput: string,
+  limits: ExtractionLimits,
+): PathCheck {
   const raw = rawInput.replace(/\/+$/, "");
   if (raw === "") {
-    throw unsafe("archive contains an entry with an empty path", { entryPath: rawInput });
+    throw unsafe("archive contains an entry with an empty path", {
+      entryPath: rawInput,
+    });
   }
   if (raw.includes("\0")) {
     throw unsafe("path contains a NUL byte", { entryPath: rawInput });
@@ -406,9 +512,13 @@ export function normalizeArchivePath(rawInput: string, limits: ExtractionLimits)
       throw unsafe("path traverses upwards with '..'", { entryPath: rawInput });
     }
     if (Buffer.byteLength(segment, "utf8") > limits.maxComponentLength) {
-      throw unsafe(`path component longer than ${limits.maxComponentLength} bytes`, { entryPath: rawInput });
+      throw unsafe(
+        `path component longer than ${limits.maxComponentLength} bytes`,
+        { entryPath: rawInput },
+      );
     }
-    if (WINDOWS_RESERVED.test(segment) || /[. ]$/.test(segment)) reserved = true;
+    if (WINDOWS_RESERVED.test(segment) || /[. ]$/.test(segment))
+      reserved = true;
     if (WINDOWS_INVALID_CHARS.test(segment)) invalidWindows = true;
     segments.push(segment);
   }
@@ -418,7 +528,9 @@ export function normalizeArchivePath(rawInput: string, limits: ExtractionLimits)
   }
   const normalized = segments.join("/");
   if (normalized.length > limits.maxPathLength) {
-    throw unsafe(`path longer than ${limits.maxPathLength} characters`, { entryPath: rawInput });
+    throw unsafe(`path longer than ${limits.maxPathLength} characters`, {
+      entryPath: rawInput,
+    });
   }
   return { normalized, reserved, invalidWindows };
 }
@@ -430,10 +542,13 @@ function assertTargetStaysInside(linkPath: string, target: string): void {
     if (segment === "..") {
       level -= 1;
       if (level < 0) {
-        throw unsafe(`link target escapes the package root: ${linkPath} -> ${target}`, {
-          entryPath: linkPath,
-          target,
-        });
+        throw unsafe(
+          `link target escapes the package root: ${linkPath} -> ${target}`,
+          {
+            entryPath: linkPath,
+            target,
+          },
+        );
       }
       continue;
     }
@@ -458,7 +573,8 @@ function findCommonRoot(plans: EntryPlan[]): string | null {
 
 function stripPrefix(entryPath: string, prefix: string): string {
   if (entryPath === prefix) return "";
-  if (entryPath.startsWith(`${prefix}/`)) return entryPath.slice(prefix.length + 1);
+  if (entryPath.startsWith(`${prefix}/`))
+    return entryPath.slice(prefix.length + 1);
   return entryPath;
 }
 
@@ -466,7 +582,10 @@ function assertNoDuplicateRawPaths(plans: EntryPlan[]): void {
   const seen = new Set<string>();
   for (const plan of plans) {
     if (seen.has(plan.rawPath)) {
-      throw unsafe(`archive contains ${JSON.stringify(plan.rawPath)} more than once`, { entryPath: plan.rawPath });
+      throw unsafe(
+        `archive contains ${JSON.stringify(plan.rawPath)} more than once`,
+        { entryPath: plan.rawPath },
+      );
     }
     seen.add(plan.rawPath);
   }
@@ -494,10 +613,13 @@ function planType(entry: ReadEntry): EntryPlan["type"] {
     case "Link":
       return "hardlink";
     default:
-      throw unsafe(`unsupported archive entry type ${entry.type} at ${entry.path}`, {
-        entryPath: entry.path,
-        entryType: entry.type,
-      });
+      throw unsafe(
+        `unsupported archive entry type ${entry.type} at ${entry.path}`,
+        {
+          entryPath: entry.path,
+          entryType: entry.type,
+        },
+      );
   }
 }
 
@@ -505,7 +627,9 @@ function planType(entry: ReadEntry): EntryPlan["type"] {
 function rootRelative(destRoot: string, relative: string): string {
   const resolved = path.resolve(destRoot, relative);
   if (resolved !== destRoot && !resolved.startsWith(`${destRoot}${path.sep}`)) {
-    throw unsafe(`path escapes the extraction root: ${relative}`, { entryPath: relative });
+    throw unsafe(`path escapes the extraction root: ${relative}`, {
+      entryPath: relative,
+    });
   }
   return resolved;
 }
@@ -516,7 +640,11 @@ function rootRelative(destRoot: string, relative: string): string {
  * written through a symlink (SPEC 13.4); directory entries themselves are
  * created exclusively.
  */
-async function ensureDirsFor(absDir: string, destRoot: string, symlinks: Map<string, string>): Promise<void> {
+async function ensureDirsFor(
+  absDir: string,
+  destRoot: string,
+  symlinks: Map<string, string>,
+): Promise<void> {
   if (absDir === destRoot) return;
   const relative = path.relative(destRoot, absDir);
   const segments = relative.split(path.sep);
@@ -524,7 +652,10 @@ async function ensureDirsFor(absDir: string, destRoot: string, symlinks: Map<str
   for (const segment of segments) {
     current = current === "" ? segment : `${current}/${segment}`;
     if (symlinks.has(current)) {
-      throw unsafe(`refusing to write through a symlink directory: ${current}`, { entryPath: current });
+      throw unsafe(
+        `refusing to write through a symlink directory: ${current}`,
+        { entryPath: current },
+      );
     }
   }
   try {
@@ -532,17 +663,23 @@ async function ensureDirsFor(absDir: string, destRoot: string, symlinks: Map<str
   } catch (error) {
     if (!isErrno(error, "EEXIST")) {
       if (isErrno(error, "ENOTDIR")) {
-        throw unsafe(`an ancestor of ${relative} is not a directory`, { entryPath: relative });
+        throw unsafe(`an ancestor of ${relative} is not a directory`, {
+          entryPath: relative,
+        });
       }
       throw error;
     }
   }
   const stat = await fsLstat(absDir);
   if (stat.isSymbolicLink()) {
-    throw unsafe(`refusing to use a symlink as a directory: ${relative}`, { entryPath: relative });
+    throw unsafe(`refusing to use a symlink as a directory: ${relative}`, {
+      entryPath: relative,
+    });
   }
   if (!stat.isDirectory()) {
-    throw unsafe(`an entry collides with an existing file: ${relative}`, { entryPath: relative });
+    throw unsafe(`an entry collides with an existing file: ${relative}`, {
+      entryPath: relative,
+    });
   }
 }
 
@@ -550,7 +687,12 @@ async function writeEntryFile(
   entry: ReadEntry,
   destRoot: string,
   relative: string,
-): Promise<{ mode: ModeClass; size: number; innerDigest: string; stagingPath: string }> {
+): Promise<{
+  mode: ModeClass;
+  size: number;
+  innerDigest: string;
+  stagingPath: string;
+}> {
   const dest = rootRelative(destRoot, relative);
   const declaredMode = typeof entry.mode === "number" ? entry.mode : 0o644;
   const modeClass = modeClassOf(declaredMode);
@@ -562,7 +704,9 @@ async function writeEntryFile(
     handle = await open(dest, "wx", fileMode);
   } catch (error) {
     if (isErrno(error, "EEXIST")) {
-      throw unsafe(`refusing to overwrite an existing entry: ${relative}`, { entryPath: relative });
+      throw unsafe(`refusing to overwrite an existing entry: ${relative}`, {
+        entryPath: relative,
+      });
     }
     throw error;
   }
@@ -571,7 +715,9 @@ async function writeEntryFile(
   let size = 0;
   try {
     for await (const chunk of entry) {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      const buffer = Buffer.isBuffer(chunk)
+        ? chunk
+        : Buffer.from(chunk as Uint8Array);
       size += buffer.length;
       digest.update(buffer);
       await handle.write(buffer);
@@ -584,7 +730,12 @@ async function writeEntryFile(
   }
   await handle.close();
   await chmod(dest, fileMode); // archive modes are advisory; bits are normalized
-  return { mode: modeClass, size, innerDigest: digest.hex(), stagingPath: dest };
+  return {
+    mode: modeClass,
+    size,
+    innerDigest: digest.hex(),
+    stagingPath: dest,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -606,7 +757,8 @@ export function chaseSymlinkChain(
     const segment = rest.shift()!;
     if (segment === "" || segment === ".") continue;
     if (segment === "..") {
-      if (out.length === 0) return { finalPath: "", escaped: true, cyclic: false };
+      if (out.length === 0)
+        return { finalPath: "", escaped: true, cyclic: false };
       out.pop();
       continue;
     }
@@ -677,7 +829,9 @@ async function runParser(
           }
           return handler(entry, entryIndex).catch((error: unknown) => {
             failed = true;
-            parser.abort(error instanceof Error ? error : new Error(String(error)));
+            parser.abort(
+              error instanceof Error ? error : new Error(String(error)),
+            );
             throw error;
           });
         })
@@ -691,13 +845,13 @@ async function runParser(
       finish(
         error instanceof SnpmError
           ? error
-          : unsafe(`archive could not be parsed: ${error.message}`, { archiveError: error.message }),
+          : unsafe(`archive could not be parsed: ${error.message}`, {
+              archiveError: error.message,
+            }),
       );
     });
     parser.on("end", () => {
-      chain
-        .then(() => finish())
-        .catch(() => {});
+      chain.then(() => finish()).catch(() => {});
     });
 
     stream.on("error", (error: Error) => finish(error));

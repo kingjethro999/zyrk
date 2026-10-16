@@ -2,7 +2,12 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { SnpmError } from "../errors.ts";
 import { resolveStoreRoot } from "../config/paths.ts";
-import { ensureDirWithMode, pathExists, readJsonFile, writeFileAtomic } from "../util/fsx.ts";
+import {
+  ensureDirWithMode,
+  pathExists,
+  readJsonFile,
+  writeFileAtomic,
+} from "../util/fsx.ts";
 import {
   CLI_VERSION,
   CONTEXT_CANONICALIZATION_VERSION,
@@ -131,15 +136,23 @@ export class Store {
   /** Throw unless the store is initialized and usable. */
   requireInitialized(): StoreFormatMarker {
     if (this.format === undefined) {
-      throw new SnpmError("SNPM_STORE_UNSAFE", `the snpm store at ${this.root} is not initialized`, {
-        detail: { storeRoot: this.root },
-        remedy: "run an install or fetch command to initialize the store, or set SNPM_STORE_DIR to an existing initialized store",
-      });
+      throw new SnpmError(
+        "SNPM_STORE_UNSAFE",
+        `the snpm store at ${this.root} is not initialized`,
+        {
+          detail: { storeRoot: this.root },
+          remedy:
+            "run an install or fetch command to initialize the store, or set SNPM_STORE_DIR to an existing initialized store",
+        },
+      );
     }
     return this.format;
   }
 
-  private static async initialize(root: string, allowUnsafePermissions: boolean): Promise<void> {
+  private static async initialize(
+    root: string,
+    allowUnsafePermissions: boolean,
+  ): Promise<void> {
     if (!(await pathExists(root))) {
       await ensureDirWithMode(root, 0o700);
     }
@@ -176,7 +189,11 @@ export class Store {
         createdAt: new Date().toISOString(),
         tool: { name: "snpm", version: CLI_VERSION },
       };
-      await writeFileAtomic(paths.formatFile, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o644 });
+      await writeFileAtomic(
+        paths.formatFile,
+        `${JSON.stringify(marker, null, 2)}\n`,
+        { mode: 0o644 },
+      );
     }
   }
 
@@ -185,65 +202,97 @@ export class Store {
    * user-owned and not group/world writable. Never fixes ownership
    * automatically; a root-owned store gets a repair explanation instead.
    */
-  private static async checkSafety(root: string, allowUnsafePermissions: boolean): Promise<void> {
+  private static async checkSafety(
+    root: string,
+    allowUnsafePermissions: boolean,
+  ): Promise<void> {
     const resolved = await fs.realpath(root);
     const stat = await fs.stat(resolved);
     if (!stat.isDirectory()) {
-      throw new SnpmError("SNPM_STORE_UNSAFE", `store path is not a directory: ${root}`, {
-        detail: { storeRoot: root },
-        remedy: "choose a directory for the store, or remove the conflicting file",
-      });
+      throw new SnpmError(
+        "SNPM_STORE_UNSAFE",
+        `store path is not a directory: ${root}`,
+        {
+          detail: { storeRoot: root },
+          remedy:
+            "choose a directory for the store, or remove the conflicting file",
+        },
+      );
     }
 
     if (process.platform === "win32") {
       // Windows ACL verification arrives with Windows platform support
       // (SPEC 27); until then the store is not advertised as supported there.
-      throw new SnpmError("SNPM_PLATFORM_UNSUPPORTED", "Windows store permission checks are not implemented yet", {
-        detail: { storeRoot: root, platform: process.platform },
-        remedy: "run on Linux for now; Windows support is gated on its platform fixtures",
-      });
+      throw new SnpmError(
+        "SNPM_PLATFORM_UNSUPPORTED",
+        "Windows store permission checks are not implemented yet",
+        {
+          detail: { storeRoot: root, platform: process.platform },
+          remedy:
+            "run on Linux for now; Windows support is gated on its platform fixtures",
+        },
+      );
     }
 
     if (allowUnsafePermissions) return;
 
     const uid = process.getuid?.();
     if (uid !== undefined && stat.uid !== uid) {
-      throw new SnpmError("SNPM_STORE_UNSAFE", `store is owned by another user (uid ${stat.uid}, running as ${uid}): ${root}`, {
-        detail: { storeRoot: root, ownerUid: stat.uid, runningUid: uid },
-        remedy:
-          "if this store was created by root, move it under your own account or point SNPM_STORE_DIR at a user-owned location; snpm never rewrites ownership recursively",
-      });
+      throw new SnpmError(
+        "SNPM_STORE_UNSAFE",
+        `store is owned by another user (uid ${stat.uid}, running as ${uid}): ${root}`,
+        {
+          detail: { storeRoot: root, ownerUid: stat.uid, runningUid: uid },
+          remedy:
+            "if this store was created by root, move it under your own account or point SNPM_STORE_DIR at a user-owned location; snpm never rewrites ownership recursively",
+        },
+      );
     }
     if (uid !== undefined && stat.uid === 0 && uid !== 0) {
       throw new SnpmError("SNPM_STORE_UNSAFE", `store is root-owned: ${root}`, {
         detail: { storeRoot: root, ownerUid: stat.uid },
-        remedy: "create a fresh store under your account instead of reusing a root-owned one",
+        remedy:
+          "create a fresh store under your account instead of reusing a root-owned one",
       });
     }
 
     const mode = stat.mode & 0o777;
     if ((mode & 0o022) !== 0) {
-      throw new SnpmError("SNPM_STORE_UNSAFE", `store is group- or world-writable (mode ${mode.toString(8)}): ${root}`, {
-        detail: { storeRoot: root, mode: mode.toString(8) },
-        remedy: `chmod go-w '${root}' (and its subdirectories) so other accounts cannot modify shared package content`,
-      });
+      throw new SnpmError(
+        "SNPM_STORE_UNSAFE",
+        `store is group- or world-writable (mode ${mode.toString(8)}): ${root}`,
+        {
+          detail: { storeRoot: root, mode: mode.toString(8) },
+          remedy: `chmod go-w '${root}' (and its subdirectories) so other accounts cannot modify shared package content`,
+        },
+      );
     }
   }
 }
 
-async function readStoreFormatMarker(markerPath: string): Promise<StoreFormatMarker> {
+async function readStoreFormatMarker(
+  markerPath: string,
+): Promise<StoreFormatMarker> {
   try {
     return await readJsonFile<StoreFormatMarker>(markerPath);
   } catch (error) {
-    throw new SnpmError("SNPM_STORE_CORRUPT", `store format marker is unreadable: ${markerPath}`, {
-      detail: { formatFile: markerPath },
-      remedy: "inspect the marker file; if it is damaged, remove it and re-run an install to reinitialize format metadata",
-      cause: error,
-    });
+    throw new SnpmError(
+      "SNPM_STORE_CORRUPT",
+      `store format marker is unreadable: ${markerPath}`,
+      {
+        detail: { formatFile: markerPath },
+        remedy:
+          "inspect the marker file; if it is damaged, remove it and re-run an install to reinitialize format metadata",
+        cause: error,
+      },
+    );
   }
 }
 
-function validateStoreFormatMarker(marker: StoreFormatMarker, markerPath: string): void {
+function validateStoreFormatMarker(
+  marker: StoreFormatMarker,
+  markerPath: string,
+): void {
   if (marker.storeFormatVersion !== STORE_FORMAT_VERSION) {
     throw new SnpmError(
       "SNPM_STORE_FORMAT_UNSUPPORTED",
@@ -260,10 +309,18 @@ function validateStoreFormatMarker(marker: StoreFormatMarker, markerPath: string
     );
   }
   if (marker.objectKeyScheme !== OBJECT_KEY_SCHEME) {
-    throw new SnpmError("SNPM_STORE_FORMAT_UNSUPPORTED", `object key scheme ${marker.objectKeyScheme} is not supported`, {
-      detail: { formatFile: markerPath, objectKeyScheme: marker.objectKeyScheme },
-      remedy: "use a CLI that understands this store, or initialize a fresh store",
-    });
+    throw new SnpmError(
+      "SNPM_STORE_FORMAT_UNSUPPORTED",
+      `object key scheme ${marker.objectKeyScheme} is not supported`,
+      {
+        detail: {
+          formatFile: markerPath,
+          objectKeyScheme: marker.objectKeyScheme,
+        },
+        remedy:
+          "use a CLI that understands this store, or initialize a fresh store",
+      },
+    );
   }
   if (marker.extractionPolicyVersion !== EXTRACTION_POLICY_VERSION) {
     // Extraction-rule changes are part of source identity (SPEC 8.1/13.4):

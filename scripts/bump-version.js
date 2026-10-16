@@ -19,7 +19,8 @@ export function nextVersion(version) {
   const [major, minor, patch] = match.slice(1).map(Number);
   if (major === 0 && (minor > 599 || patch > 9))
     throw new Error(`Version outside pre-1.0 range: ${version}`);
-  if (major === 0 && minor === 0) return patch < 9 ? `0.0.${patch + 1}` : "0.1.0";
+  if (major === 0 && minor === 0)
+    return patch < 9 ? `0.0.${patch + 1}` : "0.1.0";
   if (major === 0) {
     if (minor === 599 && patch === 9) return "1.0.0";
     return patch < 9 ? `0.${minor}.${patch + 1}` : `0.${minor + 1}.0`;
@@ -43,7 +44,8 @@ function main() {
   console.log(`Version bumped to v${pkg.version}`);
 }
 
-const invokedPath = process.argv[1] === undefined ? undefined : path.resolve(process.argv[1]);
+const invokedPath =
+  process.argv[1] === undefined ? undefined : path.resolve(process.argv[1]);
 if (invokedPath === fileURLToPath(import.meta.url)) {
   main();
 }

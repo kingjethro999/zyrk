@@ -16,7 +16,9 @@ const MAX_CANONICAL_DEPTH = 200;
 
 function writeCanonical(value: unknown, out: string[], depth: number): void {
   if (depth > MAX_CANONICAL_DEPTH) {
-    throw new TypeError(`canonicalJson: value nested deeper than ${MAX_CANONICAL_DEPTH}`);
+    throw new TypeError(
+      `canonicalJson: value nested deeper than ${MAX_CANONICAL_DEPTH}`,
+    );
   }
   if (value === null) {
     out.push("null");
@@ -51,7 +53,9 @@ function writeCanonical(value: unknown, out: string[], depth: number): void {
       let first = true;
       for (const [key, entryValue] of entries) {
         if (entryValue === undefined) {
-          throw new TypeError(`canonicalJson: undefined value at key ${JSON.stringify(key)}`);
+          throw new TypeError(
+            `canonicalJson: undefined value at key ${JSON.stringify(key)}`,
+          );
         }
         if (!first) out.push(",");
         first = false;
@@ -62,7 +66,9 @@ function writeCanonical(value: unknown, out: string[], depth: number): void {
       return;
     }
     default:
-      throw new TypeError(`canonicalJson: unsupported value of type ${typeof value}`);
+      throw new TypeError(
+        `canonicalJson: unsupported value of type ${typeof value}`,
+      );
   }
 }
 

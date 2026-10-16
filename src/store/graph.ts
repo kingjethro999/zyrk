@@ -60,7 +60,11 @@ export function createGraphDoc(inputs: GraphNodeInput[]): GraphDoc {
       edges: [...(input.deps ?? [])].sort(compareEdges),
     }))
     .sort((a, b) => compareStrings(a.key, b.key));
-  const doc: GraphDoc = { schemaVersion: 1, canonicalizationVersion: CONTEXT_CANONICALIZATION_VERSION, nodes };
+  const doc: GraphDoc = {
+    schemaVersion: 1,
+    canonicalizationVersion: CONTEXT_CANONICALIZATION_VERSION,
+    nodes,
+  };
   validateGraph(doc);
   return doc;
 }
@@ -77,9 +81,13 @@ export function validateGraph(doc: GraphDoc): void {
   for (const node of doc.nodes) {
     const names = new Set<string>();
     for (const edge of node.edges) {
-      if (names.has(edge.name)) fail(`duplicate dependency name ${edge.name} on ${node.key}`);
+      if (names.has(edge.name))
+        fail(`duplicate dependency name ${edge.name} on ${node.key}`);
       names.add(edge.name);
-      if (!keys.has(edge.target)) fail(`edge ${edge.name} of ${node.key} targets missing node ${edge.target}`);
+      if (!keys.has(edge.target))
+        fail(
+          `edge ${edge.name} of ${node.key} targets missing node ${edge.target}`,
+        );
     }
   }
 }
@@ -93,7 +101,9 @@ export function graphHash(doc: GraphDoc): string {
     node.sourceId,
     node.edges.map((edge) => [edge.name, edge.target]),
   ]);
-  return sha512Hex(canonicalJson({ v: doc.canonicalizationVersion, nodes: serialized }));
+  return sha512Hex(
+    canonicalJson({ v: doc.canonicalizationVersion, nodes: serialized }),
+  );
 }
 
 /**
@@ -121,7 +131,8 @@ export function contextIdFor(doc: GraphDoc, rootKey: string): string {
   const serialized = order.map((key) => {
     const node = byKey.get(key);
     const number = numbers.get(key);
-    if (node === undefined || number === undefined) fail(`internal numbering failure at ${key}`);
+    if (node === undefined || number === undefined)
+      fail(`internal numbering failure at ${key}`);
     return [
       number,
       node.name,
@@ -129,7 +140,8 @@ export function contextIdFor(doc: GraphDoc, rootKey: string): string {
       node.sourceId,
       [...node.edges].sort(compareEdges).map((edge) => {
         const target = numbers.get(edge.target);
-        if (target === undefined) fail(`edge ${edge.name} of ${key} was not numbered`);
+        if (target === undefined)
+          fail(`edge ${edge.name} of ${key} was not numbered`);
         return [edge.name, target];
       }),
     ];

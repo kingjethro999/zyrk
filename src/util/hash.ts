@@ -47,9 +47,17 @@ export function sha512Hex(data: Uint8Array | string): string {
  * same bytes can never share an inode whose permissions are later changed
  * (SPEC 8.2). `innerDigestHex` is the sha512 of the raw bytes.
  */
-export function objectIdOf(modeClass: ModeClass, innerDigestHex: string): string {
-  const prefix = Buffer.from(`${OBJECT_KEY_SCHEME}\u0000${modeClass}\u0000`, "utf8");
-  return sha512Hex(Buffer.concat([prefix, Buffer.from(innerDigestHex, "ascii")]));
+export function objectIdOf(
+  modeClass: ModeClass,
+  innerDigestHex: string,
+): string {
+  const prefix = Buffer.from(
+    `${OBJECT_KEY_SCHEME}\u0000${modeClass}\u0000`,
+    "utf8",
+  );
+  return sha512Hex(
+    Buffer.concat([prefix, Buffer.from(innerDigestHex, "ascii")]),
+  );
 }
 
 /**

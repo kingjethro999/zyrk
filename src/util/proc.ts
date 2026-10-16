@@ -65,7 +65,9 @@ export function parseStatStartId(statText: string): string | null {
  * one. Without a discriminator, existence of the PID is the best available
  * answer and the caller must treat "maybe" conservatively.
  */
-export async function isProcessAlive(identity: ProcessIdentity): Promise<boolean> {
+export async function isProcessAlive(
+  identity: ProcessIdentity,
+): Promise<boolean> {
   const { pid, startId } = identity;
   if (!Number.isInteger(pid) || pid <= 0) return false;
   if (pid === process.pid) {

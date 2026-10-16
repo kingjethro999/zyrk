@@ -22,7 +22,11 @@ export const SRI_ALGORITHMS = ["sha512", "sha384", "sha256", "sha1"] as const;
 export type SriAlgorithm = (typeof SRI_ALGORITHMS)[number];
 
 /** Algorithms that snpm treats as strong integrity. */
-export const STRONG_ALGORITHMS: readonly SriAlgorithm[] = ["sha512", "sha384", "sha256"];
+export const STRONG_ALGORITHMS: readonly SriAlgorithm[] = [
+  "sha512",
+  "sha384",
+  "sha256",
+];
 
 export interface SriEntry {
   algorithm: SriAlgorithm;
@@ -71,7 +75,10 @@ export function parseSri(value: string): ParsedSri {
       valid = false;
       continue;
     }
-    entries.push({ algorithm: algorithm as SriAlgorithm, digestBase64: digestRaw });
+    entries.push({
+      algorithm: algorithm as SriAlgorithm,
+      digestBase64: digestRaw,
+    });
   }
   if (entries.length === 0) valid = false;
   let strongest: SriEntry | undefined;
@@ -86,7 +93,10 @@ export function parseSri(value: string): ParsedSri {
 }
 
 /** Build an SRI string from a base64 digest. */
-export function formatSri(algorithm: SriAlgorithm, digestBase64: string): string {
+export function formatSri(
+  algorithm: SriAlgorithm,
+  digestBase64: string,
+): string {
   return `${algorithm}-${digestBase64}`;
 }
 
@@ -119,7 +129,10 @@ export class IntegrityHasher {
 
   update(chunk: Buffer | Uint8Array): void {
     if (this.#finalized !== undefined) {
-      throw new SnpmError("SNPM_INTERNAL", "IntegrityHasher used after finalize()");
+      throw new SnpmError(
+        "SNPM_INTERNAL",
+        "IntegrityHasher used after finalize()",
+      );
     }
     this.#sha512.update(chunk);
     this.#sha1.update(chunk);
@@ -152,7 +165,12 @@ export type IntegrityOutcome =
   | { status: "verified"; algorithm: SriAlgorithm; digestBase64: string }
   | { status: "weak-verified"; digestBase64: string }
   | { status: "no-expected-integrity" }
-  | { status: "mismatch"; algorithm: SriAlgorithm; expected: string; actual: string }
+  | {
+      status: "mismatch";
+      algorithm: SriAlgorithm;
+      expected: string;
+      actual: string;
+    }
   | { status: "malformed" };
 
 /**
@@ -184,7 +202,11 @@ export function checkIntegrity(
   if (entry.algorithm === "sha1") {
     return { status: "weak-verified", digestBase64: actual };
   }
-  return { status: "verified", algorithm: entry.algorithm, digestBase64: actual };
+  return {
+    status: "verified",
+    algorithm: entry.algorithm,
+    digestBase64: actual,
+  };
 }
 
 function digestFor(hashed: HashedBytes, algorithm: SriAlgorithm): string {
@@ -210,10 +232,16 @@ export function assertIntegrityOk(
   const outcome = checkIntegrity(hashed, expectedSRI);
   switch (outcome.status) {
     case "verified":
-      return { verifiedSri: formatSri(outcome.algorithm, outcome.digestBase64), weak: false };
+      return {
+        verifiedSri: formatSri(outcome.algorithm, outcome.digestBase64),
+        weak: false,
+      };
     case "weak-verified":
       if (options.allowWeak === true) {
-        return { verifiedSri: formatSri("sha1", outcome.digestBase64), weak: true };
+        return {
+          verifiedSri: formatSri("sha1", outcome.digestBase64),
+          weak: true,
+        };
       }
       throw new SnpmError(
         "SNPM_INTEGRITY_FAILED",

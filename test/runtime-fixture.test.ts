@@ -1,14 +1,36 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, stat, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  realpath,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { extractTarball } from "../src/extract/tarball.ts";
-import { installProjection, recoverProjection } from "../src/project/projection.ts";
+import {
+  installProjection,
+  recoverProjection,
+} from "../src/project/projection.ts";
 import { pathExists, rmrfNoFollow } from "../src/util/fsx.ts";
-import { contextIdFor, createGraphDoc, nodeKeyOf, type GraphDoc } from "../src/store/graph.ts";
+import {
+  contextIdFor,
+  createGraphDoc,
+  nodeKeyOf,
+  type GraphDoc,
+} from "../src/store/graph.ts";
 import { Store } from "../src/store/layout.ts";
-import { packageDirIn, realizationDirFor, realizeGraph } from "../src/store/realize.ts";
+import {
+  packageDirIn,
+  realizationDirFor,
+  realizeGraph,
+} from "../src/store/realize.ts";
 import { commitExtractedSource } from "../src/store/source.ts";
 import { craftTar, type CraftEntry } from "./helpers/tar.ts";
 
@@ -52,16 +74,17 @@ async function commitPackage(options: {
   const tarballPath = path.join(staging, "archive.tgz");
   const entries: CraftEntry[] = [
     { path: "package", type: "dir" },
-    ...files.map(
-      (file): CraftEntry => ({
-        path: `package/${file.path}`,
-        data: file.data,
-        mode: file.mode ?? 0o644,
-      }),
-    ),
+    ...files.map((file): CraftEntry => ({
+      path: `package/${file.path}`,
+      data: file.data,
+      mode: file.mode ?? 0o644,
+    })),
   ];
   await writeFile(tarballPath, craftTar(entries));
-  const extraction = await extractTarball({ tarballPath, destDir: path.join(staging, "extract") });
+  const extraction = await extractTarball({
+    tarballPath,
+    destDir: path.join(staging, "extract"),
+  });
   const committed = await commitExtractedSource({
     store,
     extraction,
@@ -77,17 +100,29 @@ async function commitPackage(options: {
 function runNode(cwd: string, file: string): Promise<string> {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !key.startsWith("SNPM_") && key !== "NODE_PATH" && key !== "NODE_OPTIONS",
+      ([key]) =>
+        !key.startsWith("SNPM_") &&
+        key !== "NODE_PATH" &&
+        key !== "NODE_OPTIONS",
     ),
   ) as NodeJS.ProcessEnv;
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, [file], { cwd, env }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(`node ${file} failed: ${error.message}\nstderr:\n${stderr}`));
-      } else {
-        resolve(stdout);
-      }
-    });
+    execFile(
+      process.execPath,
+      [file],
+      { cwd, env },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(
+            new Error(
+              `node ${file} failed: ${error.message}\nstderr:\n${stderr}`,
+            ),
+          );
+        } else {
+          resolve(stdout);
+        }
+      },
+    );
   });
 }
 
@@ -95,7 +130,11 @@ function packageJson(value: Record<string, unknown>): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-async function fixtureSources(): Promise<{ alpha: string; beta: string; gamma: string }> {
+async function fixtureSources(): Promise<{
+  alpha: string;
+  beta: string;
+  gamma: string;
+}> {
   const beta = await commitPackage({
     name: "beta",
     version: "1.0.0",
@@ -110,16 +149,33 @@ async function fixtureSources(): Promise<{ alpha: string; beta: string; gamma: s
       },
       { path: "index.cjs", data: 'module.exports = { flavor: "beta-cjs" };\n' },
       { path: "index.mjs", data: 'export default "beta-esm";\n' },
-      { path: "cli.js", data: '#!/usr/bin/env node\nconsole.log("beta-cli");\n', mode: 0o755 },
+      {
+        path: "cli.js",
+        data: '#!/usr/bin/env node\nconsole.log("beta-cli");\n',
+        mode: 0o755,
+      },
     ],
   });
   const alpha = await commitPackage({
     name: "alpha",
     version: "1.0.0",
     files: [
-      { path: "package.json", data: packageJson({ name: "alpha", version: "1.0.0", main: "index.js" }) },
-      { path: "index.js", data: 'module.exports = "alpha+" + require("beta").flavor;\n' },
-      { path: "sub.js", data: 'module.exports = require("./index.js") + "+sub";\n' },
+      {
+        path: "package.json",
+        data: packageJson({
+          name: "alpha",
+          version: "1.0.0",
+          main: "index.js",
+        }),
+      },
+      {
+        path: "index.js",
+        data: 'module.exports = "alpha+" + require("beta").flavor;\n',
+      },
+      {
+        path: "sub.js",
+        data: 'module.exports = require("./index.js") + "+sub";\n',
+      },
     ],
   });
   const gamma = await commitPackage({
@@ -128,15 +184,27 @@ async function fixtureSources(): Promise<{ alpha: string; beta: string; gamma: s
     files: [
       {
         path: "package.json",
-        data: packageJson({ name: "@scope/gamma", version: "2.0.0", type: "module", exports: "./index.js" }),
+        data: packageJson({
+          name: "@scope/gamma",
+          version: "2.0.0",
+          type: "module",
+          exports: "./index.js",
+        }),
       },
-      { path: "index.js", data: 'import beta from "beta";\nexport default "gamma+" + beta;\n' },
+      {
+        path: "index.js",
+        data: 'import beta from "beta";\nexport default "gamma+" + beta;\n',
+      },
     ],
   });
   return { alpha, beta, gamma };
 }
 
-function fixtureGraph(sources: { alpha: string; beta: string; gamma: string }): GraphDoc {
+function fixtureGraph(sources: {
+  alpha: string;
+  beta: string;
+  gamma: string;
+}): GraphDoc {
   return createGraphDoc([
     {
       name: "alpha",
@@ -163,11 +231,23 @@ describe("shared realizations", () => {
     expect(realized.created.length).toBe(3);
     expect(realized.reused).toEqual([]);
 
-    const alphaDir = must(realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")));
-    const betaDir = must(realized.packageDirByKey.get(nodeKeyOf("beta", "1.0.0")));
-    const gammaDir = must(realized.packageDirByKey.get(nodeKeyOf("@scope/gamma", "2.0.0")));
-    const alphaContext = realizationDirFor(store, contextIdFor(graph, nodeKeyOf("alpha", "1.0.0")));
-    const gammaContext = realizationDirFor(store, contextIdFor(graph, nodeKeyOf("@scope/gamma", "2.0.0")));
+    const alphaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")),
+    );
+    const betaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("beta", "1.0.0")),
+    );
+    const gammaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("@scope/gamma", "2.0.0")),
+    );
+    const alphaContext = realizationDirFor(
+      store,
+      contextIdFor(graph, nodeKeyOf("alpha", "1.0.0")),
+    );
+    const gammaContext = realizationDirFor(
+      store,
+      contextIdFor(graph, nodeKeyOf("@scope/gamma", "2.0.0")),
+    );
 
     // The package directory is real, never a symlink to a context-free tree.
     expect((await lstat(alphaDir)).isSymbolicLink()).toBe(false);
@@ -201,8 +281,12 @@ describe("shared realizations", () => {
     const sources = await fixtureSources();
     const graph = fixtureGraph(sources);
     const realized = await realizeGraph({ store, graph });
-    const alphaDir = must(realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")));
-    const gammaDir = must(realized.packageDirByKey.get(nodeKeyOf("@scope/gamma", "2.0.0")));
+    const alphaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")),
+    );
+    const gammaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("@scope/gamma", "2.0.0")),
+    );
     const entries = [
       { name: "alpha", linkTarget: alphaDir },
       { name: "@scope/gamma", linkTarget: gammaDir },
@@ -220,30 +304,54 @@ describe("shared realizations", () => {
       'import alpha from "alpha";\nimport gamma from "@scope/gamma";\nconsole.log(alpha);\nconsole.log(gamma);\n',
     );
 
-    expect(await runNode(projectA, "app.cjs")).toBe("alpha+beta-cjs\nalpha+beta-cjs+sub\n");
-    expect(await runNode(projectA, "app.mjs")).toBe("alpha+beta-cjs\ngamma+beta-esm\n");
+    expect(await runNode(projectA, "app.cjs")).toBe(
+      "alpha+beta-cjs\nalpha+beta-cjs+sub\n",
+    );
+    expect(await runNode(projectA, "app.mjs")).toBe(
+      "alpha+beta-cjs\ngamma+beta-esm\n",
+    );
 
     // The projection exposes links, never copies (SPEC 10.3).
     const alphaLink = path.join(projectA, "node_modules", "alpha");
     expect((await lstat(alphaLink)).isSymbolicLink()).toBe(true);
     expect(await realpath(alphaLink)).toBe(await realpath(alphaDir));
-    expect((await lstat(path.join(projectA, "node_modules", "@scope", "gamma"))).isSymbolicLink()).toBe(true);
+    expect(
+      (
+        await lstat(path.join(projectA, "node_modules", "@scope", "gamma"))
+      ).isSymbolicLink(),
+    ).toBe(true);
 
     const state = JSON.parse(
-      await readFile(path.join(projectA, "node_modules", ".snpm", "install-state.json"), "utf8"),
-    ) as { generationId: string; linker: string; readiness: string; direct: Array<{ name: string }> };
+      await readFile(
+        path.join(projectA, "node_modules", ".snpm", "install-state.json"),
+        "utf8",
+      ),
+    ) as {
+      generationId: string;
+      linker: string;
+      readiness: string;
+      direct: Array<{ name: string }>;
+    };
     expect(state.generationId).toBe(resultA.generationId);
     expect(state.linker).toBe("shared");
     expect(state.readiness).toBe("ready");
-    expect(state.direct.map((entry) => entry.name)).toEqual(["alpha", "@scope/gamma"]);
+    expect(state.direct.map((entry) => entry.name)).toEqual([
+      "alpha",
+      "@scope/gamma",
+    ]);
 
     // A second project shares the same realization; no rebuild, no copy.
     const projectB = path.join(root, "app-b");
     await mkdir(projectB, { recursive: true });
     const resultB = await installProjection(projectB, entries);
     expect(resultB.generationId).not.toBe(resultA.generationId);
-    expect(await realpath(path.join(projectB, "node_modules", "alpha"))).toBe(await realpath(alphaLink));
-    await writeFile(path.join(projectB, "app.cjs"), 'console.log(require("alpha"));\n');
+    expect(await realpath(path.join(projectB, "node_modules", "alpha"))).toBe(
+      await realpath(alphaLink),
+    );
+    await writeFile(
+      path.join(projectB, "app.cjs"),
+      'console.log(require("alpha"));\n',
+    );
     expect(await runNode(projectB, "app.cjs")).toBe("alpha+beta-cjs\n");
   });
 
@@ -251,8 +359,12 @@ describe("shared realizations", () => {
     const sources = await fixtureSources();
     const graph = fixtureGraph(sources);
     const realized = await realizeGraph({ store, graph });
-    const alphaDir = must(realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")));
-    const gammaDir = must(realized.packageDirByKey.get(nodeKeyOf("@scope/gamma", "2.0.0")));
+    const alphaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")),
+    );
+    const gammaDir = must(
+      realized.packageDirByKey.get(nodeKeyOf("@scope/gamma", "2.0.0")),
+    );
 
     const project = path.join(root, "swap-project");
     await mkdir(project, { recursive: true });
@@ -260,14 +372,23 @@ describe("shared realizations", () => {
       { name: "alpha", linkTarget: alphaDir },
       { name: "@scope/gamma", linkTarget: gammaDir },
     ]);
-    const second = await installProjection(project, [{ name: "alpha", linkTarget: alphaDir }]);
+    const second = await installProjection(project, [
+      { name: "alpha", linkTarget: alphaDir },
+    ]);
 
     expect(second.generationId).not.toBe(first.generationId);
-    expect(await pathExists(path.join(project, "node_modules", "@scope"))).toBe(false);
-    const leftovers = (await readdir(project)).filter((name) => name.startsWith("node_modules.snpm-"));
+    expect(await pathExists(path.join(project, "node_modules", "@scope"))).toBe(
+      false,
+    );
+    const leftovers = (await readdir(project)).filter((name) =>
+      name.startsWith("node_modules.snpm-"),
+    );
     expect(leftovers).toEqual([]);
 
-    await writeFile(path.join(project, "app.cjs"), 'console.log(require("alpha"));\n');
+    await writeFile(
+      path.join(project, "app.cjs"),
+      'console.log(require("alpha"));\n',
+    );
     expect(await runNode(project, "app.cjs")).toBe("alpha+beta-cjs\n");
   });
 });
@@ -278,7 +399,9 @@ describe("projection recovery", () => {
     const oldDir = path.join(project, "node_modules.snpm-old-gen1_crash");
     await mkdir(oldDir, { recursive: true });
     await writeFile(path.join(oldDir, "marker.txt"), "old-complete\n");
-    await mkdir(path.join(project, "node_modules.snpm-staging-gen1_crash"), { recursive: true });
+    await mkdir(path.join(project, "node_modules.snpm-staging-gen1_crash"), {
+      recursive: true,
+    });
     await mkdir(path.join(project, ".snpm-local"), { recursive: true });
     await writeFile(
       path.join(project, ".snpm-local", "journal.jsonl"),
@@ -287,10 +410,18 @@ describe("projection recovery", () => {
 
     await recoverProjection(project);
 
-    expect(await readFile(path.join(project, "node_modules", "marker.txt"), "utf8")).toBe("old-complete\n");
-    await expect(lstat(path.join(project, "node_modules.snpm-staging-gen1_crash"))).rejects.toThrow();
-    await expect(lstat(path.join(project, "node_modules.snpm-old-gen1_crash"))).rejects.toThrow();
-    await expect(lstat(path.join(project, ".snpm-local", "journal.jsonl"))).rejects.toThrow();
+    expect(
+      await readFile(path.join(project, "node_modules", "marker.txt"), "utf8"),
+    ).toBe("old-complete\n");
+    await expect(
+      lstat(path.join(project, "node_modules.snpm-staging-gen1_crash")),
+    ).rejects.toThrow();
+    await expect(
+      lstat(path.join(project, "node_modules.snpm-old-gen1_crash")),
+    ).rejects.toThrow();
+    await expect(
+      lstat(path.join(project, ".snpm-local", "journal.jsonl")),
+    ).rejects.toThrow();
   });
 
   it("removes staging but keeps a stray previous generation that has no journal", async () => {
@@ -299,13 +430,19 @@ describe("projection recovery", () => {
     await writeFile(path.join(project, "node_modules", "marker.txt"), "live\n");
     const stray = path.join(project, "node_modules.snpm-old-gen1_stray");
     await mkdir(stray, { recursive: true });
-    await mkdir(path.join(project, "node_modules.snpm-staging-gen1_stray"), { recursive: true });
+    await mkdir(path.join(project, "node_modules.snpm-staging-gen1_stray"), {
+      recursive: true,
+    });
 
     await recoverProjection(project);
 
-    expect(await readFile(path.join(project, "node_modules", "marker.txt"), "utf8")).toBe("live\n");
+    expect(
+      await readFile(path.join(project, "node_modules", "marker.txt"), "utf8"),
+    ).toBe("live\n");
     expect((await lstat(stray)).isDirectory()).toBe(true);
-    await expect(lstat(path.join(project, "node_modules.snpm-staging-gen1_stray"))).rejects.toThrow();
+    await expect(
+      lstat(path.join(project, "node_modules.snpm-staging-gen1_stray")),
+    ).rejects.toThrow();
   });
 });
 
@@ -315,7 +452,14 @@ describe("dependency slot collisions", () => {
       name: "alpha",
       version: "2.0.0",
       files: [
-        { path: "package.json", data: packageJson({ name: "alpha", version: "2.0.0", main: "index.js" }) },
+        {
+          path: "package.json",
+          data: packageJson({
+            name: "alpha",
+            version: "2.0.0",
+            main: "index.js",
+          }),
+        },
         { path: "index.js", data: 'module.exports = { value: "alpha2" };\n' },
       ],
     });
@@ -323,8 +467,18 @@ describe("dependency slot collisions", () => {
       name: "alpha",
       version: "1.0.0",
       files: [
-        { path: "package.json", data: packageJson({ name: "alpha", version: "1.0.0", main: "index.js" }) },
-        { path: "index.js", data: 'module.exports = "alpha1+" + require("alpha").value + "+" + require("alt").value;\n' },
+        {
+          path: "package.json",
+          data: packageJson({
+            name: "alpha",
+            version: "1.0.0",
+            main: "index.js",
+          }),
+        },
+        {
+          path: "index.js",
+          data: 'module.exports = "alpha1+" + require("alpha").value + "+" + require("alt").value;\n',
+        },
       ],
     });
 
@@ -341,9 +495,16 @@ describe("dependency slot collisions", () => {
       { name: "alpha", version: "2.0.0", sourceId: alpha2 },
     ]);
     const realized = await realizeGraph({ store, graph });
-    const alpha1Dir = must(realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")));
-    const alpha2Dir = must(realized.packageDirByKey.get(nodeKeyOf("alpha", "2.0.0")));
-    const context1 = realizationDirFor(store, contextIdFor(graph, nodeKeyOf("alpha", "1.0.0")));
+    const alpha1Dir = must(
+      realized.packageDirByKey.get(nodeKeyOf("alpha", "1.0.0")),
+    );
+    const alpha2Dir = must(
+      realized.packageDirByKey.get(nodeKeyOf("alpha", "2.0.0")),
+    );
+    const context1 = realizationDirFor(
+      store,
+      contextIdFor(graph, nodeKeyOf("alpha", "1.0.0")),
+    );
 
     // The sibling slot holds alpha@1 itself; alpha@2 is reachable through the
     // nested slot and through the free alias slot.
@@ -363,7 +524,10 @@ describe("dependency slot collisions", () => {
       { name: "alpha", linkTarget: alpha1Dir },
       { name: "alt", linkTarget: alpha2Dir },
     ]);
-    await writeFile(path.join(project, "app.cjs"), 'console.log(require("alpha"));\n');
+    await writeFile(
+      path.join(project, "app.cjs"),
+      'console.log(require("alpha"));\n',
+    );
     expect(await runNode(project, "app.cjs")).toBe("alpha1+alpha2+alpha2\n");
   });
 });

@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LockLostError, acquireLock, readLockRecord, type LockRecord } from "../src/util/locks.ts";
+import {
+  LockLostError,
+  acquireLock,
+  readLockRecord,
+  type LockRecord,
+} from "../src/util/locks.ts";
 import { readProcessStartId } from "../src/util/proc.ts";
 
 let root: string;
@@ -22,7 +27,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function recordWith(overrides: Partial<LockRecord> & { pid: number }): LockRecord {
+function recordWith(
+  overrides: Partial<LockRecord> & { pid: number },
+): LockRecord {
   return {
     v: 1,
     name: "project mutation",
@@ -40,8 +47,13 @@ function recordWith(overrides: Partial<LockRecord> & { pid: number }): LockRecor
  * alive, then reap it. Using the child's real startId makes the liveness
  * verdict deterministic even in the unlikely event of PID reuse.
  */
-async function reapedProcess(): Promise<{ pid: number; startId: string | null }> {
-  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"], { stdio: "ignore" });
+async function reapedProcess(): Promise<{
+  pid: number;
+  startId: string | null;
+}> {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"], {
+    stdio: "ignore",
+  });
   const pid = child.pid;
   if (pid === undefined) throw new Error("spawn returned no pid");
 
@@ -51,7 +63,9 @@ async function reapedProcess(): Promise<{ pid: number; startId: string | null }>
     if (startId === null) await sleep(5);
   }
 
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  const exited = new Promise<void>((resolve) =>
+    child.once("exit", () => resolve()),
+  );
   child.kill("SIGKILL");
   await exited;
   return { pid, startId };
@@ -61,7 +75,11 @@ describe("acquireLock", () => {
   it("publishes a private owner record and removes it on release", async () => {
     const handle = await acquireLock(lockPath, { name: "project mutation" });
     const record = await readLockRecord(lockPath);
-    expect(record).toMatchObject({ name: "project mutation", pid: process.pid, ownerId: handle.record.ownerId });
+    expect(record).toMatchObject({
+      name: "project mutation",
+      pid: process.pid,
+      ownerId: handle.record.ownerId,
+    });
     expect((await stat(lockPath)).mode & 0o777).toBe(0o600);
 
     await handle.release();
@@ -95,11 +113,16 @@ describe("acquireLock", () => {
       { mode: 0o600 },
     );
 
-    const handle = await acquireLock(lockPath, { name: "project mutation", timeoutMs: 2000 });
+    const handle = await acquireLock(lockPath, {
+      name: "project mutation",
+      timeoutMs: 2000,
+    });
     expect(handle.record.pid).toBe(process.pid);
     await handle.release();
 
-    const leftovers = (await readdir(path.dirname(lockPath))).filter((name) => name.includes(".stale-"));
+    const leftovers = (await readdir(path.dirname(lockPath))).filter((name) =>
+      name.includes(".stale-"),
+    );
     expect(leftovers).toEqual([]);
   });
 
@@ -107,7 +130,10 @@ describe("acquireLock", () => {
     await mkdir(path.dirname(lockPath), { recursive: true });
     await writeFile(lockPath, "this is not a lock record\n", { mode: 0o600 });
 
-    const handle = await acquireLock(lockPath, { name: "project mutation", timeoutMs: 2000 });
+    const handle = await acquireLock(lockPath, {
+      name: "project mutation",
+      timeoutMs: 2000,
+    });
     expect(handle.record.pid).toBe(process.pid);
     await handle.release();
   });
@@ -139,6 +165,8 @@ describe("heartbeat and release", () => {
     await expect(handle.heartbeat()).rejects.toBeInstanceOf(LockLostError);
     await expect(handle.release()).rejects.toBeInstanceOf(LockLostError);
     // The thief's lock must survive the failed release.
-    await expect(readLockRecord(lockPath)).resolves.toMatchObject({ ownerId: "lock-attempt-thief" });
+    await expect(readLockRecord(lockPath)).resolves.toMatchObject({
+      ownerId: "lock-attempt-thief",
+    });
   });
 });

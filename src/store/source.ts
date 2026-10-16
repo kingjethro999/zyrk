@@ -14,7 +14,11 @@ import { SnpmError } from "../errors.ts";
 import type { ExtractionResult } from "../extract/tarball.ts";
 import type { Logger } from "../log.ts";
 import { manifestHashOf, sourceIdOf } from "../util/hash.ts";
-import { CLI_VERSION, EXTRACTION_POLICY_VERSION, SOURCE_MANIFEST_SCHEMA_VERSION } from "../version.ts";
+import {
+  CLI_VERSION,
+  EXTRACTION_POLICY_VERSION,
+  SOURCE_MANIFEST_SCHEMA_VERSION,
+} from "../version.ts";
 import { recordObject, recordSource, type StoreDb } from "./db.ts";
 import { Store } from "./layout.ts";
 import {
@@ -52,14 +56,21 @@ export interface CommittedSource {
   logicalBytes: number;
 }
 
-export async function commitExtractedSource(input: CommitSourceInput): Promise<CommittedSource> {
+export async function commitExtractedSource(
+  input: CommitSourceInput,
+): Promise<CommittedSource> {
   const { store, extraction, name, version, origin, integrity } = input;
 
   if (extraction.entries.length === 0) {
-    throw new SnpmError("SNPM_EXTRACTION_UNSAFE", `tarball for ${name}@${version} contains no entries`, {
-      detail: { name, version },
-      remedy: "verify the archive contents; an empty package cannot be committed",
-    });
+    throw new SnpmError(
+      "SNPM_EXTRACTION_UNSAFE",
+      `tarball for ${name}@${version} contains no entries`,
+      {
+        detail: { name, version },
+        remedy:
+          "verify the archive contents; an empty package cannot be committed",
+      },
+    );
   }
 
   // ---- 1. Commit every file as an immutable content object ----
@@ -87,14 +98,20 @@ export async function commitExtractedSource(input: CommitSourceInput): Promise<C
         manifestEntries.push({ path: entry.path, type: "dir" });
         break;
       case "symlink":
-        manifestEntries.push({ path: entry.path, type: "symlink", target: entry.target });
+        manifestEntries.push({
+          path: entry.path,
+          type: "symlink",
+          target: entry.target,
+        });
         break;
     }
   }
 
   // Canonical order is required by the manifest contract; enforce it here
   // rather than trusting the extractor's emission order.
-  manifestEntries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  manifestEntries.sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
   for (let i = 1; i < manifestEntries.length; i += 1) {
     if (manifestEntries[i - 1]?.path === manifestEntries[i]?.path) {
       throw new SnpmError(
@@ -102,13 +119,20 @@ export async function commitExtractedSource(input: CommitSourceInput): Promise<C
         `tarball for ${name}@${version} produced duplicate entry paths: ${manifestEntries[i]?.path}`,
         {
           detail: { name, version, path: manifestEntries[i]?.path },
-          remedy: "reject the package; duplicate archive paths are ambiguous content",
+          remedy:
+            "reject the package; duplicate archive paths are ambiguous content",
         },
       );
     }
   }
 
-  const sourceId = sourceIdOf({ sourceType: "registry", name, version, origin, integrity });
+  const sourceId = sourceIdOf({
+    sourceType: "registry",
+    name,
+    version,
+    origin,
+    integrity,
+  });
 
   const manifest: SourceManifestContent = {
     schemaVersion: SOURCE_MANIFEST_SCHEMA_VERSION,
@@ -138,7 +162,10 @@ export async function commitExtractedSource(input: CommitSourceInput): Promise<C
 
   // Defensive: the doc hash must be derived from the content we just built.
   if (doc.manifestHash !== manifestHashOf(manifest)) {
-    throw new SnpmError("SNPM_INTERNAL", "manifest hash construction is inconsistent");
+    throw new SnpmError(
+      "SNPM_INTERNAL",
+      "manifest hash construction is inconsistent",
+    );
   }
 
   const { created } = await writeSourceManifest(store, doc);
@@ -146,7 +173,10 @@ export async function commitExtractedSource(input: CommitSourceInput): Promise<C
   // ---- 2. Record metadata (best-effort durable index, rebuildable) ----
   if (input.db !== undefined) {
     const db = input.db;
-    const objects = new Map<string, { innerDigest: string; modeClass: "plain" | "exec"; bytes: number }>();
+    const objects = new Map<
+      string,
+      { innerDigest: string; modeClass: "plain" | "exec"; bytes: number }
+    >();
     for (const entry of manifestEntries) {
       if (entry.type === "file") {
         objects.set(entry.objectId, {
@@ -156,29 +186,36 @@ export async function commitExtractedSource(input: CommitSourceInput): Promise<C
         });
       }
     }
-    withSyncTransaction(db, () => {
-      for (const [objectId, info] of objects) {
-        recordObject(db, { objectId, ...info, committedAt: verifiedAt });
-      }
-      recordSource(db, {
-        sourceId,
-        sourceType: "registry",
-        name,
-        version,
-        origin,
-        integrity,
-        manifestHash: doc.manifestHash,
-        extractionPolicyVersion: EXTRACTION_POLICY_VERSION,
-        logicalBytes: extraction.totals.logicalBytes,
-        fileCount: extraction.totals.files,
-        entryCount: manifestEntries.length,
-        verifiedAt,
-      });
-    }, () => {
-      // A metadata write failure must not present as a failed commit: the
-      // manifest is durable and the index is rebuildable (SPEC 30).
-      input.logger?.debug("source metadata index update failed; index is rebuildable", { sourceId });
-    });
+    withSyncTransaction(
+      db,
+      () => {
+        for (const [objectId, info] of objects) {
+          recordObject(db, { objectId, ...info, committedAt: verifiedAt });
+        }
+        recordSource(db, {
+          sourceId,
+          sourceType: "registry",
+          name,
+          version,
+          origin,
+          integrity,
+          manifestHash: doc.manifestHash,
+          extractionPolicyVersion: EXTRACTION_POLICY_VERSION,
+          logicalBytes: extraction.totals.logicalBytes,
+          fileCount: extraction.totals.files,
+          entryCount: manifestEntries.length,
+          verifiedAt,
+        });
+      },
+      () => {
+        // A metadata write failure must not present as a failed commit: the
+        // manifest is durable and the index is rebuildable (SPEC 30).
+        input.logger?.debug(
+          "source metadata index update failed; index is rebuildable",
+          { sourceId },
+        );
+      },
+    );
   }
 
   return {
@@ -192,7 +229,11 @@ export async function commitExtractedSource(input: CommitSourceInput): Promise<C
 }
 
 /** Run `fn` in a SQLite transaction; report failures through `onError`. */
-function withSyncTransaction(db: StoreDb, fn: () => void, onError: (error: unknown) => void): void {
+function withSyncTransaction(
+  db: StoreDb,
+  fn: () => void,
+  onError: (error: unknown) => void,
+): void {
   db.exec("BEGIN IMMEDIATE");
   try {
     fn();

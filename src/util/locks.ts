@@ -1,7 +1,13 @@
 import { link, readFile, rename, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { SnpmError } from "../errors.ts";
-import { hostname, isErrno, mkdirp, pathExists, randomTempName } from "./fsx.ts";
+import {
+  hostname,
+  isErrno,
+  mkdirp,
+  pathExists,
+  randomTempName,
+} from "./fsx.ts";
 import { ID_PREFIX } from "./ids.ts";
 import { currentProcessIdentity, isProcessAlive } from "./proc.ts";
 
@@ -53,7 +59,10 @@ export class LockLostError extends Error {
   }
 }
 
-export async function acquireLock(lockPath: string, options: AcquireLockOptions): Promise<LockHandle> {
+export async function acquireLock(
+  lockPath: string,
+  options: AcquireLockOptions,
+): Promise<LockHandle> {
   await mkdirp(path.dirname(lockPath));
   const startedAt = Date.now();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -74,7 +83,10 @@ export async function acquireLock(lockPath: string, options: AcquireLockOptions)
       continue;
     }
 
-    const alive = await isProcessAlive({ pid: observed.pid, startId: observed.startId });
+    const alive = await isProcessAlive({
+      pid: observed.pid,
+      startId: observed.startId,
+    });
     if (!alive) {
       await reclaimIfUnchanged(lockPath, observed);
       continue;
@@ -104,7 +116,10 @@ function makeRecord(name: string): LockRecord {
   };
 }
 
-async function tryCreate(lockPath: string, record: LockRecord): Promise<boolean> {
+async function tryCreate(
+  lockPath: string,
+  record: LockRecord,
+): Promise<boolean> {
   const temp = randomTempName(path.dirname(lockPath), path.basename(lockPath));
   await writeFile(temp, `${JSON.stringify(record)}\n`, { mode: 0o600 });
   try {
@@ -118,7 +133,9 @@ async function tryCreate(lockPath: string, record: LockRecord): Promise<boolean>
   }
 }
 
-export async function readLockRecord(lockPath: string): Promise<LockRecord | null> {
+export async function readLockRecord(
+  lockPath: string,
+): Promise<LockRecord | null> {
   let text: string;
   try {
     text = await readFile(lockPath, "utf8");
@@ -143,9 +160,12 @@ export async function readLockRecord(lockPath: string): Promise<LockRecord | nul
       ownerId: parsed.ownerId,
       pid: parsed.pid,
       startId: typeof parsed.startId === "string" ? parsed.startId : null,
-      hostname: typeof parsed.hostname === "string" ? parsed.hostname : "unknown",
-      acquiredAt: typeof parsed.acquiredAt === "string" ? parsed.acquiredAt : "",
-      heartbeatAt: typeof parsed.heartbeatAt === "string" ? parsed.heartbeatAt : "",
+      hostname:
+        typeof parsed.hostname === "string" ? parsed.hostname : "unknown",
+      acquiredAt:
+        typeof parsed.acquiredAt === "string" ? parsed.acquiredAt : "",
+      heartbeatAt:
+        typeof parsed.heartbeatAt === "string" ? parsed.heartbeatAt : "",
     };
   } catch {
     return null;
@@ -161,7 +181,10 @@ export async function readLockRecord(lockPath: string): Promise<LockRecord | nul
  * will not match and the lock is put back when possible, so a live owner is
  * not silently robbed of its lock.
  */
-async function reclaimIfUnchanged(lockPath: string, observed: LockRecord | null): Promise<void> {
+async function reclaimIfUnchanged(
+  lockPath: string,
+  observed: LockRecord | null,
+): Promise<void> {
   const aside = `${lockPath}.stale-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
   try {
     await rename(lockPath, aside);
@@ -171,7 +194,8 @@ async function reclaimIfUnchanged(lockPath: string, observed: LockRecord | null)
   }
 
   const moved = await readLockRecord(aside);
-  const matches = observed === null || (moved !== null && moved.ownerId === observed.ownerId);
+  const matches =
+    observed === null || (moved !== null && moved.ownerId === observed.ownerId);
   if (!matches) {
     // We moved a lock that is not the one we judged dead: restore it.
     try {
@@ -193,8 +217,14 @@ function makeHandle(lockPath: string, record: LockRecord): LockHandle {
       if (current === null || current.ownerId !== ownerId) {
         throw new LockLostError(lockPath);
       }
-      const updated: LockRecord = { ...current, heartbeatAt: new Date().toISOString() };
-      const temp = randomTempName(path.dirname(lockPath), path.basename(lockPath));
+      const updated: LockRecord = {
+        ...current,
+        heartbeatAt: new Date().toISOString(),
+      };
+      const temp = randomTempName(
+        path.dirname(lockPath),
+        path.basename(lockPath),
+      );
       await writeFile(temp, `${JSON.stringify(updated)}\n`, { mode: 0o600 });
       await rename(temp, lockPath);
     },
@@ -208,18 +238,27 @@ function makeHandle(lockPath: string, record: LockRecord): LockHandle {
   };
 }
 
-function makeLockedError(name: string, lockPath: string, owner: LockRecord, waitedMs: number): SnpmError {
-  return new SnpmError("SNPM_PROJECT_LOCKED", `another snpm process holds the ${name} lock`, {
-    detail: {
-      lockPath,
-      ownerPid: owner.pid,
-      ownerHost: owner.hostname,
-      holderName: owner.name,
-      waitedMs,
+function makeLockedError(
+  name: string,
+  lockPath: string,
+  owner: LockRecord,
+  waitedMs: number,
+): SnpmError {
+  return new SnpmError(
+    "SNPM_PROJECT_LOCKED",
+    `another snpm process holds the ${name} lock`,
+    {
+      detail: {
+        lockPath,
+        ownerPid: owner.pid,
+        ownerHost: owner.hostname,
+        holderName: owner.name,
+        waitedMs,
+      },
+      remedy:
+        "wait for the other operation to finish; if that process is gone, run `snpm doctor` to reclaim the stale lock",
     },
-    remedy:
-      "wait for the other operation to finish; if that process is gone, run `snpm doctor` to reclaim the stale lock",
-  });
+  );
 }
 
 function sleep(ms: number): Promise<void> {

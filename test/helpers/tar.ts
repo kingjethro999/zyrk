@@ -23,7 +23,9 @@ function oct(value: number, length: number): string {
 function put(buf: Buffer, offset: number, value: string, length: number): void {
   const bytes = Buffer.from(value, "utf8");
   if (bytes.length > length) {
-    throw new Error(`tar field too long (${bytes.length} > ${length}): ${value}`);
+    throw new Error(
+      `tar field too long (${bytes.length} > ${length}): ${value}`,
+    );
   }
   bytes.copy(buf, offset);
 }
@@ -73,7 +75,14 @@ function header(entry: CraftEntry): Buffer {
   put(buf, 124, oct(data.length, 12), 12);
   put(buf, 136, oct(0, 12), 12); // mtime
   buf.fill(0x20, 148, 156); // checksum placeholder
-  const typeflag = kind === "dir" ? "5" : kind === "symlink" ? "2" : kind === "hardlink" ? "1" : "0";
+  const typeflag =
+    kind === "dir"
+      ? "5"
+      : kind === "symlink"
+        ? "2"
+        : kind === "hardlink"
+          ? "1"
+          : "0";
   put(buf, 156, typeflag, 1);
   if (link !== "") put(buf, 157, link, 100);
   put(buf, 257, "ustar\0", 6);

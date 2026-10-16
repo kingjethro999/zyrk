@@ -1,7 +1,12 @@
 import { open, rename, rm, stat, chmod } from "node:fs/promises";
 import * as path from "node:path";
 import { SnpmError } from "../errors.ts";
-import { Digest, committedMode, objectIdOf, type ModeClass } from "../util/hash.ts";
+import {
+  Digest,
+  committedMode,
+  objectIdOf,
+  type ModeClass,
+} from "../util/hash.ts";
 import { ensureDirWithMode, fsyncDir, isErrno, mkdirp } from "../util/fsx.ts";
 import { randomId } from "../util/ids.ts";
 import { Store } from "./layout.ts";
@@ -24,7 +29,12 @@ export type CommittedObject = {
 };
 
 export function objectPathFor(store: Store, objectId: string): string {
-  return path.join(store.paths.objectsDir, "sha512", objectId.slice(0, 2), objectId);
+  return path.join(
+    store.paths.objectsDir,
+    "sha512",
+    objectId.slice(0, 2),
+    objectId,
+  );
 }
 
 /**
@@ -37,7 +47,12 @@ export function objectPathFor(store: Store, objectId: string): string {
  */
 export async function commitObjectFromStaging(
   store: Store,
-  staged: { stagingPath: string; innerDigestHex: string; modeClass: ModeClass; bytes: number },
+  staged: {
+    stagingPath: string;
+    innerDigestHex: string;
+    modeClass: ModeClass;
+    bytes: number;
+  },
 ): Promise<CommittedObject> {
   const objectId = objectIdOf(staged.modeClass, staged.innerDigestHex);
   const target = objectPathFor(store, objectId);
@@ -48,24 +63,43 @@ export async function commitObjectFromStaging(
     if (existing.size !== staged.bytes) {
       // Same key, different bytes: digest reuse across content. Never silently
       // accept (I-001); quarantine and report.
-      throw new SnpmError("SNPM_STORE_CORRUPT", `object ${objectId} exists with ${existing.size} bytes but the verified staged file has ${staged.bytes}`, {
-        detail: { objectId, expectedBytes: staged.bytes, foundBytes: existing.size },
-        remedy: "run `snpm store verify --full` and re-fetch the affected source",
-      });
+      throw new SnpmError(
+        "SNPM_STORE_CORRUPT",
+        `object ${objectId} exists with ${existing.size} bytes but the verified staged file has ${staged.bytes}`,
+        {
+          detail: {
+            objectId,
+            expectedBytes: staged.bytes,
+            foundBytes: existing.size,
+          },
+          remedy:
+            "run `snpm store verify --full` and re-fetch the affected source",
+        },
+      );
     }
     await rm(staged.stagingPath, { force: true });
-    return { objectId, innerDigestHex: staged.innerDigestHex, modeClass: staged.modeClass, bytes: staged.bytes };
+    return {
+      objectId,
+      innerDigestHex: staged.innerDigestHex,
+      modeClass: staged.modeClass,
+      bytes: staged.bytes,
+    };
   }
 
   try {
     await rename(staged.stagingPath, target);
   } catch (error) {
     if (isErrno(error, "ENOENT")) {
-      throw new SnpmError("SNPM_STORE_CORRUPT", `staged object vanished before commit: ${staged.stagingPath}`, {
-        detail: { stagingPath: staged.stagingPath, objectId },
-        remedy: "re-run the operation; if it repeats, check for external cleanup of the store staging directory",
-        cause: error,
-      });
+      throw new SnpmError(
+        "SNPM_STORE_CORRUPT",
+        `staged object vanished before commit: ${staged.stagingPath}`,
+        {
+          detail: { stagingPath: staged.stagingPath, objectId },
+          remedy:
+            "re-run the operation; if it repeats, check for external cleanup of the store staging directory",
+          cause: error,
+        },
+      );
     }
     throw error;
   }
@@ -73,7 +107,12 @@ export async function commitObjectFromStaging(
   const mode = committedMode(staged.modeClass);
   await chmod(target, mode);
   await fsyncFileAndDir(target, path.dirname(target));
-  return { objectId, innerDigestHex: staged.innerDigestHex, modeClass: staged.modeClass, bytes: staged.bytes };
+  return {
+    objectId,
+    innerDigestHex: staged.innerDigestHex,
+    modeClass: staged.modeClass,
+    bytes: staged.bytes,
+  };
 }
 
 /**
@@ -82,8 +121,19 @@ export async function commitObjectFromStaging(
  */
 export async function verifyObjectPayload(
   store: Store,
-  object: { objectId: string; innerDigestHex: string; modeClass: ModeClass; bytes?: number },
-): Promise<{ ok: true } | { ok: false; reason: "missing" | "digest-mismatch" | "size-mismatch" | "mode-mismatch" }> {
+  object: {
+    objectId: string;
+    innerDigestHex: string;
+    modeClass: ModeClass;
+    bytes?: number;
+  },
+): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "missing" | "digest-mismatch" | "size-mismatch" | "mode-mismatch";
+    }
+> {
   const target = objectPathFor(store, object.objectId);
   let handle;
   try {
@@ -101,7 +151,12 @@ export async function verifyObjectPayload(
     const buffer = Buffer.allocUnsafe(1 << 20);
     let position = 0;
     for (;;) {
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        buffer.length,
+        position,
+      );
       if (bytesRead === 0) break;
       digest.update(buffer.subarray(0, bytesRead));
       position += bytesRead;
@@ -124,7 +179,11 @@ export async function verifyObjectPayload(
  * Move a corrupt object out of the CAS into quarantine, excluding it from
  * reuse (SPEC 19.2, 11.7). The incident record is written by the caller.
  */
-export async function quarantineObject(store: Store, objectId: string, incidentId: string): Promise<string | null> {
+export async function quarantineObject(
+  store: Store,
+  objectId: string,
+  incidentId: string,
+): Promise<string | null> {
   const source = objectPathFor(store, objectId);
   const destDir = path.join(store.paths.quarantineDir, incidentId, "objects");
   await ensureDirWithMode(destDir, 0o700);
@@ -138,7 +197,10 @@ export async function quarantineObject(store: Store, objectId: string, incidentI
   }
 }
 
-export async function objectExists(store: Store, objectId: string): Promise<boolean> {
+export async function objectExists(
+  store: Store,
+  objectId: string,
+): Promise<boolean> {
   return (await statOrNull(objectPathFor(store, objectId))) !== null;
 }
 

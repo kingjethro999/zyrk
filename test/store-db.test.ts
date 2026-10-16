@@ -66,16 +66,24 @@ function sourceRecord(overrides: Partial<SourceRecord> = {}): SourceRecord {
 
 describe("openStoreDb", () => {
   it("initializes schema v1 with the core tables and is idempotent", () => {
-    const version = db.prepare("PRAGMA user_version").get() as { user_version: number };
+    const version = db.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
     expect(version.user_version).toBe(SCHEMA_VERSION);
 
-    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map(
-      (row) => row.name,
+    const tables = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(tables).toEqual(
+      expect.arrayContaining(["objects", "sources", "transactions"]),
     );
-    expect(tables).toEqual(expect.arrayContaining(["objects", "sources", "transactions"]));
 
     expect(() => migrate(db)).not.toThrow();
-    const journalMode = db.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
+    const journalMode = db.prepare("PRAGMA journal_mode").get() as {
+      journal_mode: string;
+    };
     expect(journalMode.journal_mode).toBe("wal");
   });
 
@@ -99,7 +107,11 @@ describe("record/get round trips", () => {
     recordObject(db, record);
     expect(getObject(db, record.objectId)).toEqual(record);
 
-    recordObject(db, { ...record, bytes: 99, committedAt: "2026-02-02T00:00:00.000Z" });
+    recordObject(db, {
+      ...record,
+      bytes: 99,
+      committedAt: "2026-02-02T00:00:00.000Z",
+    });
     expect(getObject(db, record.objectId)?.bytes).toBe(5);
 
     expect(getObject(db, "1".repeat(128))).toBeNull();

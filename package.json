@@ -1,6 +1,6 @@
 {
   "name": "snpm",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "private": true,
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
@@ -28,6 +28,7 @@
   "devDependencies": {
     "@types/node": "^24.19.2",
     "@types/semver": "^7.8.0",
+    "prettier": "3.9.10",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }

@@ -6,7 +6,10 @@
 
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
   // key=value pairs common in registry configuration and URLs
-  [/((?:_authToken|_auth|_password|password|token|secret|key)=)([^&\s"']+)/gi, "$1***"],
+  [
+    /((?:_authToken|_auth|_password|password|token|secret|key)=)([^&\s"']+)/gi,
+    "$1***",
+  ],
   // npm classic tokens
   [/\bnpm_[A-Za-z0-9]{36}\b/g, "npm_***"],
   // Authorization header values and bare bearer tokens
@@ -24,7 +27,12 @@ export function redactSecrets(text: string): string {
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-const LEVEL_ORDER: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+const LEVEL_ORDER: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
 
 export type Logger = {
   level: LogLevel;
@@ -34,11 +42,17 @@ export type Logger = {
   error(message: string, detail?: Record<string, unknown>): void;
 };
 
-export function createLogger(options: { level?: LogLevel; stream?: NodeJS.WritableStream } = {}): Logger {
+export function createLogger(
+  options: { level?: LogLevel; stream?: NodeJS.WritableStream } = {},
+): Logger {
   const level = options.level ?? "info";
   const stream = options.stream ?? process.stderr;
 
-  const emit = (at: LogLevel, message: string, detail?: Record<string, unknown>): void => {
+  const emit = (
+    at: LogLevel,
+    message: string,
+    detail?: Record<string, unknown>,
+  ): void => {
     if (LEVEL_ORDER[at] < LEVEL_ORDER[level]) return;
     let line = message;
     if (detail !== undefined) {
@@ -61,7 +75,11 @@ export function createLogger(options: { level?: LogLevel; stream?: NodeJS.Writab
 
 function renderValue(value: unknown): string {
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
     return String(value);
   }
   if (value === null || value === undefined) return String(value);

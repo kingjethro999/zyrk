@@ -22,11 +22,17 @@ export function isErrno(error: unknown, code: string): boolean {
 }
 
 export async function mkdirp(target: string, mode?: number): Promise<void> {
-  await fs.mkdir(target, { recursive: true, ...(mode === undefined ? {} : { mode }) });
+  await fs.mkdir(target, {
+    recursive: true,
+    ...(mode === undefined ? {} : { mode }),
+  });
 }
 
 /** Create a directory and force its mode explicitly (mkdir is umask-affected). */
-export async function ensureDirWithMode(target: string, mode: number): Promise<void> {
+export async function ensureDirWithMode(
+  target: string,
+  mode: number,
+): Promise<void> {
   await fs.mkdir(target, { recursive: true, mode });
   if (process.platform !== "win32") {
     await fs.chmod(target, mode);
@@ -151,7 +157,12 @@ export async function tryReflink(src: string, dest: string): Promise<boolean> {
     await fs.copyFile(src, dest, fsConstants.COPYFILE_FICLONE_FORCE);
     return true;
   } catch (error) {
-    if (isErrno(error, "ENOTSUP") || isErrno(error, "EXDEV") || isErrno(error, "EINVAL") || isErrno(error, "EPERM")) {
+    if (
+      isErrno(error, "ENOTSUP") ||
+      isErrno(error, "EXDEV") ||
+      isErrno(error, "EINVAL") ||
+      isErrno(error, "EPERM")
+    ) {
       return false;
     }
     throw error;
@@ -163,7 +174,10 @@ export async function tryReflink(src: string, dest: string): Promise<boolean> {
  * fully copied (SPEC 11.2, I-012). `COPYFILE_FICLONE_FORCE` either creates a
  * real reflink or fails, so the returned method is exact rather than hopeful.
  */
-export async function copyFileExact(src: string, dest: string): Promise<{ method: "reflink" | "copy" }> {
+export async function copyFileExact(
+  src: string,
+  dest: string,
+): Promise<{ method: "reflink" | "copy" }> {
   try {
     await fs.copyFile(src, dest, fsConstants.COPYFILE_FICLONE_FORCE);
     return { method: "reflink" };
@@ -192,7 +206,10 @@ export type CapabilityProbe = {
   directorySymlink: boolean;
 };
 
-export async function probeCapabilities(storeDir: string, projectDir: string): Promise<CapabilityProbe> {
+export async function probeCapabilities(
+  storeDir: string,
+  projectDir: string,
+): Promise<CapabilityProbe> {
   const probeBase = path.join(storeDir, `.probe-${randomId("", 8)}`);
   await mkdirp(probeBase);
   try {
@@ -214,7 +231,9 @@ async function probeHardlink(fromDir: string, toDir: string): Promise<boolean> {
     await fs.link(source, target);
     const sourceStat = await fs.stat(source, { bigint: true });
     const targetStat = await fs.stat(target, { bigint: true });
-    return sourceStat.dev === targetStat.dev && sourceStat.ino === targetStat.ino;
+    return (
+      sourceStat.dev === targetStat.dev && sourceStat.ino === targetStat.ino
+    );
   } catch {
     return false;
   } finally {
@@ -238,7 +257,10 @@ async function probeReflink(dir: string): Promise<boolean> {
   }
 }
 
-async function probeDirectorySymlink(fromDir: string, toDir: string): Promise<boolean> {
+async function probeDirectorySymlink(
+  fromDir: string,
+  toDir: string,
+): Promise<boolean> {
   const target = path.join(fromDir, "symlink-probe-target");
   const link = path.join(toDir, `.snpm-probe-link-${randomId("", 8)}`);
   try {

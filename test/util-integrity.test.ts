@@ -72,7 +72,9 @@ describe("parseSri", () => {
   });
 
   it("picks the strongest algorithm from several entries", () => {
-    const parsed = parseSri(`sha1-${base64FromHex(ABC_SHA1_HEX)} sha512-${base64FromHex(ABC_SHA512_HEX)}`);
+    const parsed = parseSri(
+      `sha1-${base64FromHex(ABC_SHA1_HEX)} sha512-${base64FromHex(ABC_SHA512_HEX)}`,
+    );
     expect(parsed.strongest?.algorithm).toBe("sha512");
   });
 });
@@ -81,16 +83,23 @@ describe("checkIntegrity and assertIntegrityOk", () => {
   const hashed = hashedABC();
 
   it("verifies a matching sha512", () => {
-    const outcome = checkIntegrity(hashed, formatSri("sha512", hashed.sha512Base64));
+    const outcome = checkIntegrity(
+      hashed,
+      formatSri("sha512", hashed.sha512Base64),
+    );
     expect(outcome.status).toBe("verified");
-    expect(assertIntegrityOk(hashed, hashed.sha512Sri, { what: "test" }).verifiedSri).toBe(hashed.sha512Sri);
+    expect(
+      assertIntegrityOk(hashed, hashed.sha512Sri, { what: "test" }).verifiedSri,
+    ).toBe(hashed.sha512Sri);
   });
 
   it("reports a mismatch without accepting it", () => {
     const wrong = formatSri("sha512", base64FromHex("00".repeat(64)));
     const outcome = checkIntegrity(hashed, wrong);
     expect(outcome.status).toBe("mismatch");
-    expect(() => assertIntegrityOk(hashed, wrong, { what: "tarball x" })).toThrow(SnpmError);
+    expect(() =>
+      assertIntegrityOk(hashed, wrong, { what: "tarball x" }),
+    ).toThrow(SnpmError);
     try {
       assertIntegrityOk(hashed, wrong, { what: "tarball x" });
     } catch (error) {
@@ -101,21 +110,35 @@ describe("checkIntegrity and assertIntegrityOk", () => {
   it("verifies sha1 only when weak integrity is explicitly allowed", () => {
     const weak = formatSri("sha1", base64FromHex(ABC_SHA1_HEX));
     expect(checkIntegrity(hashed, weak).status).toBe("weak-verified");
-    expect(() => assertIntegrityOk(hashed, weak, { what: "tarball x" })).toThrow(SnpmError);
-    const allowed = assertIntegrityOk(hashed, weak, { what: "tarball x", allowWeak: true });
+    expect(() =>
+      assertIntegrityOk(hashed, weak, { what: "tarball x" }),
+    ).toThrow(SnpmError);
+    const allowed = assertIntegrityOk(hashed, weak, {
+      what: "tarball x",
+      allowWeak: true,
+    });
     expect(allowed.weak).toBe(true);
     expect(allowed.verifiedSri).toBe(weak);
   });
 
   it("treats missing integrity as unacceptable unless explicitly allowed", () => {
-    expect(checkIntegrity(hashed, undefined).status).toBe("no-expected-integrity");
-    expect(() => assertIntegrityOk(hashed, undefined, { what: "tarball x" })).toThrow(SnpmError);
-    const allowed = assertIntegrityOk(hashed, undefined, { what: "tarball x", allowMissing: true });
+    expect(checkIntegrity(hashed, undefined).status).toBe(
+      "no-expected-integrity",
+    );
+    expect(() =>
+      assertIntegrityOk(hashed, undefined, { what: "tarball x" }),
+    ).toThrow(SnpmError);
+    const allowed = assertIntegrityOk(hashed, undefined, {
+      what: "tarball x",
+      allowMissing: true,
+    });
     expect(allowed.verifiedSri).toBe(hashed.sha512Sri);
   });
 
   it("rejects malformed integrity strings rather than guessing", () => {
     expect(checkIntegrity(hashed, "garbage").status).toBe("malformed");
-    expect(() => assertIntegrityOk(hashed, "garbage", { what: "tarball x" })).toThrow(SnpmError);
+    expect(() =>
+      assertIntegrityOk(hashed, "garbage", { what: "tarball x" }),
+    ).toThrow(SnpmError);
   });
 });

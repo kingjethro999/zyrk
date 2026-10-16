@@ -75,8 +75,15 @@ export class SnpmError extends Error {
   readonly detail: Record<string, unknown> | undefined;
   readonly remedy: string | undefined;
 
-  constructor(code: ErrorCode, message: string, options: SnpmErrorOptions = {}) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+  constructor(
+    code: ErrorCode,
+    message: string,
+    options: SnpmErrorOptions = {},
+  ) {
+    super(
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "SnpmError";
     this.code = code;
     this.detail = options.detail;
@@ -93,7 +100,10 @@ export function isSnpmError(error: unknown): error is SnpmError {
  * in `detail.errno` so disk-full and permission failures stay diagnosable
  * without dumping the environment.
  */
-export function toSnpmError(error: unknown, fallbackMessage: string): SnpmError {
+export function toSnpmError(
+  error: unknown,
+  fallbackMessage: string,
+): SnpmError {
   if (isSnpmError(error)) return error;
 
   const detail: Record<string, unknown> = {};
@@ -104,7 +114,10 @@ export function toSnpmError(error: unknown, fallbackMessage: string): SnpmError 
     if (typeof errno === "string") {
       detail.errno = errno;
       if (errno === "ENOSPC") {
-        return new SnpmError("SNPM_DISK_FULL", message, { detail, cause: error });
+        return new SnpmError("SNPM_DISK_FULL", message, {
+          detail,
+          cause: error,
+        });
       }
       if (errno === "EACCES" || errno === "EPERM") {
         detail.errno = errno;

@@ -72,10 +72,7 @@ declare module "npm-registry-fetch" {
   }
 
   /** Fetch plain text. */
-  export function text(
-    url: string | URL,
-    opts?: FetchOptions,
-  ): Promise<string>;
+  export function text(url: string | URL, opts?: FetchOptions): Promise<string>;
 
   /** Registry lookup helpers (not used yet; declared for completeness). */
   export function pickRegistry(

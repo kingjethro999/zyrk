@@ -34,7 +34,8 @@ export function openStoreDb(dbFile: string): StoreDb {
 }
 
 function userVersion(db: StoreDb): number {
-  const row = db.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
+  const row = db.prepare("PRAGMA user_version").get() as
+    { user_version?: number } | undefined;
   return row?.user_version ?? 0;
 }
 
@@ -42,10 +43,15 @@ export function migrate(db: StoreDb): void {
   const version = userVersion(db);
   if (version === SCHEMA_VERSION) return;
   if (version > SCHEMA_VERSION) {
-    throw new SnpmError("SNPM_STORE_FORMAT_UNSUPPORTED", `metadata schema ${version} is newer than this snpm understands (${SCHEMA_VERSION})`, {
-      detail: { schemaVersion: version, supported: SCHEMA_VERSION },
-      remedy: "upgrade snpm, or point SNPM_STORE_DIR at a store created by this version",
-    });
+    throw new SnpmError(
+      "SNPM_STORE_FORMAT_UNSUPPORTED",
+      `metadata schema ${version} is newer than this snpm understands (${SCHEMA_VERSION})`,
+      {
+        detail: { schemaVersion: version, supported: SCHEMA_VERSION },
+        remedy:
+          "upgrade snpm, or point SNPM_STORE_DIR at a store created by this version",
+      },
+    );
   }
   if (version === 0) {
     db.exec("BEGIN IMMEDIATE");
@@ -59,10 +65,15 @@ export function migrate(db: StoreDb): void {
     }
     return;
   }
-  throw new SnpmError("SNPM_INTERNAL", `no migration path from metadata schema ${version}`, {
-    detail: { schemaVersion: version },
-    remedy: "report this as a bug; migrations are required for every schema change",
-  });
+  throw new SnpmError(
+    "SNPM_INTERNAL",
+    `no migration path from metadata schema ${version}`,
+    {
+      detail: { schemaVersion: version },
+      remedy:
+        "report this as a bug; migrations are required for every schema change",
+    },
+  );
 }
 
 const SCHEMA_V1 = `
@@ -250,12 +261,26 @@ export function recordObject(db: StoreDb, record: ObjectRecord): void {
     `INSERT INTO objects (object_id, inner_digest, mode_class, bytes, committed_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (object_id) DO NOTHING`,
-  ).run(record.objectId, record.innerDigest, record.modeClass, record.bytes, record.committedAt);
+  ).run(
+    record.objectId,
+    record.innerDigest,
+    record.modeClass,
+    record.bytes,
+    record.committedAt,
+  );
 }
 
 export function getObject(db: StoreDb, objectId: string): ObjectRecord | null {
-  const row = db.prepare("SELECT * FROM objects WHERE object_id = ?").get(objectId) as
-    | { object_id: string; inner_digest: string; mode_class: string; bytes: number; committed_at: string }
+  const row = db
+    .prepare("SELECT * FROM objects WHERE object_id = ?")
+    .get(objectId) as
+    | {
+        object_id: string;
+        inner_digest: string;
+        mode_class: string;
+        bytes: number;
+        committed_at: string;
+      }
     | undefined;
   if (row === undefined) return null;
   return {
@@ -305,7 +330,9 @@ export function recordSource(db: StoreDb, record: SourceRecord): void {
 }
 
 export function getSource(db: StoreDb, sourceId: string): SourceRecord | null {
-  const row = db.prepare("SELECT * FROM sources WHERE source_id = ?").get(sourceId) as
+  const row = db
+    .prepare("SELECT * FROM sources WHERE source_id = ?")
+    .get(sourceId) as
     | {
         source_id: string;
         source_type: string;
@@ -338,7 +365,10 @@ export function getSource(db: StoreDb, sourceId: string): SourceRecord | null {
   };
 }
 
-export function recordTransactionStart(db: StoreDb, txn: { txnId: string; kind: string; projectId?: string }): void {
+export function recordTransactionStart(
+  db: StoreDb,
+  txn: { txnId: string; kind: string; projectId?: string },
+): void {
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO transactions (txn_id, kind, project_id, state, started_at, updated_at)
@@ -347,10 +377,12 @@ export function recordTransactionStart(db: StoreDb, txn: { txnId: string; kind: 
   ).run(txn.txnId, txn.kind, txn.projectId ?? null, now, now);
 }
 
-export function updateTransactionState(db: StoreDb, txnId: string, state: string): void {
-  db.prepare("UPDATE transactions SET state = ?, updated_at = ? WHERE txn_id = ?").run(
-    state,
-    new Date().toISOString(),
-    txnId,
-  );
+export function updateTransactionState(
+  db: StoreDb,
+  txnId: string,
+  state: string,
+): void {
+  db.prepare(
+    "UPDATE transactions SET state = ?, updated_at = ? WHERE txn_id = ?",
+  ).run(state, new Date().toISOString(), txnId);
 }

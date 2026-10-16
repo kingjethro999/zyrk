@@ -1,8 +1,21 @@
-import { chmod, link as fsLink, lstat, readdir, rename, symlink as fsSymlink } from "node:fs/promises";
+import {
+  chmod,
+  link as fsLink,
+  lstat,
+  readdir,
+  rename,
+  symlink as fsSymlink,
+} from "node:fs/promises";
 import * as path from "node:path";
 import { SnpmError } from "../errors.ts";
 import type { Logger } from "../log.ts";
-import { fsyncDir, isErrno, mkdirp, pathExists, rmrfNoFollow } from "../util/fsx.ts";
+import {
+  fsyncDir,
+  isErrno,
+  mkdirp,
+  pathExists,
+  rmrfNoFollow,
+} from "../util/fsx.ts";
 import { contextIdFor, type GraphDoc, type GraphNode } from "./graph.ts";
 import { Store } from "./layout.ts";
 import { readSourceManifest } from "./manifests.ts";
@@ -55,7 +68,8 @@ export async function realizeGraph(options: {
   const verify = options.verifyPayloads !== false;
   const byKey = new Map(graph.nodes.map((node) => [node.key, node]));
   const contextByKey = new Map<string, string>();
-  for (const node of graph.nodes) contextByKey.set(node.key, contextIdFor(graph, node.key));
+  for (const node of graph.nodes)
+    contextByKey.set(node.key, contextIdFor(graph, node.key));
 
   const result: RealizeResult = {
     realizationDirByKey: new Map(),
@@ -69,7 +83,8 @@ export async function realizeGraph(options: {
   try {
     for (const node of graph.nodes) {
       const contextId = contextByKey.get(node.key);
-      if (contextId === undefined) throw internal(`missing context id for ${node.key}`);
+      if (contextId === undefined)
+        throw internal(`missing context id for ${node.key}`);
       const contextDir = realizationDirFor(store, contextId);
       const packageDir = packageDirIn(contextDir, node.name);
       result.realizationDirByKey.set(node.key, contextDir);
@@ -101,9 +116,12 @@ export async function realizeGraph(options: {
     // renamed out; on failure the transaction root owns the leftovers.
     await txn.finish().catch(() => {});
     if (!committed) {
-      options.logger?.debug("realization transaction did not complete; staging discarded", {
-        transactionId: txn.id,
-      });
+      options.logger?.debug(
+        "realization transaction did not complete; staging discarded",
+        {
+          transactionId: txn.id,
+        },
+      );
     }
   }
 }
@@ -125,8 +143,13 @@ async function buildRealization(options: {
       "SNPM_STORE_CORRUPT",
       `source ${node.sourceId} contains ${manifest.name}@${manifest.version}, not ${node.name}@${node.version}`,
       {
-        detail: { sourceId: node.sourceId, expected: node.key, found: `${manifest.name}@${manifest.version}` },
-        remedy: "run `snpm store verify --full`; the stored source no longer matches its recorded identity",
+        detail: {
+          sourceId: node.sourceId,
+          expected: node.key,
+          found: `${manifest.name}@${manifest.version}`,
+        },
+        remedy:
+          "run `snpm store verify --full`; the stored source no longer matches its recorded identity",
       },
     );
   }
@@ -187,7 +210,10 @@ async function buildRealization(options: {
     if (dependency === undefined || dependencyContext === undefined) {
       throw internal(`edge ${edge.name} of ${node.key} has no resolved node`);
     }
-    const dependencyPackageDir = packageDirIn(realizationDirFor(store, dependencyContext), dependency.name);
+    const dependencyPackageDir = packageDirIn(
+      realizationDirFor(store, dependencyContext),
+      dependency.name,
+    );
     const linkPath = siblingNames.has(edge.name)
       ? path.join(packageDir, "node_modules", ...edge.name.split("/"))
       : path.join(stagingContext, "node_modules", ...edge.name.split("/"));
@@ -238,12 +264,18 @@ async function makeTreeReadOnly(root: string): Promise<void> {
   }
 }
 
-async function publishRealization(contextDir: string, stagingContext: string): Promise<void> {
+async function publishRealization(
+  contextDir: string,
+  stagingContext: string,
+): Promise<void> {
   await mkdirp(path.dirname(contextDir));
   try {
     await rename(stagingContext, contextDir);
   } catch (error) {
-    if ((isErrno(error, "ENOTEMPTY") || isErrno(error, "EEXIST")) && (await pathExists(contextDir))) {
+    if (
+      (isErrno(error, "ENOTEMPTY") || isErrno(error, "EEXIST")) &&
+      (await pathExists(contextDir))
+    ) {
       // Another process published the same context first. Identical inputs
       // produce identical content, so reuse theirs and discard ours.
       await rmrfNoFollow(stagingContext);

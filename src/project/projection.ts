@@ -1,7 +1,21 @@
-import { open, readFile, readdir, rename, rm, symlink as fsSymlink } from "node:fs/promises";
+import {
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink as fsSymlink,
+} from "node:fs/promises";
 import * as path from "node:path";
 import { acquireLock } from "../util/locks.ts";
-import { ensureDirWithMode, isErrno, mkdirp, pathExists, rmrfNoFollow, writeFileAtomic } from "../util/fsx.ts";
+import {
+  ensureDirWithMode,
+  isErrno,
+  mkdirp,
+  pathExists,
+  rmrfNoFollow,
+  writeFileAtomic,
+} from "../util/fsx.ts";
 import { randomId } from "../util/ids.ts";
 import { canonicalJson } from "../util/json.ts";
 
@@ -46,7 +60,10 @@ function lockPath(projectDir: string): string {
   return path.join(projectDir, PROJECT_STATE_DIR, "project.lock");
 }
 
-async function appendEvent(projectDir: string, event: ProjectionEvent): Promise<void> {
+async function appendEvent(
+  projectDir: string,
+  event: ProjectionEvent,
+): Promise<void> {
   const target = journalPath(projectDir);
   await mkdirp(path.dirname(target));
   const handle = await open(target, "a", 0o600);
@@ -103,7 +120,10 @@ export async function recoverProjection(projectDir: string): Promise<void> {
   }
 
   if (last === undefined) return;
-  const previous = path.join(projectDir, `node_modules.snpm-old-${last.generationId}`);
+  const previous = path.join(
+    projectDir,
+    `node_modules.snpm-old-${last.generationId}`,
+  );
   if (await pathExists(previous)) {
     if (!(await pathExists(nodeModules))) {
       // The swap had moved the old projection aside but never published a
@@ -125,13 +145,21 @@ export async function installProjection(
   entries: ProjectionEntry[],
   options: { projectId?: string } = {},
 ): Promise<ProjectionResult> {
-  const lock = await acquireLock(lockPath(projectDir), { name: "project mutation" });
+  const lock = await acquireLock(lockPath(projectDir), {
+    name: "project mutation",
+  });
   try {
     await recoverProjection(projectDir);
 
     const generationId = `gen1_${randomId("", 12)}`;
-    const staging = path.join(projectDir, `node_modules.snpm-staging-${generationId}`);
-    const previous = path.join(projectDir, `node_modules.snpm-old-${generationId}`);
+    const staging = path.join(
+      projectDir,
+      `node_modules.snpm-staging-${generationId}`,
+    );
+    const previous = path.join(
+      projectDir,
+      `node_modules.snpm-old-${generationId}`,
+    );
     const nodeModules = path.join(projectDir, "node_modules");
 
     await ensureDirWithMode(staging, 0o755);
@@ -145,27 +173,52 @@ export async function installProjection(
     const state = {
       schemaVersion: 1,
       generationId,
-      ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
+      ...(options.projectId === undefined
+        ? {}
+        : { projectId: options.projectId }),
       linker: "shared",
       createdAt: new Date().toISOString(),
       readiness: "ready",
-      direct: entries.map((entry) => ({ name: entry.name, target: entry.linkTarget })),
+      direct: entries.map((entry) => ({
+        name: entry.name,
+        target: entry.linkTarget,
+      })),
     };
-    await writeFileAtomic(path.join(staging, ".snpm", "install-state.json"), `${JSON.stringify(state, null, 2)}\n`, {
-      mode: 0o644,
+    await writeFileAtomic(
+      path.join(staging, ".snpm", "install-state.json"),
+      `${JSON.stringify(state, null, 2)}\n`,
+      {
+        mode: 0o644,
+      },
+    );
+    await appendEvent(projectDir, {
+      at: new Date().toISOString(),
+      event: "staged",
+      generationId,
     });
-    await appendEvent(projectDir, { at: new Date().toISOString(), event: "staged", generationId });
 
     const hadPrevious = await pathExists(nodeModules);
     if (hadPrevious) {
       await rename(nodeModules, previous);
-      await appendEvent(projectDir, { at: new Date().toISOString(), event: "old-moved", generationId });
+      await appendEvent(projectDir, {
+        at: new Date().toISOString(),
+        event: "old-moved",
+        generationId,
+      });
     }
     await rename(staging, nodeModules);
-    await appendEvent(projectDir, { at: new Date().toISOString(), event: "published", generationId });
+    await appendEvent(projectDir, {
+      at: new Date().toISOString(),
+      event: "published",
+      generationId,
+    });
 
     if (hadPrevious) await rmrfNoFollow(previous);
-    await appendEvent(projectDir, { at: new Date().toISOString(), event: "done", generationId });
+    await appendEvent(projectDir, {
+      at: new Date().toISOString(),
+      event: "done",
+      generationId,
+    });
     await rm(journalPath(projectDir), { force: true });
 
     return { nodeModulesDir: nodeModules, generationId };

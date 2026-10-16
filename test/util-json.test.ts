@@ -11,7 +11,9 @@ describe("canonicalJson", () => {
     const a = { z: { b: [3, { d: 1, c: 2 }], a: null }, y: "s" };
     const b = { y: "s", z: { a: null, b: [3, { c: 2, d: 1 }] } };
     expect(canonicalJson(a)).toBe(canonicalJson(b));
-    expect(canonicalJson(a)).toBe('{"y":"s","z":{"a":null,"b":[3,{"c":2,"d":1}]}}');
+    expect(canonicalJson(a)).toBe(
+      '{"y":"s","z":{"a":null,"b":[3,{"c":2,"d":1}]}}',
+    );
   });
 
   it("preserves array order", () => {
@@ -19,7 +21,7 @@ describe("canonicalJson", () => {
   });
 
   it("escapes strings like JSON.stringify", () => {
-    expect(canonicalJson("a\nb\t\"c\\d")).toBe(JSON.stringify("a\nb\t\"c\\d"));
+    expect(canonicalJson('a\nb\t"c\\d')).toBe(JSON.stringify('a\nb\t"c\\d'));
     expect(canonicalJson("héllo\u0000")).toBe(JSON.stringify("héllo\u0000"));
   });
 

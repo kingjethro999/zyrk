@@ -1,4 +1,12 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -51,7 +59,9 @@ describe("rmrfNoFollow", () => {
     await rmrfNoFollow(tree);
 
     expect(await pathExists(tree)).toBe(false);
-    expect(await readFile(path.join(outside, "keep.txt"), "utf8")).toBe("keep\n");
+    expect(await readFile(path.join(outside, "keep.txt"), "utf8")).toBe(
+      "keep\n",
+    );
   });
 
   it("removes a plain file target", async () => {
@@ -62,6 +72,8 @@ describe("rmrfNoFollow", () => {
   });
 
   it("is a no-op for a path that does not exist", async () => {
-    await expect(rmrfNoFollow(path.join(root, "ghost"))).resolves.toBeUndefined();
+    await expect(
+      rmrfNoFollow(path.join(root, "ghost")),
+    ).resolves.toBeUndefined();
   });
 });

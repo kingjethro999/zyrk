@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const isWindows = process.platform === "win32";
-const localBin = (name) => path.join(root, "node_modules", ".bin", isWindows ? `${name}.cmd` : name);
+const localBin = (name) =>
+  path.join(root, "node_modules", ".bin", isWindows ? `${name}.cmd` : name);
 
 const steps = [
   ["typecheck", localBin("tsc"), ["-p", "tsconfig.json"]],
