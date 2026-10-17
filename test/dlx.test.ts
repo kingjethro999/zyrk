@@ -329,3 +329,141 @@ describe("runDlx", () => {
     }
   });
 });
+
+it("blocks implicit binding.gyp builds before executing the tool", async () => {
+  await registry.close();
+  registry = await startStubRegistry([
+    {
+      name: "native-tool",
+      versions: [
+        {
+          version: "1.0.0",
+          bin: { tool: "cli.js" },
+          files: {
+            "binding.gyp": { data: "{}" },
+            "cli.js": { data: "console.log('should not run')" },
+          },
+        },
+      ],
+    },
+  ]);
+  client = new RegistryClient({
+    registry: registry.url,
+    userAgent: "zyrk-test/0",
+  });
+  await expect(
+    runDlx({ store, registry: client, spec: "native-tool", capture: true }),
+  ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
+});
+
+it("executes shell bins with companion bins on PATH", async () => {
+  await registry.close();
+  registry = await startStubRegistry([
+    {
+      name: "shell-tool",
+      versions: [
+        {
+          version: "1.0.0",
+          bin: { "shell-tool": "cli.sh", companion: "companion.js" },
+          files: {
+            "cli.sh": { data: "#!/bin/sh\ncompanion\n", mode: 0o755 },
+            "companion.js": { data: "console.log('companion-ok')\n" },
+          },
+        },
+      ],
+    },
+  ]);
+  client = new RegistryClient({
+    registry: registry.url,
+    userAgent: "zyrk-test/0",
+  });
+  const result = await runDlx({
+    store,
+    registry: client,
+    spec: "shell-tool",
+    capture: true,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("companion-ok");
+});
+
+it("blocks lifecycle scripts inside bundled packages", async () => {
+  await registry.close();
+  registry = await startStubRegistry([
+    {
+      name: "bundle-tool",
+      versions: [
+        {
+          version: "1.0.0",
+          bin: { tool: "cli.js" },
+          files: {
+            "cli.js": { data: "console.log('should not run')" },
+            "node_modules/bundled/package.json": {
+              data: JSON.stringify({
+                name: "bundled",
+                version: "1.0.0",
+                scripts: { postinstall: "node setup.js" },
+              }),
+            },
+          },
+        },
+      ],
+    },
+  ]);
+  client = new RegistryClient({
+    registry: registry.url,
+    userAgent: "zyrk-test/0",
+  });
+  await expect(
+    runDlx({ store, registry: client, spec: "bundle-tool", capture: true }),
+  ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
+});
+
+it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
+  "executes a hermetic Linux x64 native bin",
+  async () => {
+    // Minimal ELF fixture: one RX load segment, exit(37), no interpreter or libc.
+    const binary = Buffer.alloc(132);
+    Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]).copy(binary);
+    binary.writeUInt16LE(2, 16);
+    binary.writeUInt16LE(62, 18);
+    binary.writeUInt32LE(1, 20);
+    binary.writeBigUInt64LE(0x400078n, 24);
+    binary.writeBigUInt64LE(64n, 32);
+    binary.writeUInt16LE(64, 52);
+    binary.writeUInt16LE(56, 54);
+    binary.writeUInt16LE(1, 56);
+    binary.writeUInt32LE(1, 64);
+    binary.writeUInt32LE(5, 68);
+    binary.writeBigUInt64LE(0x400000n, 80);
+    binary.writeBigUInt64LE(0x400000n, 88);
+    binary.writeBigUInt64LE(132n, 96);
+    binary.writeBigUInt64LE(132n, 104);
+    binary.writeBigUInt64LE(4096n, 112);
+    Buffer.from("b83c000000bf250000000f05", "hex").copy(binary, 120);
+    await registry.close();
+    registry = await startStubRegistry([
+      {
+        name: "native-fixture",
+        versions: [
+          {
+            version: "1.0.0",
+            bin: { tool: "tool" },
+            files: { tool: { data: binary, mode: 0o755 } },
+          },
+        ],
+      },
+    ]);
+    client = new RegistryClient({ registry: registry.url, userAgent: "test" });
+    expect(
+      (
+        await runDlx({
+          store,
+          registry: client,
+          spec: "native-fixture",
+          capture: true,
+        })
+      ).exitCode,
+    ).toBe(37);
+  },
+);

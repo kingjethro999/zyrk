@@ -1,3 +1,5 @@
+import { Transform } from "node:stream";
+import { createGunzip } from "node:zlib";
 import { createReadStream } from "node:fs";
 import {
   chmod,
@@ -38,6 +40,8 @@ import { ensureDirWithMode, isErrno } from "../util/fsx.ts";
 
 export type ExtractionLimits = {
   maxEntries: number;
+  maxExpandedBytes: number;
+  maxDurationMs: number;
   maxTotalBytes: number;
   maxPathLength: number;
   maxComponentLength: number;
@@ -46,6 +50,8 @@ export type ExtractionLimits = {
 
 export const DEFAULT_EXTRACTION_LIMITS: ExtractionLimits = {
   maxEntries: 200_000,
+  maxExpandedBytes: 5 * 1024 * 1024 * 1024,
+  maxDurationMs: 120_000,
   maxTotalBytes: 4 * 1024 * 1024 * 1024,
   maxPathLength: 4096,
   maxComponentLength: 255,
@@ -106,53 +112,72 @@ export async function extractTarball(options: {
   tarballPath: string;
   destDir: string;
   limits?: Partial<ExtractionLimits>;
+  signal?: AbortSignal;
+  onExpandedBytes?: (bytes: number) => void;
 }): Promise<ExtractionResult> {
   const limits: ExtractionLimits = {
     ...DEFAULT_EXTRACTION_LIMITS,
     ...options.limits,
   };
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isSafeInteger(value) || value <= 0)
+      throw unsafe(`invalid extraction budget ${name}`, { budget: name });
+  }
   await ensureDirWithMode(options.destDir, 0o700);
   const destRoot = path.resolve(options.destDir);
 
   // ---- Pass 1: validate and plan (writes nothing) ----
   const plans: EntryPlan[] = [];
+  let declaredBytes = 0;
   const observations: string[] = [];
   let observedReserved = 0;
   let observedWindowsInvalid = 0;
 
-  await runParser(options.tarballPath, async (entry, index) => {
-    if (plans.length >= limits.maxEntries) {
-      throw unsafe(`archive has more than ${limits.maxEntries} entries`, {
-        maxEntries: limits.maxEntries,
-      });
-    }
-    const size = entry.size ?? 0;
-    if (size > limits.maxTotalBytes) {
-      throw unsafe(
-        `archive entry declares ${size} bytes, beyond the limit of ${limits.maxTotalBytes}`,
-        {
-          entryPath: entry.path,
-        },
-      );
-    }
-    const check = normalizeArchivePath(entry.path ?? "", limits);
-    if (check.reserved) observedReserved += 1;
-    if (check.invalidWindows) observedWindowsInvalid += 1;
+  await runParser(
+    options.tarballPath,
+    limits,
+    options,
+    async (entry, index) => {
+      if (plans.length >= limits.maxEntries) {
+        throw unsafe(`archive has more than ${limits.maxEntries} entries`, {
+          maxEntries: limits.maxEntries,
+        });
+      }
+      const size = entry.size ?? 0;
+      if (size > limits.maxTotalBytes) {
+        throw unsafe(
+          `archive entry declares ${size} bytes, beyond the limit of ${limits.maxTotalBytes}`,
+          {
+            entryPath: entry.path,
+          },
+        );
+      }
+      declaredBytes += size;
+      if (declaredBytes > limits.maxTotalBytes) {
+        throw unsafe(
+          `archive expands to more than ${limits.maxTotalBytes} bytes`,
+          { maxTotalBytes: limits.maxTotalBytes },
+        );
+      }
+      const check = normalizeArchivePath(entry.path ?? "", limits);
+      if (check.reserved) observedReserved += 1;
+      if (check.invalidWindows) observedWindowsInvalid += 1;
 
-    plans.push({
-      index,
-      rawPath: check.normalized,
-      effectivePath: check.normalized,
-      type: planType(entry),
-      size,
-      mode: typeof entry.mode === "number" ? entry.mode : 0o644,
-      linkpath:
-        typeof entry.linkpath === "string" && entry.linkpath !== ""
-          ? entry.linkpath
-          : null,
-    });
-    entry.resume();
-  });
+      plans.push({
+        index,
+        rawPath: check.normalized,
+        effectivePath: check.normalized,
+        type: planType(entry),
+        size,
+        mode: typeof entry.mode === "number" ? entry.mode : 0o644,
+        linkpath:
+          typeof entry.linkpath === "string" && entry.linkpath !== ""
+            ? entry.linkpath
+            : null,
+      });
+      entry.resume();
+    },
+  );
 
   assertNoDuplicateRawPaths(plans);
 
@@ -240,6 +265,12 @@ export async function extractTarball(options: {
         },
       );
     }
+    totalBytes += targetPlan.size;
+    if (totalBytes > limits.maxTotalBytes)
+      throw unsafe(
+        `archive hard links expand logical output beyond ${limits.maxTotalBytes} bytes`,
+        { maxTotalBytes: limits.maxTotalBytes },
+      );
     plan.linkpath = target;
   }
 
@@ -297,117 +328,122 @@ export async function extractTarball(options: {
   let symlinkCount = 0;
   let logicalBytes = 0;
 
-  await runParser(options.tarballPath, async (entry, index) => {
-    const plan = planByIndex.get(index);
-    if (plan === undefined) {
-      // Entries removed by common-root stripping still must be drained.
-      entry.resume();
-      return;
-    }
+  await runParser(
+    options.tarballPath,
+    limits,
+    options,
+    async (entry, index) => {
+      const plan = planByIndex.get(index);
+      if (plan === undefined) {
+        // Entries removed by common-root stripping still must be drained.
+        entry.resume();
+        return;
+      }
 
-    switch (plan.type) {
-      case "dir": {
-        await ensureDirsFor(
-          rootRelative(destRoot, plan.effectivePath),
-          destRoot,
-          symlinks,
-        );
-        dirs.add(plan.effectivePath);
-        dirCount += 1;
-        entries.push({ path: plan.effectivePath, type: "dir" });
-        entry.resume();
-        return;
-      }
-      case "file": {
-        await ensureDirsFor(
-          rootRelative(destRoot, path.dirname(plan.effectivePath)),
-          destRoot,
-          symlinks,
-        );
-        const observed = await writeEntryFile(
-          entry,
-          destRoot,
-          plan.effectivePath,
-        );
-        if (observed.size !== plan.size) {
-          await rm(observed.stagingPath, { force: true }).catch(() => {});
-          throw unsafe(
-            `file size mismatch while extracting ${plan.effectivePath}`,
-            {
-              entryPath: plan.effectivePath,
-              declared: plan.size,
-              actual: observed.size,
-            },
+      switch (plan.type) {
+        case "dir": {
+          await ensureDirsFor(
+            rootRelative(destRoot, plan.effectivePath),
+            destRoot,
+            symlinks,
           );
+          dirs.add(plan.effectivePath);
+          dirCount += 1;
+          entries.push({ path: plan.effectivePath, type: "dir" });
+          entry.resume();
+          return;
         }
-        fileCount += 1;
-        logicalBytes += observed.size;
-        const fileEntry: ExtractedFileEntry = {
-          path: plan.effectivePath,
-          type: "file",
-          mode: observed.mode,
-          size: observed.size,
-          innerDigest: observed.innerDigest,
-          stagingPath: observed.stagingPath,
-        };
-        fileEntries.set(plan.effectivePath, fileEntry);
-        entries.push(fileEntry);
-        return;
-      }
-      case "symlink": {
-        const target = plan.linkpath!;
-        await ensureDirsFor(
-          rootRelative(destRoot, path.dirname(plan.effectivePath)),
-          destRoot,
-          symlinks,
-        );
-        await fsSymlink(target, rootRelative(destRoot, plan.effectivePath));
-        symlinks.set(plan.effectivePath, target);
-        symlinkCount += 1;
-        entries.push({ path: plan.effectivePath, type: "symlink", target });
-        entry.resume();
-        return;
-      }
-      case "hardlink": {
-        const target = plan.linkpath!;
-        const targetEntry = fileEntries.get(target);
-        if (targetEntry === undefined) {
-          throw unsafe(
-            `hard link target was not extracted: ${plan.effectivePath} -> ${target}`,
-            {
-              entryPath: plan.effectivePath,
-              target,
-            },
+        case "file": {
+          await ensureDirsFor(
+            rootRelative(destRoot, path.dirname(plan.effectivePath)),
+            destRoot,
+            symlinks,
           );
+          const observed = await writeEntryFile(
+            entry,
+            destRoot,
+            plan.effectivePath,
+          );
+          if (observed.size !== plan.size) {
+            await rm(observed.stagingPath, { force: true }).catch(() => {});
+            throw unsafe(
+              `file size mismatch while extracting ${plan.effectivePath}`,
+              {
+                entryPath: plan.effectivePath,
+                declared: plan.size,
+                actual: observed.size,
+              },
+            );
+          }
+          fileCount += 1;
+          logicalBytes += observed.size;
+          const fileEntry: ExtractedFileEntry = {
+            path: plan.effectivePath,
+            type: "file",
+            mode: observed.mode,
+            size: observed.size,
+            innerDigest: observed.innerDigest,
+            stagingPath: observed.stagingPath,
+          };
+          fileEntries.set(plan.effectivePath, fileEntry);
+          entries.push(fileEntry);
+          return;
         }
-        await ensureDirsFor(
-          rootRelative(destRoot, path.dirname(plan.effectivePath)),
-          destRoot,
-          symlinks,
-        );
-        const dest = rootRelative(destRoot, plan.effectivePath);
-        try {
-          await fsLink(rootRelative(destRoot, target), dest);
-        } catch (error) {
-          throw unsafe(`could not create hard link ${plan.effectivePath}`, {
-            entryPath: plan.effectivePath,
-            errno: (error as NodeJS.ErrnoException).code,
-          });
+        case "symlink": {
+          const target = plan.linkpath!;
+          await ensureDirsFor(
+            rootRelative(destRoot, path.dirname(plan.effectivePath)),
+            destRoot,
+            symlinks,
+          );
+          await fsSymlink(target, rootRelative(destRoot, plan.effectivePath));
+          symlinks.set(plan.effectivePath, target);
+          symlinkCount += 1;
+          entries.push({ path: plan.effectivePath, type: "symlink", target });
+          entry.resume();
+          return;
         }
-        fileCount += 1;
-        logicalBytes += targetEntry.size;
-        const fileEntry: ExtractedFileEntry = {
-          ...targetEntry,
-          path: plan.effectivePath,
-          stagingPath: dest,
-        };
-        fileEntries.set(plan.effectivePath, fileEntry);
-        entries.push(fileEntry);
-        entry.resume();
-        return;
+        case "hardlink": {
+          const target = plan.linkpath!;
+          const targetEntry = fileEntries.get(target);
+          if (targetEntry === undefined) {
+            throw unsafe(
+              `hard link target was not extracted: ${plan.effectivePath} -> ${target}`,
+              {
+                entryPath: plan.effectivePath,
+                target,
+              },
+            );
+          }
+          await ensureDirsFor(
+            rootRelative(destRoot, path.dirname(plan.effectivePath)),
+            destRoot,
+            symlinks,
+          );
+          const dest = rootRelative(destRoot, plan.effectivePath);
+          try {
+            await fsLink(rootRelative(destRoot, target), dest);
+          } catch (error) {
+            throw unsafe(`could not create hard link ${plan.effectivePath}`, {
+              entryPath: plan.effectivePath,
+              errno: (error as NodeJS.ErrnoException).code,
+            });
+          }
+          fileCount += 1;
+          logicalBytes += targetEntry.size;
+          const fileEntry: ExtractedFileEntry = {
+            ...targetEntry,
+            path: plan.effectivePath,
+            stagingPath: dest,
+          };
+          fileEntries.set(plan.effectivePath, fileEntry);
+          entries.push(fileEntry);
+          entry.resume();
+          return;
+        }
       }
-    }
-  });
+    },
+  );
 
   // Post-pass: chase every symlink chain so escapes through composed links
   // are detected even if each individual link looked safe.
@@ -789,23 +825,79 @@ export function chaseSymlinkChain(
  */
 async function runParser(
   tarballPath: string,
+  limits: ExtractionLimits,
+  control: { signal?: AbortSignal; onExpandedBytes?: (bytes: number) => void },
   handler: (entry: ReadEntry, index: number) => Promise<void>,
 ): Promise<void> {
+  control.signal?.throwIfAborted();
+  const file = await open(tarballPath, "r");
+  const magic = Buffer.alloc(2);
+  try {
+    await file.read(magic, 0, 2, 0);
+  } finally {
+    await file.close();
+  }
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let expanded = 0;
+    const decompressor =
+      magic[0] === 0x1f && magic[1] === 0x8b
+        ? createGunzip()
+        : new Transform({
+            transform(chunk, _encoding, callback) {
+              callback(null, chunk);
+            },
+          });
+    const budget = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        try {
+          control.signal?.throwIfAborted();
+          control.onExpandedBytes?.(chunk.length);
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
+        expanded += chunk.length;
+        if (expanded > limits.maxExpandedBytes)
+          callback(
+            unsafe("archive expanded stream exceeds its byte budget", {
+              maxExpandedBytes: limits.maxExpandedBytes,
+            }),
+          );
+        else callback(null, chunk);
+      },
+    });
     let index = 0;
     let chain: Promise<void> = Promise.resolve();
     let failed = false;
 
     const stream = createReadStream(tarballPath);
     const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      control.signal?.removeEventListener("abort", cancel);
       if (error !== undefined) {
         failed = true;
         stream.destroy();
+        decompressor.destroy();
+        budget.destroy();
+        parser.abort(error);
         reject(error);
       } else {
         resolve();
       }
     };
+
+    const deadline = setTimeout(
+      () =>
+        finish(
+          unsafe("archive extraction deadline exceeded", {
+            maxDurationMs: limits.maxDurationMs,
+          }),
+        ),
+      limits.maxDurationMs,
+    );
 
     // tar v7 delivers entries through the `entry` event; each entry starts
     // paused and the handler must resume/consume it, which the parser's flow
@@ -814,6 +906,16 @@ async function runParser(
       strict: true,
       maxMetaEntrySize: 1024 * 1024,
       maxDecompressionRatio: 2000,
+    });
+    let metadataRecords = 0;
+    parser.on("meta", () => {
+      metadataRecords++;
+      if (metadataRecords > limits.maxEntries)
+        finish(
+          unsafe("archive has too many metadata records", {
+            maxEntries: limits.maxEntries,
+          }),
+        );
     });
     parser.on("entry", (entry: ReadEntry) => {
       if (entry.meta === true) {
@@ -854,8 +956,23 @@ async function runParser(
       chain.then(() => finish()).catch(() => {});
     });
 
+    const cancel = (): void =>
+      finish(
+        control.signal?.reason instanceof Error
+          ? control.signal.reason
+          : unsafe("archive extraction cancelled", {}),
+      );
+    control.signal?.addEventListener("abort", cancel, { once: true });
+    if (control.signal?.aborted) {
+      cancel();
+      return;
+    }
     stream.on("error", (error: Error) => finish(error));
-    stream.pipe(parser);
+    decompressor.on("error", (error: Error) =>
+      finish(unsafe("archive decompression failed", { reason: error.message })),
+    );
+    budget.on("error", (error: Error) => finish(error));
+    stream.pipe(decompressor).pipe(budget).pipe(parser);
   });
 }
 

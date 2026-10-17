@@ -448,3 +448,64 @@ describe("normalizeArchivePath", () => {
     );
   });
 });
+
+it("rejects a cumulative oversized prefix before a later invalid path", async () => {
+  await expect(
+    extract(
+      [
+        { path: "package/a", data: "12345678" },
+        { path: "package/b", data: "12345678" },
+        { path: "../later", data: "x" },
+      ],
+      { gzip: true, limits: { maxTotalBytes: 8 } },
+    ),
+  ).rejects.toThrow(/expands to more/);
+});
+it("bounds decompressed padding independently of file bytes", async () => {
+  const tarballPath = await writeArchive(
+    Buffer.concat([
+      craftTar([{ path: "package/a", data: "a" }]),
+      Buffer.alloc(8192),
+    ]),
+  );
+  await expect(
+    extractTarball({
+      tarballPath,
+      destDir: path.join(workDir, "padding"),
+      limits: { maxExpandedBytes: 2048 },
+    }),
+  ).rejects.toThrow(/expanded stream/);
+});
+
+it("accounts hardlink logical output against the aggregate budget", async () => {
+  await expect(
+    extract(
+      [
+        { path: "package/a", data: "123456" },
+        { path: "package/b", type: "hardlink", link: "package/a" },
+      ],
+      { limits: { maxTotalBytes: 8 } },
+    ),
+  ).rejects.toThrow(/hard links/);
+});
+
+it("bounds repeated metadata records independently of data entries", async () => {
+  const meta = craftTar([
+    { path: "././@LongLink", data: "package/a\0" },
+  ]).subarray(0, 1024);
+  meta[156] = "L".charCodeAt(0);
+  meta.fill(32, 148, 156);
+  let sum = 0;
+  for (const byte of meta.subarray(0, 512)) sum += byte;
+  meta.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148);
+  const tarballPath = await writeArchive(
+    Buffer.concat([meta, meta, craftTar([{ path: "package/a", data: "a" }])]),
+  );
+  await expect(
+    extractTarball({
+      tarballPath,
+      destDir: path.join(workDir, "metadata"),
+      limits: { maxEntries: 1 },
+    }),
+  ).rejects.toThrow(/metadata records/);
+});

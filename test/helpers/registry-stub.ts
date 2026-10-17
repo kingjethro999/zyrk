@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { craftTarGz, type CraftEntry } from "./tar.ts";
 
-export type StubFile = { data: string; mode?: number };
+export type StubFile = { data: string | Buffer; mode?: number };
 export type StubVersion = {
   version: string;
   /** Relative paths; the helper adds the `package/` prefix. */

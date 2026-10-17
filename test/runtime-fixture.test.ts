@@ -531,3 +531,12 @@ describe("dependency slot collisions", () => {
     expect(await runNode(project, "app.cjs")).toBe("alpha1+alpha2+alpha2\n");
   });
 });
+
+it("rejects caller supplied projection generation path escapes", async () => {
+  const project = path.join(root, "unsafe-generation");
+  await mkdir(project);
+  await expect(
+    installProjection(project, [], { generationId: "../../escape" }),
+  ).rejects.toMatchObject({ code: "ZYRK_MANIFEST_INVALID" });
+  expect(await pathExists(path.join(root, "escape"))).toBe(false);
+});

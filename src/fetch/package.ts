@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { ZyrkError } from "../errors.ts";
 import { extractTarball, type ExtractionLimits } from "../extract/tarball.ts";
 import type { Logger } from "../log.ts";
-import { ensureDirWithMode } from "../util/fsx.ts";
+import { ensureDirWithMode, rmrfNoFollow } from "../util/fsx.ts";
 import { randomId } from "../util/ids.ts";
 import { recordTransactionStart, type StoreDb } from "../store/db.ts";
 import { Store } from "../store/layout.ts";
@@ -23,6 +23,80 @@ import {
 } from "../store/source.ts";
 import { Transaction } from "../store/txn.ts";
 import { RegistryClient, expectedIntegrityFromDist } from "./registry.ts";
+
+/** Shared operation budgets count compressed network bytes and expanded parser
+ * bytes (both validation and extraction passes). Limits bound work as well as
+ * staging growth; reaching one cancels active requests and queued work. */
+export interface FetchOperation {
+  signal: AbortSignal;
+  checkpoint(): void;
+  consumeArchiveBytes(bytes: number): void;
+  consumeExpandedBytes(bytes: number): void;
+}
+
+export function createFetchOperation(
+  options: {
+    maxArchiveBytes?: number;
+    maxExpandedBytes?: number;
+    deadlineMs?: number;
+    signal?: AbortSignal;
+  } = {},
+): { operation: FetchOperation; abort(error: Error): void; close(): void } {
+  const archiveLimit = options.maxArchiveBytes ?? 8 * 1024 ** 3;
+  const expandedLimit = options.maxExpandedBytes ?? 16 * 1024 ** 3;
+  const deadlineMs = options.deadlineMs ?? 15 * 60_000;
+  for (const value of [archiveLimit, expandedLimit, deadlineMs])
+    if (!Number.isSafeInteger(value) || value <= 0)
+      throw new ZyrkError(
+        "ZYRK_FETCH_REFUSED",
+        "Fetch operation budgets must be positive safe integers.",
+        { remedy: "Select finite positive byte and deadline limits." },
+      );
+  const controller = new AbortController();
+  const abort = (error: Error): void => {
+    if (!controller.signal.aborted) controller.abort(error);
+  };
+  const failure = (budget: string): ZyrkError =>
+    new ZyrkError(
+      "ZYRK_FETCH_REFUSED",
+      `Fetch operation exceeded its ${budget} budget.`,
+      {
+        remedy:
+          "Review the selected dependency graph or explicitly increase its operation budget.",
+      },
+    );
+  const cancel = (): void => abort(failure("cancellation"));
+  options.signal?.addEventListener("abort", cancel, { once: true });
+  if (options.signal?.aborted) cancel();
+  const timer = setTimeout(() => abort(failure("deadline")), deadlineMs);
+  let archive = 0,
+    expanded = 0;
+  const checkpoint = (): void => controller.signal.throwIfAborted();
+  const consume = (kind: "archive" | "expanded", bytes: number): void => {
+    checkpoint();
+    if (!Number.isSafeInteger(bytes) || bytes < 0)
+      throw failure("byte accounting");
+    if (kind === "archive") archive += bytes;
+    else expanded += bytes;
+    if (archive > archiveLimit || expanded > expandedLimit) {
+      abort(failure(kind + " bytes"));
+      checkpoint();
+    }
+  };
+  return {
+    operation: {
+      signal: controller.signal,
+      checkpoint,
+      consumeArchiveBytes: (bytes) => consume("archive", bytes),
+      consumeExpandedBytes: (bytes) => consume("expanded", bytes),
+    },
+    abort,
+    close() {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", cancel);
+    },
+  };
+}
 
 export interface FetchSourceOptions {
   store: Store;
@@ -37,6 +111,7 @@ export interface FetchSourceOptions {
   allowWeakIntegrity?: boolean;
   /** Keep the fetched tarball in staging after commit (default false). */
   keepTarball?: boolean;
+  operation?: FetchOperation;
 }
 
 export interface FetchedSource extends CommittedSource {
@@ -60,7 +135,11 @@ export async function fetchAndCommitSource(
   const label = `${name}@${version}`;
 
   // ---- 1. Metadata: exact version entry for the resolved identity ----
-  const packument = await registry.packument(name);
+  options.operation?.checkpoint();
+  const packument = await registry.packument(
+    name,
+    options.operation === undefined ? {} : { signal: options.operation.signal },
+  );
   const entry = packument.versions[version];
   if (entry === undefined) {
     const tags = Object.entries(packument.distTags)
@@ -102,74 +181,98 @@ export async function fetchAndCommitSource(
   await ensureDirWithMode(tarballDir, 0o700);
   const tarballPath = path.join(tarballDir, `${sanitizeLabel(label)}.tgz`);
 
-  const download = await registry.downloadTarball({
-    url: entry.dist.tarball,
-    expectedIntegrity,
-    destPath: tarballPath,
-    label,
-    ...(options.allowWeakIntegrity === undefined
-      ? {}
-      : { allowWeakIntegrity: options.allowWeakIntegrity }),
-  });
-
-  if (options.db !== undefined) {
-    recordTransactionStart(options.db, { txnId: txn.id, kind: "fetch" });
-  }
-
-  // ---- 3. Safe extraction into transaction-owned staging ----
   const extractDir = path.join(txn.dir, "extract", randomId("x1_", 8));
-  await ensureDirWithMode(extractDir, 0o700);
-
-  let extraction;
+  let completed = false;
   try {
-    extraction = await extractTarball({
-      tarballPath,
-      destDir: extractDir,
-      ...(options.limits === undefined ? {} : { limits: options.limits }),
+    const download = await registry.downloadTarball({
+      url: entry.dist.tarball,
+      expectedIntegrity,
+      destPath: tarballPath,
+      label,
+      ...(options.operation === undefined
+        ? {}
+        : {
+            signal: options.operation.signal,
+            onBytes: options.operation.consumeArchiveBytes,
+          }),
+      ...(options.allowWeakIntegrity === undefined
+        ? {}
+        : { allowWeakIntegrity: options.allowWeakIntegrity }),
     });
-  } catch (error) {
-    if (error instanceof ZyrkError && error.code === "ZYRK_EXTRACTION_UNSAFE") {
+
+    if (options.db !== undefined) {
+      recordTransactionStart(options.db, { txnId: txn.id, kind: "fetch" });
+    }
+
+    // ---- 3. Safe extraction into transaction-owned staging ----
+    await ensureDirWithMode(extractDir, 0o700);
+
+    let extraction;
+    try {
+      extraction = await extractTarball({
+        tarballPath,
+        destDir: extractDir,
+        ...(options.operation === undefined
+          ? {}
+          : {
+              signal: options.operation.signal,
+              onExpandedBytes: options.operation.consumeExpandedBytes,
+            }),
+        ...(options.limits === undefined ? {} : { limits: options.limits }),
+      });
+    } catch (error) {
+      if (
+        error instanceof ZyrkError &&
+        error.code === "ZYRK_EXTRACTION_UNSAFE"
+      ) {
+        throw error;
+      }
       throw error;
     }
-    throw error;
+
+    for (const observation of extraction.observations) {
+      options.logger?.warn(`${label}: ${observation}`);
+    }
+
+    // ---- 4. Commit objects + manifest ----
+    options.operation?.checkpoint();
+    const committed = await commitExtractedSource({
+      store,
+      extraction,
+      name,
+      version,
+      origin: registry.origin,
+      integrity: download.verifiedSri,
+      archiveBytes: download.bytes,
+      ...(options.db === undefined ? {} : { db: options.db }),
+      ...(options.logger === undefined ? {} : { logger: options.logger }),
+    });
+
+    // ---- 5. Tarball hygiene: remove after verified commit by default ----
+    if (options.keepTarball !== true) {
+      await rm(tarballPath, { force: true });
+    }
+
+    options.logger?.info(
+      `fetched ${label}: ${committed.fileCount} files, ${committed.logicalBytes} bytes logical, ${download.bytes} bytes archive`,
+    );
+
+    completed = true;
+    return {
+      ...committed,
+      name,
+      version,
+      origin: registry.origin,
+      integrity: download.verifiedSri,
+      archiveBytes: download.bytes,
+      weakIntegrity: download.weakIntegrity,
+      deprecated: entry.deprecated,
+    };
+  } finally {
+    await rmrfNoFollow(extractDir);
+    if (!completed || options.keepTarball !== true)
+      await rm(tarballPath, { force: true });
   }
-
-  for (const observation of extraction.observations) {
-    options.logger?.warn(`${label}: ${observation}`);
-  }
-
-  // ---- 4. Commit objects + manifest ----
-  const committed = await commitExtractedSource({
-    store,
-    extraction,
-    name,
-    version,
-    origin: registry.origin,
-    integrity: download.verifiedSri,
-    archiveBytes: download.bytes,
-    ...(options.db === undefined ? {} : { db: options.db }),
-    ...(options.logger === undefined ? {} : { logger: options.logger }),
-  });
-
-  // ---- 5. Tarball hygiene: remove after verified commit by default ----
-  if (options.keepTarball !== true) {
-    await rm(tarballPath, { force: true });
-  }
-
-  options.logger?.info(
-    `fetched ${label}: ${committed.fileCount} files, ${committed.logicalBytes} bytes logical, ${download.bytes} bytes archive`,
-  );
-
-  return {
-    ...committed,
-    name,
-    version,
-    origin: registry.origin,
-    integrity: download.verifiedSri,
-    archiveBytes: download.bytes,
-    weakIntegrity: download.weakIntegrity,
-    deprecated: entry.deprecated,
-  };
 }
 
 /** Filesystem-safe label for staging paths; never used as an identity. */

@@ -106,3 +106,117 @@ export async function isProcessAlive(
     return code === "EPERM" && startId === null;
   }
 }
+
+/** Supervise one POSIX process group through targeted wrapper cancellation.
+ * Descendants which deliberately detach cannot be controlled by this helper.
+ * After 1500 ms cancellation escalates to SIGKILL; listeners are always removed.
+ */
+export async function superviseChild(
+  command: string,
+  args: readonly string[],
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    capture?: boolean;
+    escalationMs?: number;
+    stdout?: { write(chunk: string): unknown };
+    stderr?: { write(chunk: string): unknown };
+    onSpawn?: (pid: number, startId: string | null) => void;
+  } = {},
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const { spawn } = await import("node:child_process");
+  return new Promise((resolve, reject) => {
+    const grouped = process.platform !== "win32";
+    const child = spawn(command, [...args], {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.env === undefined ? {} : { env: options.env }),
+      stdio: [
+        options.capture === true ? "pipe" : "inherit",
+        options.capture === true || options.stdout !== undefined
+          ? "pipe"
+          : "inherit",
+        options.capture === true || options.stderr !== undefined
+          ? "pipe"
+          : "inherit",
+      ],
+      detached: grouped,
+    });
+    let startupFailure: Error | undefined;
+    let stdout = "";
+    let stderr = "";
+    let cancelled: NodeJS.Signals | null = null;
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    const send = (signal: NodeJS.Signals): void => {
+      if (child.pid === undefined) return;
+      try {
+        process.kill(grouped ? -child.pid : child.pid, signal);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+          child.kill(signal);
+      }
+    };
+    const cancel = (signal: NodeJS.Signals): void => {
+      if (cancelled !== null) {
+        send("SIGKILL");
+        return;
+      }
+      cancelled = signal;
+      send(signal);
+      escalation = setTimeout(
+        () => send("SIGKILL"),
+        options.escalationMs ?? 1500,
+      );
+    };
+    const term = (): void => cancel("SIGTERM");
+    const interrupt = (): void => cancel("SIGINT");
+    const hangup = (): void => cancel("SIGHUP");
+    const cleanup = (): void => {
+      if (escalation !== undefined) clearTimeout(escalation);
+      process.off("SIGTERM", term);
+      process.off("SIGINT", interrupt);
+      process.off("SIGHUP", hangup);
+    };
+    process.on("SIGTERM", term);
+    process.on("SIGINT", interrupt);
+    process.on("SIGHUP", hangup);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (options.capture === true) stdout += chunk.toString();
+      options.stdout?.write(chunk.toString());
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (options.capture === true) stderr += chunk.toString();
+      options.stderr?.write(chunk.toString());
+    });
+    child.once("spawn", () => {
+      if (child.pid === undefined) return;
+      try {
+        options.onSpawn?.(child.pid, readStartIdSync(child.pid));
+      } catch (error) {
+        startupFailure =
+          error instanceof Error ? error : new Error(String(error));
+        send("SIGKILL");
+      }
+    });
+    child.once("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      // Kill lingering members before callers remove the temporary environment.
+      if (cancelled !== null) send("SIGKILL");
+      cleanup();
+      if (startupFailure !== undefined) {
+        reject(startupFailure);
+        return;
+      }
+      resolve({
+        exitCode:
+          cancelled === null
+            ? closeCode(code, signal)
+            : closeCode(null, cancelled),
+        stdout,
+        stderr,
+      });
+    });
+  });
+}

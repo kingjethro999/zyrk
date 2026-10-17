@@ -17,9 +17,8 @@
  * delegated (F-018); see parse.ts.
  */
 
-import { spawn } from "node:child_process";
 import { ZyrkError } from "../errors.ts";
-import { closeCode } from "../util/proc.ts";
+import { superviseChild } from "../util/proc.ts";
 
 /** Delegated command, its aliases collapsed, plus help text. */
 const DELEGATED_COMMANDS: ReadonlyArray<readonly [readonly string[], string]> =
@@ -71,27 +70,22 @@ export async function delegateToNpm(options: DelegateOptions): Promise<number> {
   options.stderr.write(
     `zyrk: delegating \`zyrk ${options.command}\` to npm; zyrk does not implement publishing or registry authentication.\n`,
   );
-  return new Promise((resolve, reject) => {
-    const child = spawn("npm", [options.command, ...options.args], {
-      env: options.env,
-      stdio: "inherit",
-    });
-    child.on("error", (error) => {
-      reject(
-        new ZyrkError(
-          "ZYRK_NPM_UNAVAILABLE",
-          "zyrk could not launch npm for an explicitly delegated command.",
-          {
-            detail: { command: options.command },
-            remedy:
-              "Install Node.js with npm on PATH, or run the npm command directly.",
-            cause: error,
-          },
-        ),
-      );
-    });
-    child.on("close", (code, signal) => {
-      resolve(closeCode(code, signal));
-    });
-  });
+  try {
+    return (
+      await superviseChild("npm", [options.command, ...options.args], {
+        env: options.env,
+      })
+    ).exitCode;
+  } catch (error) {
+    throw new ZyrkError(
+      "ZYRK_NPM_UNAVAILABLE",
+      "zyrk could not launch npm for an explicitly delegated command.",
+      {
+        detail: { command: options.command },
+        remedy:
+          "Install Node.js with npm on PATH, or run the npm command directly.",
+        cause: error,
+      },
+    );
+  }
 }

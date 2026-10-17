@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readdir } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -212,3 +212,96 @@ describe("fetchSources", () => {
     }
   });
 });
+
+it("stops queued sources at the shared archive-byte budget", async () => {
+  const seen: string[] = [];
+  await expect(
+    fetchSources({
+      store,
+      registry,
+      txn,
+      requests: ["a", "b", "c"].map((key) => ({
+        key,
+        name: key,
+        version: "1.0.0",
+      })),
+      concurrency: 1,
+      maxArchiveBytes: 3,
+      fetchOne: async (request, context) => {
+        seen.push(request.key);
+        context.operation?.consumeArchiveBytes(2);
+        return fakeSource(request.key);
+      },
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  expect(seen).toEqual(["a", "b"]);
+});
+
+it("cancels active siblings and leaves queued requests untouched on deadline", async () => {
+  const started: string[] = [];
+  await expect(
+    fetchSources({
+      store,
+      registry,
+      txn,
+      requests: ["a", "b", "c"].map((key) => ({
+        key,
+        name: key,
+        version: "1.0.0",
+      })),
+      concurrency: 2,
+      deadlineMs: 10,
+      fetchOne: async (request, context) => {
+        started.push(request.key);
+        await new Promise<void>((_resolve, reject) =>
+          context.operation?.signal.addEventListener(
+            "abort",
+            () => reject(context.operation?.signal.reason),
+            { once: true },
+          ),
+        );
+        return fakeSource(request.key);
+      },
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  expect(started).toEqual(["a", "b"]);
+});
+
+it.each(["maxArchiveBytes", "maxExpandedBytes"] as const)(
+  "cleans staging after a real source exhausts %s",
+  async (limit) => {
+    const stub = await startStubRegistry([
+      {
+        name: "budget-tool",
+        versions: [
+          {
+            version: "1.0.0",
+            files: { "index.js": { data: "x".repeat(10000) } },
+          },
+        ],
+      },
+    ]);
+    try {
+      await expect(
+        fetchSources({
+          store,
+          txn,
+          registry: new RegistryClient({
+            registry: stub.url,
+            userAgent: "test",
+          }),
+          requests: [{ key: "tool", name: "budget-tool", version: "1.0.0" }],
+          [limit]: 1,
+        }),
+      ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+      expect(await readdir(store.paths.sourcesDir)).toEqual([]);
+      expect(await readdir(path.join(txn.dir, "tarballs"))).toEqual([]);
+      const extraction = await readdir(path.join(txn.dir, "extract")).catch(
+        () => [],
+      );
+      expect(extraction).toEqual([]);
+    } finally {
+      await stub.close();
+    }
+  },
+);

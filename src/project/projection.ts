@@ -220,6 +220,14 @@ export async function installProjection(
     await recoverProjection(projectDir);
 
     const generationId = options.generationId ?? `gen1_${randomId("", 12)}`;
+    if (!/^gen1_[a-zA-Z0-9_-]+$/.test(generationId))
+      throw new ZyrkError(
+        "ZYRK_MANIFEST_INVALID",
+        "Unsafe projection generation identity.",
+        {
+          remedy: "Use an opaque generation identity without path separators.",
+        },
+      );
     const staging = path.join(
       projectDir,
       `node_modules.zyrk-staging-${generationId}`,
@@ -256,14 +264,25 @@ export async function installProjection(
             remedy: "Use a package with safe bin entries.",
           });
         const stat = await lstat(target);
-        if ((stat.mode & 0o111) !== 0)
+        const quote = (value: string): string =>
+          "'" + value.replaceAll("'", "'\\''") + "'";
+        const handle = await open(target, "r");
+        const prefix = Buffer.alloc(256);
+        let count: number;
+        try {
+          count = (await handle.read(prefix, 0, prefix.length, 0)).bytesRead;
+        } finally {
+          await handle.close();
+        }
+        const firstLine =
+          prefix.subarray(0, count).toString("utf8").split("\n")[0] ?? "";
+        const node = firstLine.startsWith("#!")
+          ? /^#!.*\bnode(?:\s|$)/.test(firstLine)
+          : /\.(?:[cm]?js|ts)$/.test(target);
+        if ((stat.mode & 0o111) !== 0 && (!node || firstLine.startsWith("#!")))
           await fsSymlink(target, path.join(staging, ".bin", name));
         else {
-          const quote = (value: string): string =>
-            "'" + value.replaceAll("'", "'\\''") + "'";
-          const firstLine =
-            (await readFile(target, "utf8")).split("\n")[0] ?? "";
-          if (!firstLine.includes("node") && !/\.(?:[cm]?js|ts)$/.test(target))
+          if (!node)
             throw new ZyrkError(
               "ZYRK_MANIFEST_INVALID",
               "Non-executable dependency bin has no Node entry point.",
