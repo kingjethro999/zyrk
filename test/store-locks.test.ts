@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,7 +35,7 @@ function recordWith(
     name: "project mutation",
     ownerId: "lock-attempt-synthetic-owner",
     startId: null,
-    hostname: "test-host",
+    hostname: os.hostname(),
     acquiredAt: new Date().toISOString(),
     heartbeatAt: new Date().toISOString(),
     ...overrides,
@@ -104,7 +104,7 @@ describe("acquireLock", () => {
     expect(waits[0]).toBeLessThan(400);
   });
 
-  it("reclaims a lock whose owner process is gone", async () => {
+  it("reclaims a same-host lock whose owner process is demonstrably gone", async () => {
     const dead = await reapedProcess();
     await mkdir(path.dirname(lockPath), { recursive: true });
     await writeFile(
@@ -115,27 +115,20 @@ describe("acquireLock", () => {
 
     const handle = await acquireLock(lockPath, {
       name: "project mutation",
-      timeoutMs: 2000,
+      timeoutMs: 500,
     });
     expect(handle.record.pid).toBe(process.pid);
     await handle.release();
-
-    const leftovers = (await readdir(path.dirname(lockPath))).filter((name) =>
-      name.includes(".stale-"),
-    );
-    expect(leftovers).toEqual([]);
   });
 
-  it("reclaims an unreadable lock file", async () => {
+  it("fails closed for a corrupt lock file", async () => {
     await mkdir(path.dirname(lockPath), { recursive: true });
     await writeFile(lockPath, "this is not a lock record\n", { mode: 0o600 });
 
-    const handle = await acquireLock(lockPath, {
-      name: "project mutation",
-      timeoutMs: 2000,
-    });
-    expect(handle.record.pid).toBe(process.pid);
-    await handle.release();
+    await expect(
+      acquireLock(lockPath, { name: "project mutation", timeoutMs: 0 }),
+    ).rejects.toMatchObject({ code: "ZYRK_PROJECT_LOCKED" });
+    expect((await stat(lockPath)).size).toBeGreaterThan(0);
   });
 });
 
@@ -169,4 +162,79 @@ describe("heartbeat and release", () => {
       ownerId: "lock-attempt-thief",
     });
   });
+});
+
+it("preserves remote-host and unknown-host owner records even with dead PIDs", async () => {
+  const dead = await reapedProcess();
+  await mkdir(path.dirname(lockPath), { recursive: true });
+  for (const hostname of ["remote-host", "unknown"]) {
+    const record = recordWith({ ...dead, hostname });
+    await writeFile(lockPath, JSON.stringify(record));
+    await expect(
+      acquireLock(lockPath, { name: "mutation", timeoutMs: 0 }),
+    ).rejects.toMatchObject({ code: "ZYRK_PROJECT_LOCKED" });
+    expect(await readLockRecord(lockPath)).toEqual(record);
+  }
+});
+
+it("fails closed after a process dies while holding the mutation guard", async () => {
+  await mkdir(`${lockPath}.guard`, { recursive: true });
+  await expect(
+    acquireLock(lockPath, { name: "mutation", timeoutMs: 0 }),
+  ).rejects.toMatchObject({ code: "ZYRK_PROJECT_LOCKED" });
+  expect((await stat(`${lockPath}.guard`)).isDirectory()).toBe(true);
+});
+
+it("serializes contenders reclaiming the same dead owner", async () => {
+  const dead = await reapedProcess();
+  await mkdir(path.dirname(lockPath), { recursive: true });
+  await writeFile(lockPath, JSON.stringify(recordWith(dead)));
+  const contenders = await Promise.allSettled(
+    Array.from({ length: 8 }, () =>
+      acquireLock(lockPath, { name: "mutation", timeoutMs: 200 }),
+    ),
+  );
+  const winners = contenders.filter((value) => value.status === "fulfilled");
+  expect(winners).toHaveLength(1);
+  for (const winner of winners)
+    if (winner.status === "fulfilled") {
+      expect((await readLockRecord(lockPath))?.ownerId).toBe(
+        winner.value.record.ownerId,
+      );
+      await winner.value.heartbeat();
+      await winner.value.release();
+    }
+});
+
+it("retains a live child owner, then recovers its descriptor after SIGKILL", async () => {
+  const moduleUrl = new URL("../src/util/locks.ts", import.meta.url).href;
+  const script = `const {acquireLock} = await import(${JSON.stringify(moduleUrl)}); await acquireLock(process.argv[1], {name: "child"}); process.stdout.write("ready\\n"); setInterval(() => {}, 1000);`;
+  const child = spawn(
+    process.execPath,
+    ["--input-type=module", "-e", script, lockPath],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  await new Promise<void>((resolve, reject) => {
+    child.stdout.once("data", () => resolve());
+    child.once("error", reject);
+    child.once("exit", (code) => reject(new Error(`child exited ${code}`)));
+  });
+  try {
+    await expect(
+      acquireLock(lockPath, { name: "parent", timeoutMs: 0 }),
+    ).rejects.toMatchObject({ code: "ZYRK_PROJECT_LOCKED" });
+    const exited = new Promise<void>((resolve) =>
+      child.once("exit", () => resolve()),
+    );
+    child.kill("SIGKILL");
+    await exited;
+    const owner = await acquireLock(lockPath, {
+      name: "parent",
+      timeoutMs: 1000,
+    });
+    expect(owner.record.pid).toBe(process.pid);
+    await owner.release();
+  } finally {
+    child.kill("SIGKILL");
+  }
 });

@@ -1,3 +1,8 @@
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+import { lockedGraph } from "../src/install/lock.ts";
+import { sourceIdOf } from "../src/util/hash.ts";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -29,9 +34,9 @@ function node(
     version: string;
   },
 ): ResolvedOccurrence {
-  return {
+  const result: ResolvedOccurrence = {
     sourceId: `src1_${overrides.key.replace(/[^A-Za-z0-9]/g, "")}`,
-    integrity: `sha512-${Buffer.from(overrides.key).toString("base64")}`,
+    integrity: `sha512-${createHash("sha512").update(overrides.key).digest("base64")}`,
     origin: "https://registry.example.com",
     tarballUrl: `https://registry.example.com/${overrides.name}/-/${overrides.name}-${overrides.version}.tgz`,
     bin: {},
@@ -40,12 +45,23 @@ function node(
     platform: {},
     ...overrides,
   };
+  result.sourceId = sourceIdOf({
+    sourceType: "registry",
+    name: result.name,
+    version: result.version,
+    origin: result.origin,
+    integrity: result.integrity,
+  });
+  return result;
 }
 
 const FINGERPRINTS = {
-  manifest: "sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-  scripts: "sha512-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
-  config: "sha512-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=",
+  manifest: manifestFingerprint({}),
+  scripts: scriptPolicyFingerprint(undefined),
+  config: configFingerprint({
+    registry: "https://registry.example.com",
+    linker: "shared",
+  }),
 };
 
 function appResolution() {
@@ -138,15 +154,10 @@ describe("writeLockfile", () => {
       fingerprints: FINGERPRINTS,
     });
 
-    expect(doc.packages?.["node_modules/transitive"]).toEqual({
-      version: "1.2.3",
-      resolved: "https://example.com/t.tgz",
-    });
+    expect(doc.packages?.["node_modules/transitive"]).toBeUndefined();
     expect(doc.packages?.[""]).toMatchObject({ license: "MIT" });
     expect(doc.packages?.["node_modules/app"]).toMatchObject({
       version: "1.0.0",
-      license: "MIT",
-      extra: true,
     });
     expect(doc.customField).toBe(42);
     expect(doc.zyrk).toBeDefined();
@@ -335,4 +346,182 @@ describe("fingerprints", () => {
       configFingerprint({ registry: "https://b.example", linker: "shared" }),
     );
   });
+});
+
+it("fingerprints peer optionality independently of key order", () => {
+  const declaration = { peerDependencies: { host: "*" } };
+  expect(
+    manifestFingerprint({
+      ...declaration,
+      peerDependenciesMeta: { host: { optional: true } },
+    }),
+  ).not.toBe(manifestFingerprint(declaration));
+});
+
+it("rejects malformed graphs through every public lock consumer", async () => {
+  const original = await writeLockfile({
+    path: path.join(dir, "lock.json"),
+    name: "demo",
+    version: "1.0.0",
+    manifestDeps: { app: "*" },
+    resolution: appResolution(),
+    fingerprints: FINGERPRINTS,
+  });
+  const mutations: Array<(value: Record<string, any>) => void> = [
+    (value) => {
+      value.zyrk.nodes = [];
+    },
+    (value) => {
+      value.zyrk.roots = [];
+    },
+    (value) => {
+      value.zyrk.resolver = "future";
+    },
+    (value) => {
+      value.zyrk.contextCanonicalization = 999;
+    },
+    (value) => {
+      value.zyrk.manifest = {};
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].edges.lib = "missing";
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].edgeKinds.lib = "unknown";
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].peers.host = "lib@2.0.0";
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].bin = { demo: "../outside" };
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].platform.os = {};
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].optionalPeers = null;
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].source = "forged";
+    },
+    (value) => {
+      value.zyrk.nodes["app@1.0.0"].tarball += "?token=secret";
+    },
+  ];
+  for (const mutate of mutations) {
+    const bad = structuredClone(original);
+    mutate(bad);
+    await writeFile(path.join(dir, "bad-lock.json"), JSON.stringify(bad));
+    await expect(
+      readLockfile(path.join(dir, "bad-lock.json")),
+    ).rejects.toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
+    expect(() => assertFrozenCompatible(bad, FINGERPRINTS)).toThrow();
+    expect(() => lockedGraph(bad)).toThrow();
+  }
+});
+
+it("rejects secret-bearing new and preserved metadata before writing", async () => {
+  for (const existing of [
+    { custom: { token: "secret" } },
+    { custom: { _authToken: "secret" } },
+    { custom: "https://user:secret@example.test/archive" },
+    { custom: "https://example.test/archive?signature=secret" },
+    { custom: "/home/user/private" },
+  ]) {
+    await expect(
+      writeLockfile({
+        path: path.join(dir, "unsafe.json"),
+        name: "demo",
+        version: "1.0.0",
+        manifestDeps: {},
+        resolution: appResolution(),
+        fingerprints: FINGERPRINTS,
+        existing,
+      }),
+    ).rejects.toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
+    await expect(readFile(path.join(dir, "unsafe.json"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+  }
+});
+
+it("matches pinned npm Arborist's resolved graph for aliases, cycles, peers and optional edges", async () => {
+  expect(require("@npmcli/arborist/package.json").version).toBe("10.0.3");
+  const Arborist = require("@npmcli/arborist");
+  const resolution = appResolution();
+  const app = resolution.nodes[0]!;
+  const lib = resolution.nodes[1]!;
+  const host = node({ key: "host@1.0.0", name: "host", version: "1.0.0" });
+  const optional = node({ key: "opt@1.0.0", name: "opt", version: "1.0.0" });
+  app.edges.push(
+    { name: "host", target: host.key, kind: "peer", spec: "*" },
+    { name: "opt", target: optional.key, kind: "optional", spec: "*" },
+  );
+  app.peerBindings.push(
+    { name: "host", target: host.key, optional: true },
+    { name: "absent", target: null },
+  );
+  lib.edges.push({
+    name: "alias",
+    target: app.key,
+    kind: "prod",
+    spec: "npm:app@1.0.0",
+  });
+  resolution.nodes.push(host, optional);
+  resolution.roots = [
+    { name: "alias", target: app.key },
+    { name: "host", target: host.key },
+  ];
+  const deps = { alias: "npm:app@1.0.0", host: "1.0.0" };
+  await writeFile(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name: "demo", version: "1.0.0", dependencies: deps }),
+  );
+  const doc = await writeLockfile({
+    path: path.join(dir, "package-lock.json"),
+    name: "demo",
+    version: "1.0.0",
+    manifestDeps: deps,
+    resolution,
+    fingerprints: FINGERPRINTS,
+    existing: {
+      packages: { "node_modules/removed": { version: "9.9.9" } },
+      dependencies: { removed: { version: "9.9.9" } },
+    },
+  });
+  const tree = await new Arborist({
+    path: dir,
+    offline: true,
+    ignoreScripts: true,
+  }).loadVirtual();
+  expect(tree.inventory.size).toBe(Object.keys(doc.packages!).length);
+  expect(tree.inventory.query("name", "removed").size).toBe(0);
+  const visited = new Set<string>();
+  const compare = (key: string, actual: any): void => {
+    const expected = resolution.nodes.find((value) => value.key === key)!;
+    expect(actual.package.name).toBe(expected.name);
+    expect(actual.package.version).toBe(expected.version);
+    if (visited.has(`${key}:${actual.location}`)) return;
+    visited.add(`${key}:${actual.location}`);
+    for (const edge of expected.edges) {
+      const npmEdge = actual.edgesOut.get(edge.name);
+      expect(npmEdge?.valid, `${actual.location}:${edge.name}`).toBe(true);
+      expect(npmEdge.type).toBe(
+        expected.peerBindings.some(
+          (peer) => peer.name === edge.name && peer.optional,
+        )
+          ? "peerOptional"
+          : edge.kind,
+      );
+      compare(edge.target, npmEdge.to);
+    }
+    for (const peer of expected.peerBindings)
+      if (peer.target === null) {
+        const npmEdge = actual.edgesOut.get(peer.name);
+        expect(npmEdge.type).toBe("peerOptional");
+        expect(npmEdge.to).toBeNull();
+      }
+  };
+  for (const root of resolution.roots)
+    compare(root.target, tree.edgesOut.get(root.name).to);
 });

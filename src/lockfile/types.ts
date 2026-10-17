@@ -2,8 +2,9 @@
  * package-lock.json with a namespaced zyrk extension (D-1).
  *
  * zyrk reads and writes the same `package-lock.json` as npm. All npm-owned
- * fields are preserved opaquely: the writer never deletes or reinterprets
- * them, and the zyrk extension lives under one top-level `zyrk` key that
+ * metadata is retained subject to the credential-free portability boundary.
+ * Selected package entries are regenerated from the complete graph, and
+ * the zyrk extension lives under one top-level `zyrk` key that
  * npm's own loader carries through untouched (verified against the pinned
  * npm's @npmcli/arborist `shrinkwrap.js load()`, which spreads unknown
  * top-level fields into its data object and only reads the keys it knows).
@@ -16,7 +17,7 @@
 
 export const ZYRK_LOCK_EXTENSION_VERSION = 1;
 
-/** Opaque npm package entry: preserved byte-identically, never interpreted. */
+/** npm package metadata, interpreted during exact-selection import. */
 export type NpmPackageEntry = Record<string, unknown>;
 
 export type NpmLockDoc = {
@@ -50,6 +51,8 @@ export type ZyrkLockNode = {
   edgeKinds: Record<string, "prod" | "optional" | "peer">;
   /** Peer name -> occurrence key, or null for absent optional peers. */
   peers: Record<string, string | null>;
+  /** Present optional peers retain npm peerOptional semantics. */
+  optionalPeers?: string[];
 };
 
 export type ZyrkLockExtension = {

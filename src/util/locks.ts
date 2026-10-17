@@ -1,4 +1,12 @@
-import { link, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  rmdir,
+  link,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import * as path from "node:path";
 import { ZyrkError } from "../errors.ts";
 import {
@@ -8,8 +16,9 @@ import {
   pathExists,
   randomTempName,
 } from "./fsx.ts";
+import { randomUUID } from "node:crypto";
 import { ID_PREFIX } from "./ids.ts";
-import { currentProcessIdentity, isProcessAlive } from "./proc.ts";
+import { currentProcessIdentity, readProcessStartId } from "./proc.ts";
 
 /**
  * File-based lock with owner liveness recorded as PID plus a start-time
@@ -68,30 +77,26 @@ export async function acquireLock(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   for (;;) {
-    const record = makeRecord(options.name);
-    if (await tryCreate(lockPath, record)) {
-      return makeHandle(lockPath, record);
-    }
-
-    const observed = await readLockRecord(lockPath);
-    if (observed === null) {
-      // Unreadable or vanished. A vanished file means another process won or
-      // released; a corrupt file cannot name a live owner and is reclaimed.
-      if (await pathExists(lockPath)) {
-        await reclaimIfUnchanged(lockPath, null);
+    const unlock = await guard(lockPath, timeoutMs);
+    let observed: LockRecord | null;
+    try {
+      const record = makeRecord(options.name);
+      if (await tryCreate(lockPath, record)) {
+        return makeHandle(lockPath, record);
       }
-      continue;
-    }
 
-    const alive = await isProcessAlive({
-      pid: observed.pid,
-      startId: observed.startId,
-    });
-    if (!alive) {
-      await reclaimIfUnchanged(lockPath, observed);
-      continue;
+      observed = await readLockRecord(lockPath);
+      if (observed === null) {
+        if (!(await pathExists(lockPath))) continue;
+        throw unsafeLockError();
+      }
+      if (await definitelyDead(observed)) {
+        await rm(lockPath);
+        continue;
+      }
+    } finally {
+      await unlock();
     }
-
     const waitedMs = Date.now() - startedAt;
     if (waitedMs >= timeoutMs) {
       throw makeLockedError(options.name, lockPath, observed, waitedMs);
@@ -107,7 +112,7 @@ function makeRecord(name: string): LockRecord {
   return {
     v: 1,
     name,
-    ownerId: `${ID_PREFIX.lockAttempt}${identity.pid}.${now}`,
+    ownerId: `${ID_PREFIX.lockAttempt}${identity.pid}.${randomUUID()}`,
     pid: identity.pid,
     startId: identity.startId,
     hostname: hostname(),
@@ -146,7 +151,19 @@ export async function readLockRecord(
   try {
     const parsed = JSON.parse(text) as Partial<LockRecord>;
     if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
       parsed.v !== 1 ||
+      typeof parsed.name !== "string" ||
+      !parsed.ownerId ||
+      typeof parsed.hostname !== "string" ||
+      !parsed.hostname ||
+      (parsed.startId !== null && typeof parsed.startId !== "string") ||
+      typeof parsed.acquiredAt !== "string" ||
+      !Number.isFinite(Date.parse(parsed.acquiredAt)) ||
+      typeof parsed.heartbeatAt !== "string" ||
+      !Number.isFinite(Date.parse(parsed.heartbeatAt)) ||
       typeof parsed.ownerId !== "string" ||
       typeof parsed.pid !== "number" ||
       !Number.isInteger(parsed.pid) ||
@@ -172,40 +189,50 @@ export async function readLockRecord(
   }
 }
 
-/**
- * Remove a lock whose owner was observed dead (or whose record is corrupt).
- *
- * The file is first moved aside with an atomic rename, then the moved file's
- * record is verified against what was observed. If another process replaced
- * the lock in the window between observation and rename, the moved content
- * will not match and the lock is put back when possible, so a live owner is
- * not silently robbed of its lock.
- */
-async function reclaimIfUnchanged(
-  lockPath: string,
-  observed: LockRecord | null,
-): Promise<void> {
-  const aside = `${lockPath}.stale-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+async function definitelyDead(owner: LockRecord): Promise<boolean> {
+  if (owner.hostname !== hostname()) return false;
   try {
-    await rename(lockPath, aside);
+    process.kill(owner.pid, 0);
   } catch (error) {
-    if (isErrno(error, "ENOENT")) return; // someone else reclaimed or released
-    throw error;
+    return isErrno(error, "ESRCH");
   }
+  if (owner.startId === null) return false;
+  const start = await readProcessStartId(owner.pid);
+  return start !== null && start !== owner.startId;
+}
 
-  const moved = await readLockRecord(aside);
-  const matches =
-    observed === null || (moved !== null && moved.ownerId === observed.ownerId);
-  if (!matches) {
-    // We moved a lock that is not the one we judged dead: restore it.
+/** Non-reclaimed fencing directory: all descriptor mutations use this guard.
+ * A crash during this short section requires explicit offline recovery.
+ */
+async function guard(
+  lockPath: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<() => Promise<void>> {
+  const guardPath = `${lockPath}.guard`;
+  const started = Date.now();
+  for (;;) {
     try {
-      await link(aside, lockPath);
-    } catch {
-      // Restore failed (a new lock appeared first). The displaced owner will
-      // detect replacement on its next heartbeat or release.
+      await mkdir(guardPath, { mode: 0o700 });
+      return async () => {
+        await rmdir(guardPath);
+      };
+    } catch (error) {
+      if (!isErrno(error, "EEXIST")) throw error;
+      if (Date.now() - started >= timeoutMs) throw unsafeLockError();
+      await sleep(POLL_MS);
     }
   }
-  await rm(aside, { force: true }).catch(() => {});
+}
+
+function unsafeLockError(): ZyrkError {
+  return new ZyrkError(
+    "ZYRK_PROJECT_LOCKED",
+    "Cannot verify the existing lock owner.",
+    {
+      remedy:
+        "Stop all zyrk processes using this project or store, then remove the stale lock descriptor and its .guard fencing directory and retry. Automatic pathname reclamation is unsafe.",
+    },
+  );
 }
 
 function makeHandle(lockPath: string, record: LockRecord): LockHandle {
@@ -213,27 +240,37 @@ function makeHandle(lockPath: string, record: LockRecord): LockHandle {
   return {
     record,
     async heartbeat(): Promise<void> {
-      const current = await readLockRecord(lockPath);
-      if (current === null || current.ownerId !== ownerId) {
-        throw new LockLostError(lockPath);
+      const unlock = await guard(lockPath);
+      try {
+        const current = await readLockRecord(lockPath);
+        if (current === null || current.ownerId !== ownerId) {
+          throw new LockLostError(lockPath);
+        }
+        const updated: LockRecord = {
+          ...current,
+          heartbeatAt: new Date().toISOString(),
+        };
+        const temp = randomTempName(
+          path.dirname(lockPath),
+          path.basename(lockPath),
+        );
+        await writeFile(temp, `${JSON.stringify(updated)}\n`, { mode: 0o600 });
+        await rename(temp, lockPath);
+      } finally {
+        await unlock();
       }
-      const updated: LockRecord = {
-        ...current,
-        heartbeatAt: new Date().toISOString(),
-      };
-      const temp = randomTempName(
-        path.dirname(lockPath),
-        path.basename(lockPath),
-      );
-      await writeFile(temp, `${JSON.stringify(updated)}\n`, { mode: 0o600 });
-      await rename(temp, lockPath);
     },
     async release(): Promise<void> {
-      const current = await readLockRecord(lockPath);
-      if (current !== null && current.ownerId !== ownerId) {
-        throw new LockLostError(lockPath);
+      const unlock = await guard(lockPath);
+      try {
+        const current = await readLockRecord(lockPath);
+        if (current === null || current.ownerId !== ownerId) {
+          throw new LockLostError(lockPath);
+        }
+        await rm(lockPath, { force: true });
+      } finally {
+        await unlock();
       }
-      await rm(lockPath, { force: true });
     },
   };
 }
@@ -256,7 +293,7 @@ function makeLockedError(
         waitedMs,
       },
       remedy:
-        "wait for the other operation to finish; if that process is gone, run `zyrk doctor` to reclaim the stale lock",
+        "wait for the other operation to finish; for a stale lock, stop all zyrk processes using this project or store before removing the lock and retrying",
     },
   );
 }

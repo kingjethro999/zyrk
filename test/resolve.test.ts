@@ -414,7 +414,9 @@ describe("peer dependencies", () => {
       requirements: [{ name: "picky", spec: "1.0.0" }],
     });
     expect(nodes).toHaveLength(1);
-    expect(nodes[0]?.peerBindings).toEqual([{ name: "ghost", target: null }]);
+    expect(nodes[0]?.peerBindings).toEqual([
+      { name: "ghost", target: null, optional: true },
+    ]);
     expect(nodes[0]?.edges).toEqual([]);
   });
 

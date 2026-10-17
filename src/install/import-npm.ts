@@ -1,4 +1,5 @@
 /** Adopt npm v2/v3 exact selections without asking the registry to pick versions. */
+import { validateLockDoc } from "../lockfile/read.ts";
 import { valid, satisfies } from "semver";
 import type { NpmLockDoc } from "../lockfile/types.ts";
 import type {
@@ -14,6 +15,7 @@ export function importNpmLock(
   requirements: Record<string, string>,
   origin: string,
 ): FinalizedGraph {
+  validateLockDoc(doc, "package-lock.json");
   const packages = doc.packages;
   if (!packages || !packages[""])
     throw lockMismatch("npm lockfile lacks an importer manifest");
@@ -148,7 +150,8 @@ export function importNpmLock(
         requirement.kind === "peer" && meta?.[dep]?.optional === true;
       if (!targetLocation) {
         if (requirement.kind === "optional" || optionalPeer) {
-          if (optionalPeer) node.peerBindings.push({ name: dep, target: null });
+          if (optionalPeer)
+            node.peerBindings.push({ name: dep, target: null, optional: true });
           continue;
         }
         throw lockMismatch("npm lock is missing a required dependency");
@@ -161,7 +164,11 @@ export function importNpmLock(
         spec: requirement.spec,
       });
       if (requirement.kind === "peer")
-        node.peerBindings.push({ name: dep, target: target.key });
+        node.peerBindings.push({
+          name: dep,
+          target: target.key,
+          ...(optionalPeer ? { optional: true } : {}),
+        });
     }
     return node;
   };

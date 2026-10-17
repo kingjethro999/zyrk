@@ -1,15 +1,9 @@
-/**
- * package-lock.json writer: refresh npm-owned selections, record the zyrk
- * extension, preserve everything else byte-identically (D-1).
- *
- * npm `packages` entries are maintained only for the root importer and its
- * direct dependencies (the links a project projection actually creates);
- * the transitive closure lives in the zyrk extension. Existing npm entries
- * — including transitive ones from an npm-written lock — are preserved as
- * found and never deleted: the writer updates what it owns and leaves the
- * rest alone. Same inputs always produce byte-identical output.
+/** Write both complete npm selections and the validated zyrk graph atomically.
+ * Stale npm package entries are removed; portable unrelated root metadata stays.
  */
 
+import { validateLockDoc } from "./read.ts";
+import { assertPortableLockMetadata, lockMismatch } from "../install/lock.ts";
 import { ZyrkError } from "../errors.ts";
 import type { ResolvedOccurrence } from "../resolve/resolver.ts";
 import { CONTEXT_CANONICALIZATION_VERSION } from "../version.ts";
@@ -35,6 +29,9 @@ export type WriteLockOptions = {
   /** Declared direct dependencies for npm's root `dependencies` map. */
   manifestDeps: Record<string, string>;
   manifestDevDeps?: Record<string, string>;
+  manifestOptionalDeps?: Record<string, string>;
+  manifestPeerDeps?: Record<string, string>;
+  manifestPeerMeta?: Record<string, { optional?: boolean }>;
   existing?: NpmLockDoc | null;
   resolution: WriteLockResolution;
   fingerprints: { manifest: string; scripts: string; config: string };
@@ -77,93 +74,111 @@ export async function writeLockfile(
 
   const packages: Record<string, Record<string, unknown>> = {};
   const existingPackages = existing.packages ?? {};
-  for (const location of Object.keys(existingPackages).sort()) {
-    const entry = existingPackages[location];
-    if (entry !== undefined) packages[location] = { ...entry };
-  }
   packages[""] = {
-    ...(packages[""] ?? {}),
+    ...(existingPackages[""] ?? {}),
     name: options.name,
     version: options.version,
     dependencies: { ...options.manifestDeps },
-    ...(options.manifestDevDeps === undefined
-      ? {}
-      : { devDependencies: options.manifestDevDeps }),
+    devDependencies: options.manifestDevDeps ?? {},
+    optionalDependencies: options.manifestOptionalDeps ?? {},
+    peerDependencies: options.manifestPeerDeps ?? {},
+    peerDependenciesMeta: options.manifestPeerMeta ?? {},
   };
-  for (const root of [...options.resolution.roots].sort((a, b) =>
-    compareStrings(a.name, b.name),
-  )) {
-    const node = byKey.get(root.target);
-    if (node === undefined) {
-      throw new ZyrkError(
-        "ZYRK_INTERNAL",
-        `resolution root ${root.name} has no node`,
-        {
-          detail: { root: root.name, target: root.target },
-        },
+  const placements = new Map<string, string>();
+  const lookup = (location: string, name: string): string | undefined => {
+    let current = location;
+    for (;;) {
+      const candidate = `${current ? `${current}/` : ""}node_modules/${name}`;
+      if (placements.has(candidate)) return candidate;
+      if (!current) return undefined;
+      current = current.slice(
+        0,
+        Math.max(0, current.lastIndexOf("/node_modules/")),
       );
     }
-    const location = `node_modules/${root.name}`;
-    packages[location] = {
-      ...(packages[location] ?? {}),
-      version: node.version,
-      resolved: node.tarballUrl,
-      integrity: node.integrity,
-    };
-  }
-  const populate = (
-    location: string,
-    key: string,
-    ancestors: Map<string, string>,
-  ): void => {
+  };
+  const populate = (location: string, key: string): void => {
+    const placed = placements.get(location);
+    if (placed !== undefined) {
+      if (placed !== key)
+        throw lockMismatch(
+          "npm layout cannot represent conflicting peer bindings",
+        );
+      return;
+    }
     const node = byKey.get(key);
-    if (!node)
-      throw new ZyrkError(
-        "ZYRK_INTERNAL",
-        "Cannot serialize a missing dependency node.",
-      );
+    if (!node) throw lockMismatch("resolution references a missing node");
+    placements.set(location, key);
     const dependencies: Record<string, string> = {};
+    const optionalDependencies: Record<string, string> = {};
+    const peerDependencies: Record<string, string> = {};
+    const peerDependenciesMeta: Record<string, { optional: true }> = {};
     for (const edge of node.edges) {
       const child = byKey.get(edge.target);
       if (!child)
-        throw new ZyrkError(
-          "ZYRK_INTERNAL",
-          "Cannot serialize a missing dependency edge.",
-        );
-      dependencies[edge.name] =
+        throw lockMismatch("resolution references a missing dependency");
+      const entries =
+        edge.kind === "peer"
+          ? peerDependencies
+          : edge.kind === "optional"
+            ? optionalDependencies
+            : dependencies;
+      entries[edge.name] =
         child.name === edge.name
           ? child.version
           : `npm:${child.name}@${child.version}`;
     }
+    for (const peer of node.peerBindings) {
+      if (peer.optional) peerDependenciesMeta[peer.name] = { optional: true };
+      if (peer.target === null) {
+        peerDependencies[peer.name] = "*";
+        peerDependenciesMeta[peer.name] = { optional: true };
+      } else {
+        const target = byKey.get(peer.target);
+        if (!target)
+          throw lockMismatch("peer binding references a missing node");
+        peerDependencies[peer.name] =
+          target.name === peer.name
+            ? target.version
+            : `npm:${target.name}@${target.version}`;
+      }
+    }
     packages[location] = {
-      ...packages[location],
       name: node.name,
       version: node.version,
       resolved: node.tarballUrl,
       integrity: node.integrity,
       dependencies,
+      optionalDependencies,
+      peerDependencies,
+      peerDependenciesMeta,
       ...(Object.keys(node.bin).length ? { bin: node.bin } : {}),
+      ...node.platform,
+      ...(node.engines === undefined ? {} : { engines: node.engines }),
     };
-    const next = new Map(ancestors);
-    next.set(key, location);
     for (const edge of node.edges) {
-      // An ancestor with this package slot satisfies a real cycle.
-      const ancestor = next.get(edge.target);
-      if (ancestor && ancestor.endsWith(`node_modules/${edge.name}`)) continue;
-      if (next.has(edge.target))
-        throw new ZyrkError(
-          "ZYRK_RESOLUTION_FAILED",
-          "Cannot encode an aliased dependency cycle in npm lock format.",
-          {
-            remedy:
-              "Use non-cyclic registry dependencies until alias-cycle lock support is available.",
-          },
+      const found = lookup(location, edge.name);
+      if (found !== undefined && placements.get(found) === edge.target)
+        continue;
+      if (edge.kind === "peer") {
+        const parent = location.slice(
+          0,
+          Math.max(0, location.lastIndexOf("node_modules/")),
         );
-      populate(`${location}/node_modules/${edge.name}`, edge.target, next);
+        populate(`${parent}node_modules/${edge.name}`, edge.target);
+      } else {
+        populate(`${location}/node_modules/${edge.name}`, edge.target);
+      }
     }
   };
+  // Reserve root slots before walking so cycles and peers resolve through them.
   for (const root of options.resolution.roots)
-    populate(`node_modules/${root.name}`, root.target, new Map());
+    placements.set(`node_modules/${root.name}`, root.target);
+  for (const root of options.resolution.roots) {
+    const location = `node_modules/${root.name}`;
+    placements.delete(location);
+    populate(location, root.target);
+  }
   const sortedPackages: Record<string, Record<string, unknown>> = {};
   for (const location of Object.keys(packages).sort()) {
     const entry = packages[location];
@@ -201,6 +216,10 @@ export async function writeLockfile(
       edges,
       edgeKinds,
       peers,
+      optionalPeers: node.peerBindings
+        .filter((binding) => binding.optional || binding.target === null)
+        .map((binding) => binding.name)
+        .sort(),
     };
   }
   const rootMap: Record<string, string> = {};
@@ -226,9 +245,6 @@ export async function writeLockfile(
     lockfileVersion,
     requires: existing.requires ?? true,
     packages: sortedPackages,
-    ...(existing.dependencies === undefined
-      ? {}
-      : { dependencies: existing.dependencies }),
   };
   for (const key of Object.keys(existing)) {
     if (
@@ -246,6 +262,8 @@ export async function writeLockfile(
   }
   doc.zyrk = extension;
 
+  assertPortableLockMetadata(doc);
+  validateLockDoc(doc, "package-lock.json");
   await writeFileAtomic(options.path, `${JSON.stringify(doc, null, 2)}\n`, {
     mode: 0o644,
   });

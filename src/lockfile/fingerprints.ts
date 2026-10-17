@@ -24,6 +24,7 @@ export type ManifestDeclaration = {
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   overrides?: unknown;
   workspaces?: unknown;
 };
@@ -47,6 +48,7 @@ export function manifestFingerprint(manifest: ManifestDeclaration): string {
   }
   return fingerprintOf({
     groups: normalized,
+    peerDependenciesMeta: manifest.peerDependenciesMeta ?? {},
     ...(manifest.overrides === undefined
       ? {}
       : { overrides: manifest.overrides }),
@@ -67,8 +69,19 @@ export type ResolutionConfig = {
   /** Credential-free registry origin. */
   registry: string;
   linker: "shared" | "local";
+  patches?: string;
+  mutablePackages?: readonly string[];
+  platform?: { os: string; cpu: string; libc?: string };
 };
 
 export function configFingerprint(config: ResolutionConfig): string {
-  return fingerprintOf({ registry: config.registry, linker: config.linker });
+  return fingerprintOf({
+    registry: config.registry,
+    linker: config.linker,
+    ...(config.patches === undefined ? {} : { patches: config.patches }),
+    ...(config.platform === undefined ? {} : { platform: config.platform }),
+    ...(config.mutablePackages === undefined
+      ? {}
+      : { mutablePackages: [...config.mutablePackages].sort() }),
+  });
 }

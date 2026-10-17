@@ -6,6 +6,7 @@
  * fails loudly: a frozen install must never silently re-resolve.
  */
 
+import { assertPortableLockMetadata, lockedGraph } from "../install/lock.ts";
 import { readFile } from "node:fs/promises";
 import { ZyrkError } from "../errors.ts";
 import { isErrno, pathExists } from "../util/fsx.ts";
@@ -100,7 +101,9 @@ export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
       }
     }
   }
+  assertPortableLockMetadata(doc);
   if (record["zyrk"] !== undefined) validateExtension(record["zyrk"], label);
+  if (record["zyrk"] !== undefined) lockedGraph(doc as NpmLockDoc);
   return doc as NpmLockDoc;
 }
 
@@ -170,6 +173,7 @@ export function assertFrozenCompatible(
         remedy,
       },
     );
+  validateLockDoc(doc, "package-lock.json");
   const extension = doc.zyrk;
   if (extension === undefined) {
     throw mismatch(

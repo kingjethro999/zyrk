@@ -2,7 +2,10 @@
 import { valid } from "semver";
 import { ZyrkError } from "../errors.ts";
 import type { NpmLockDoc } from "../lockfile/types.ts";
-import { ZYRK_RESOLVER_POLICY } from "../lockfile/types.ts";
+import {
+  ZYRK_LOCK_EXTENSION_VERSION,
+  ZYRK_RESOLVER_POLICY,
+} from "../lockfile/types.ts";
 import type {
   FinalizedGraph,
   ResolvedOccurrence,
@@ -49,10 +52,29 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
   const ext = doc.zyrk;
   if (
     !ext ||
+    ext.version !== ZYRK_LOCK_EXTENSION_VERSION ||
+    Object.keys(ext).some(
+      (key) =>
+        ![
+          "version",
+          "resolver",
+          "contextCanonicalization",
+          "manifest",
+          "scripts",
+          "config",
+          "nodes",
+          "roots",
+        ].includes(key),
+    ) ||
+    ![ext.manifest, ext.scripts, ext.config].every(
+      (value) =>
+        typeof value === "string" && /^sha512-[A-Za-z0-9+/]{86}==$/.test(value),
+    ) ||
     ext.resolver !== ZYRK_RESOLVER_POLICY ||
     ext.contextCanonicalization !== CONTEXT_CANONICALIZATION_VERSION ||
     !record(ext.nodes) ||
     !record(ext.roots) ||
+    Object.keys(ext.roots).length !== 1 ||
     !record(ext.roots["."])
   )
     throw lockMismatch("unsupported graph metadata");
@@ -60,6 +82,26 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
   for (const [key, raw] of Object.entries(ext.nodes)) {
     if (
       !record(raw) ||
+      !key ||
+      key.split("/").some((part) => part === ".." || part === ".") ||
+      Object.keys(raw).some(
+        (field) =>
+          ![
+            "name",
+            "version",
+            "integrity",
+            "origin",
+            "source",
+            "tarball",
+            "bin",
+            "platform",
+            "engines",
+            "edges",
+            "edgeKinds",
+            "peers",
+            "optionalPeers",
+          ].includes(field),
+      ) ||
       typeof raw.name !== "string" ||
       !packageName(raw.name) ||
       typeof raw.version !== "string" ||
@@ -77,6 +119,17 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
       !record(raw.platform)
     )
       throw lockMismatch("invalid node record");
+    if (
+      Object.keys(raw.edgeKinds).length !== Object.keys(raw.edges).length ||
+      Object.keys(raw.edgeKinds).some((name) => !(name in raw.edges))
+    )
+      throw lockMismatch("edge kind declarations disagree");
+    if (
+      Object.keys(raw.platform).some(
+        (field) => !["os", "cpu", "libc"].includes(field),
+      )
+    )
+      throw lockMismatch("unsupported platform constraints");
     const identity = {
       sourceType: "registry" as const,
       name: raw.name,
@@ -102,15 +155,38 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
         spec: "",
       });
     }
+    for (const [name, kind] of Object.entries(raw.edgeKinds))
+      if (kind === "peer" && raw.peers[name] !== raw.edges[name])
+        throw lockMismatch("peer edge lacks binding");
+    const optionalPeers =
+      raw.optionalPeers === undefined ? [] : raw.optionalPeers;
+    if (
+      !Array.isArray(optionalPeers) ||
+      !optionalPeers.every(
+        (name: unknown) =>
+          typeof name === "string" &&
+          packageName(name) &&
+          Object.hasOwn(raw.peers, name),
+      ) ||
+      new Set(optionalPeers).size !== optionalPeers.length
+    )
+      throw lockMismatch("invalid optional peer declarations");
     const peers: ResolvedOccurrence["peerBindings"] = [];
     for (const [name, target] of Object.entries(raw.peers)) {
       if (
         !packageName(name) ||
         (target !== null && typeof target !== "string") ||
-        (target !== null && raw.edges[name] !== target)
+        (target !== null && raw.edges[name] !== target) ||
+        (target === null && raw.edges[name] !== undefined)
       )
         throw lockMismatch("invalid peer binding");
-      peers.push({ name, target });
+      peers.push({
+        name,
+        target,
+        ...(target === null || optionalPeers.includes(name)
+          ? { optional: true }
+          : {}),
+      });
     }
     const bin: Record<string, string> = Object.create(null) as Record<
       string,
@@ -119,7 +195,11 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
     for (const [name, target] of Object.entries(raw.bin)) {
       if (
         !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name) ||
-        typeof target !== "string"
+        typeof target !== "string" ||
+        target.startsWith("/") ||
+        target.includes("\\") ||
+        target.split("/").some((part) => part === "..") ||
+        /^[A-Za-z]:/.test(target)
       )
         throw lockMismatch("invalid binary entry");
       bin[name] = target;
@@ -173,4 +253,42 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
     throw lockMismatch("invalid dependency graph");
   }
   return { nodes, roots };
+}
+
+/** Preserved metadata is subject to the same portability boundary as new data. */
+export function assertPortableLockMetadata(value: unknown, field = ""): void {
+  if (typeof value === "string") {
+    if (/^(?:https?:|file:|git\+|ssh:)/i.test(value) && !cleanUrl(value))
+      throw lockMismatch("portable metadata contains an unsafe URL");
+    if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value))
+      throw lockMismatch("portable metadata contains a local path");
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertPortableLockMetadata(item, field);
+    return;
+  }
+  if (value && typeof value === "object")
+    for (const [key, item] of Object.entries(value)) {
+      if (
+        /auth|password|token|secret|credential/i.test(key) &&
+        ![
+          "packages",
+          "dependencies",
+          "devDependencies",
+          "optionalDependencies",
+          "peerDependencies",
+          "peerDependenciesMeta",
+          "nodes",
+          "edges",
+          "edgeKinds",
+          "peers",
+          "bin",
+          "roots",
+          ".",
+        ].includes(field)
+      )
+        throw lockMismatch("portable metadata contains a credential field");
+      assertPortableLockMetadata(item, key);
+    }
 }

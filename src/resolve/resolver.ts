@@ -9,7 +9,8 @@
  * npm aliases; prod and optional groups; required and optional peers with
  * explicit-consumer-context bindings; cycles; bundled subtrees (skipped,
  * never exposed). Dev groups need full packuments and arrive later, as do
- * overrides, platform filtering, and workspace relationships. Remote
+ * overrides and workspace relationships. Platform omissions are reported
+ * explicitly, and resource limits bound graph construction. Remote
  * tarballs, Git, and local sources fail explicitly (SPEC 9.2).
  *
  * Peer contexts (SPEC 9.3-9.4): one verified source may back several
@@ -59,17 +60,54 @@ export type ResolvedOccurrence = {
   tarballUrl: string;
   bin: Record<string, string>;
   edges: ResolvedEdge[];
-  peerBindings: Array<{ name: string; target: string | null }>;
+  peerBindings: Array<{
+    name: string;
+    target: string | null;
+    optional?: boolean;
+  }>;
   platform: { os?: string[]; cpu?: string[]; libc?: string[] };
   engines?: Record<string, string>;
 };
 
 export type ResolveOptions = {
   provider: MetadataProvider;
-  requirements: Array<{ name: string; spec: string }>;
+  requirements: Array<{ name: string; spec: string; optional?: boolean }>;
+  limits?: Partial<ResolverLimits>;
+  platform?: RuntimePlatform;
 };
 
+export type RuntimePlatform = { os: string; cpu: string; libc?: string };
+export type ResolverLimits = {
+  maxNodes: number;
+  maxDepth: number;
+  deadlineMs: number;
+  maxPeerRounds: number;
+  maxPeerExpansions: number;
+};
+export type ResolutionOmission = {
+  name: string;
+  reason: "platform";
+  parent: string;
+};
+
+export function currentPlatform(): RuntimePlatform {
+  const result: RuntimePlatform = { os: process.platform, cpu: process.arch };
+  if (process.platform === "linux") {
+    const report = process.report.getReport() as {
+      header?: { glibcVersionRuntime?: string };
+      sharedObjects?: string[];
+    };
+    if (report.header?.glibcVersionRuntime) result.libc = "glibc";
+    else if (
+      report.sharedObjects?.some((file) => /(?:ld-musl|libc.musl)/.test(file))
+    )
+      result.libc = "musl";
+  }
+  return result;
+}
+
 export type FinalizedGraph = {
+  omissions?: ResolutionOmission[];
   nodes: ResolvedOccurrence[];
   /** Root requirement edge name -> occurrence key. */
   roots: Array<{ name: string; target: string }>;
@@ -78,7 +116,7 @@ export type FinalizedGraph = {
 export async function resolveRequirements(
   options: ResolveOptions,
 ): Promise<FinalizedGraph> {
-  const state = new ResolverState(options.provider);
+  const state = new ResolverState(options);
   const rootFrame: Frame = { label: "<root>", children: [] };
   const seenRoots = new Set<string>();
   for (const requirement of [...options.requirements].sort((a, b) =>
@@ -91,11 +129,12 @@ export async function resolveRequirements(
       [],
       requirement.name,
       requirement.spec,
-      "prod",
+      requirement.optional ? "optional" : "prod",
     );
+    if (child === null) continue;
     rootFrame.children.push({
       edgeName: requirement.name,
-      kind: "prod",
+      kind: requirement.optional ? "optional" : "prod",
       spec: requirement.spec,
       child,
     });
@@ -153,15 +192,70 @@ class ResolverState {
   private readonly freshPeers = new Map<Occurrence, Map<string, Occurrence>>();
   private readonly occurrences: Occurrence[] = [];
 
-  constructor(provider: MetadataProvider) {
-    this.provider = provider;
+  readonly limits: ResolverLimits;
+  readonly platform: RuntimePlatform;
+  readonly omissions: ResolutionOmission[] = [];
+  readonly expires: number;
+  private peerExpansions = 0;
+  constructor(options: ResolveOptions) {
+    this.provider = options.provider;
+    this.limits = {
+      maxNodes: 10000,
+      maxDepth: 128,
+      deadlineMs: 30000,
+      maxPeerRounds: 1024,
+      maxPeerExpansions: 100000,
+      ...options.limits,
+    };
+    for (const value of Object.values(this.limits))
+      if (!Number.isSafeInteger(value) || value <= 0)
+        throw budgetError("invalid resolver limits");
+    this.platform = options.platform ?? currentPlatform();
+    this.expires = Date.now() + this.limits.deadlineMs;
+  }
+  checkBudget(depth = 0, adding = false): void {
+    if (Date.now() >= this.expires)
+      throw budgetError("resolution deadline exceeded");
+    if (depth > this.limits.maxDepth)
+      throw budgetError("dependency depth limit exceeded");
+    if (adding && this.occurrences.length >= this.limits.maxNodes)
+      throw budgetError("resolved node limit exceeded");
+  }
+  private checkPlatform(name: string, entry: PackumentVersion): void {
+    for (const [constraints, actual] of [
+      [entry.os, this.platform.os],
+      [entry.cpu, this.platform.cpu],
+      [entry.libc, this.platform.libc],
+    ] as const) {
+      if (!constraints?.length) continue;
+      const positive = constraints.filter((value) => !value.startsWith("!"));
+      if (
+        !actual ||
+        constraints.includes(`!${actual}`) ||
+        (positive.length > 0 &&
+          !positive.includes(actual) &&
+          !positive.includes("any"))
+      )
+        throw new PlatformMismatch(name);
+    }
   }
 
   /** Cached packument fetch shared by version selection. */
   packumentOf(name: string): Promise<Packument> {
     const cached = this.packuments.get(name);
     if (cached !== undefined) return cached;
-    const pending = this.provider.packument(name);
+    this.checkBudget();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(budgetError("resolution deadline exceeded")),
+        Math.max(1, this.expires - Date.now()),
+      );
+    });
+    const pending = Promise.race([
+      this.provider.packument(name),
+      deadline,
+    ]).finally(() => clearTimeout(timer));
     this.packuments.set(name, pending);
     return pending;
   }
@@ -178,9 +272,38 @@ class ResolverState {
     edgeName: string,
     rawSpec: string,
     kind: "prod" | "optional",
+  ): Promise<Occurrence | null> {
+    try {
+      return await this.buildRequiredChild(
+        parentFrame,
+        chain,
+        edgeName,
+        rawSpec,
+        kind,
+      );
+    } catch (error) {
+      if (kind !== "optional" || !(error instanceof PlatformMismatch))
+        throw error;
+      this.omissions.push({
+        name: edgeName,
+        reason: "platform",
+        parent: parentFrame.label,
+      });
+      return null;
+    }
+  }
+
+  async buildRequiredChild(
+    parentFrame: Frame,
+    chain: Frame[],
+    edgeName: string,
+    rawSpec: string,
+    kind: "prod" | "optional",
   ): Promise<Occurrence> {
+    this.checkBudget();
     const req = parseRequirement(edgeName, rawSpec);
     const { version, entry } = await selectVersion(this, req);
+    this.checkPlatform(req.realName, entry);
     const integrity = expectedIntegrityFromDist(entry.dist);
     if (integrity === undefined) {
       throw new ZyrkError(
@@ -210,6 +333,7 @@ class ResolverState {
       }
     }
 
+    this.checkBudget(chain.length, true);
     const occ: Occurrence = {
       name: req.realName,
       version,
@@ -234,6 +358,7 @@ class ResolverState {
         dep.spec,
         dep.kind,
       );
+      if (child === null) continue;
       occ.children.push({
         edgeName: dep.name,
         kind: dep.kind,
@@ -251,7 +376,8 @@ class ResolverState {
    * ever moves to a nearer candidate, so movement is bounded by tree depth.
    */
   async bindPeersToFixpoint(): Promise<void> {
-    for (;;) {
+    for (let round = 0; round < this.limits.maxPeerRounds; round += 1) {
+      this.checkBudget();
       let changed = false;
       for (const occ of this.occurrences) {
         for (const spec of occ.peerSpecs) {
@@ -260,6 +386,7 @@ class ResolverState {
       }
       if (!changed) return;
     }
+    throw budgetError("peer binding iteration limit exceeded");
   }
 
   /**
@@ -267,6 +394,7 @@ class ResolverState {
    * was created, or an absent optional was recorded.
    */
   private async bindOne(occ: Occurrence, spec: PeerSpec): Promise<boolean> {
+    this.checkBudget();
     const current = occ.peerBindings.get(spec.name);
     const lookup = lookupPeer(occ, spec.name, spec.range);
     if (lookup.status === "conflict") {
@@ -299,9 +427,11 @@ class ResolverState {
     );
     if (occ.peerBindings.get(spec.name) === target && linked) return false;
     occ.peerBindings.set(spec.name, target);
-    occ.children = occ.children.filter(
-      (link) => !(link.kind === "peer" && link.edgeName === spec.name),
-    );
+    for (let index = occ.children.length - 1; index >= 0; index -= 1) {
+      const link = occ.children[index];
+      if (link?.kind === "peer" && link.edgeName === spec.name)
+        occ.children.splice(index, 1);
+    }
     occ.children.push({
       edgeName: spec.name,
       kind: "peer",
@@ -346,6 +476,8 @@ class ResolverState {
         },
       );
     }
+    this.checkPlatform(req.realName, entry);
+    this.checkBudget(occ.chain.length + 1, true);
     const fresh: Occurrence = {
       name: req.realName,
       version,
@@ -367,6 +499,7 @@ class ResolverState {
         dep.spec,
         dep.kind,
       );
+      if (child === null) continue;
       fresh.children.push({
         edgeName: dep.name,
         kind: dep.kind,
@@ -400,18 +533,26 @@ class ResolverState {
   ): FinalizedGraph {
     const keys = new Map<Occurrence, string>();
     for (const occ of this.occurrences) {
-      keys.set(occ, occurrenceKey(occ));
+      this.checkBudget();
+      keys.set(
+        occ,
+        occurrenceKey(occ, (depth) => {
+          this.checkBudget(depth);
+          if (++this.peerExpansions > this.limits.maxPeerExpansions)
+            throw budgetError("peer expansion limit exceeded");
+        }),
+      );
     }
     const reachable = new Set<Occurrence>();
-    const visit = (occ: Occurrence): void => {
-      if (reachable.has(occ)) return;
+    const pending = rootLinks.map((link) => link.child);
+    for (;;) {
+      const occ = pending.pop();
+      if (!occ) break;
+      this.checkBudget();
+      if (reachable.has(occ)) continue;
       reachable.add(occ);
-      for (const link of occ.children) {
-        const child = link.child;
-        if (child !== undefined) visit(child);
-      }
-    };
-    for (const link of rootLinks) visit(link.child);
+      for (const link of occ.children) pending.push(link.child);
+    }
     const byKey = new Map<string, Occurrence>();
     for (const occ of reachable) {
       const key = keys.get(occ);
@@ -432,7 +573,11 @@ class ResolverState {
         throw internal(`missing key for root ${link.name}`);
       return { name: link.name, target };
     });
-    return { nodes, roots };
+    return {
+      nodes,
+      roots,
+      ...(this.omissions.length ? { omissions: this.omissions } : {}),
+    };
   }
 }
 
@@ -569,19 +714,25 @@ function peerConflict(
 }
 
 /** Canonical fingerprint over the transitive peer closure (SPEC 9.4). */
-function occurrenceKey(occ: Occurrence): string {
+function occurrenceKey(
+  occ: Occurrence,
+  check: (depth: number) => void,
+): string {
   const base = `${occ.name}@${occ.version}`;
   if (occ.peerSpecs.length === 0) return base;
-  const expansion = expandPeerBindings(occ, new Set<Occurrence>([occ]));
+  const expansion = expandPeerBindings(occ, new Set<Occurrence>([occ]), check);
   return `${base}#${sha512Hex(canonicalJson(expansion)).slice(0, 12)}`;
 }
 
 function expandPeerBindings(
   occ: Occurrence,
   visiting: Set<Occurrence>,
+  check: (depth: number) => void,
 ): unknown {
+  check(visiting.size);
   const parts: Array<[string, unknown]> = [];
   for (const spec of occ.peerSpecs) {
+    check(visiting.size);
     const bound = occ.peerBindings.get(spec.name);
     if (bound === undefined)
       throw internal(`unbound peer ${spec.name} at finalization`);
@@ -595,7 +746,7 @@ function expandPeerBindings(
         [
           "node",
           `${bound.name}@${bound.version}`,
-          expandPeerBindings(bound, new Set([...visiting, occ])),
+          expandPeerBindings(bound, new Set([...visiting, bound]), check),
         ],
       ]);
     }
@@ -641,19 +792,39 @@ function toResolved(
   keys: Map<Occurrence, string>,
   origin: string,
 ): ResolvedOccurrence {
-  const edges: ResolvedEdge[] = occ.children.map((link) => {
+  const edgesByName = new Map<string, ResolvedEdge>();
+  for (const link of occ.children) {
     const target = keys.get(link.child);
     if (target === undefined) throw internal(`missing key for child of ${key}`);
-    return { name: link.edgeName, target, kind: link.kind, spec: link.spec };
-  });
+    const previous = edgesByName.get(link.edgeName);
+    if (previous && previous.target !== target)
+      throw new ZyrkError(
+        "ZYRK_PEER_CONFLICT",
+        `Dependency and peer bindings disagree for ${occ.name}'s ${link.edgeName}.`,
+        { remedy: "Align the declared dependency and peer requirements." },
+      );
+    if (!previous || previous.kind === "peer")
+      edgesByName.set(link.edgeName, {
+        name: link.edgeName,
+        target,
+        kind: link.kind,
+        spec: link.spec,
+      });
+  }
+  const edges = [...edgesByName.values()];
   const peerBindings = occ.peerSpecs.map((spec) => {
     const bound = occ.peerBindings.get(spec.name);
     if (bound === undefined)
       throw internal(`unbound peer ${spec.name} of ${key}`);
-    if (bound === null) return { name: spec.name, target: null };
+    if (bound === null)
+      return { name: spec.name, target: null, optional: true };
     const target = keys.get(bound);
     if (target === undefined) throw internal(`missing key for peer of ${key}`);
-    return { name: spec.name, target };
+    return {
+      name: spec.name,
+      target,
+      ...(spec.optional ? { optional: true } : {}),
+    };
   });
   return {
     key,
@@ -719,9 +890,9 @@ function regularDepsOf(
     seen.add(name);
     deps.push({ name, spec, kind });
   };
-  for (const name of Object.keys(entry.dependencies ?? {}).sort(
-    compareStrings,
-  )) {
+  for (const name of Object.keys(entry.dependencies ?? {})
+    .filter((name) => !Object.hasOwn(entry.optionalDependencies ?? {}, name))
+    .sort(compareStrings)) {
     push(name, entry.dependencies?.[name] ?? "", "prod");
   }
   for (const name of Object.keys(entry.optionalDependencies ?? {}).sort(
@@ -754,4 +925,27 @@ function compareStrings(a: string, b: string): number {
 
 function internal(message: string): ZyrkError {
   return new ZyrkError("ZYRK_INTERNAL", message);
+}
+
+function budgetError(reason: string): ZyrkError {
+  return new ZyrkError(
+    "ZYRK_RESOLUTION_FAILED",
+    `Cannot resolve dependencies (${reason}).`,
+    {
+      remedy:
+        "Review the dependency graph or explicitly increase the resolver limits for this operation.",
+    },
+  );
+}
+class PlatformMismatch extends ZyrkError {
+  constructor(name: string) {
+    super(
+      "ZYRK_RESOLUTION_FAILED",
+      `Cannot select ${name} on the current platform.`,
+      {
+        remedy:
+          "Use a compatible operating system, architecture and libc, or choose a compatible package version.",
+      },
+    );
+  }
 }
