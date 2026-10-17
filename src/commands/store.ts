@@ -14,7 +14,7 @@ import {
 import { Store } from "../store/layout.ts";
 import { readSourceManifest } from "../store/manifests.ts";
 import { objectPathFor, verifyObjectPayload } from "../store/objects.ts";
-import { realizationDirFor } from "../store/realize.ts";
+import { realizationDirFor, selectRealizationDirs } from "../store/realize.ts";
 import { verifyRealization } from "../store/verify.ts";
 import {
   isErrno,
@@ -275,16 +275,18 @@ async function pin(store: Store, target: string) {
       }
   }
   const instances: string[] = [];
+  const directories = selectRealizationDirs(store, graph);
   for (const node of graph.nodes) {
     const context = contextIdFor(graph, node.key);
-    if (await pathExists(realizationDirFor(store, context))) {
+    if (await pathExists(directories.get(node.key)!)) {
       await verifyRealization({
         store,
         graph,
         rootKey: node.key,
         contextId: context,
+        realizationDirs: directories,
       });
-      instances.push(realizationDirFor(store, context));
+      instances.push(directories.get(node.key)!);
     }
   }
   const id = randomId("pin1_");
@@ -360,6 +362,7 @@ async function inventory(store: Store): Promise<Item[]> {
   ] as const) {
     for (const id of await names(path.join(store.root, directory))) {
       component(id);
+      if (kind === "realization") realizationIdentity(id);
       const relative = path.join(directory, id);
       const stat = await fs.lstat(path.join(store.root, relative));
       if (kind === "graph" ? !stat.isFile() : !stat.isDirectory())
@@ -412,17 +415,34 @@ async function verify(store: Store) {
     sources++;
   }
   const contexts = new Set<string>();
+  const instanceItems = items.filter((item) => item.kind === "realization");
   for (const item of items.filter((item) => item.kind === "graph")) {
     const graph = await graphAt(store, item.id);
-    for (const node of graph.nodes) {
-      const contextId = contextIdFor(graph, node.key);
-      if (
-        contexts.has(contextId) ||
-        !(await pathExists(realizationDirFor(store, contextId)))
-      )
-        continue;
-      await verifyRealization({ store, graph, rootKey: node.key, contextId });
-      contexts.add(contextId);
+    const nodesByContext = new Map(
+      graph.nodes.map((node) => [contextIdFor(graph, node.key), node]),
+    );
+    for (const instance of instanceItems) {
+      if (contexts.has(instance.id)) continue;
+      const identity = realizationIdentity(instance.id);
+      const node = nodesByContext.get(identity.context);
+      if (!node) continue;
+      const directories = new Map(
+        graph.nodes.map((candidate) => [
+          candidate.key,
+          realizationDirFor(
+            store,
+            `${contextIdFor(graph, candidate.key)}${identity.suffix}`,
+          ),
+        ]),
+      );
+      await verifyRealization({
+        store,
+        graph,
+        rootKey: node.key,
+        contextId: identity.context,
+        realizationDirs: directories,
+      });
+      contexts.add(instance.id);
       realizations++;
     }
   }
@@ -597,30 +617,28 @@ async function collect(store: Store, dryRun: boolean) {
   // Grace-retained descriptors/instances also retain their source closure.
   // A recent graph may reuse an old object whose own timer has elapsed.
   const candidatePaths = new Set(candidates.map((item) => item.relative));
-  const retainedContexts = new Set(
-    items
-      .filter(
-        (item) =>
-          item.kind === "realization" && !candidatePaths.has(item.relative),
-      )
-      .map((item) => item.id),
+  const retainedInstances = items.filter(
+    (item) => item.kind === "realization" && !candidatePaths.has(item.relative),
   );
   for (const item of items.filter((item) => item.kind === "graph")) {
     const graph = await graphAt(store, item.id);
-    for (const node of graph.nodes) {
-      if (
-        !candidatePaths.has(item.relative) ||
-        retainedContexts.has(contextIdFor(graph, node.key))
-      ) {
-        await markSource(node.sourceId);
-        marked.add(
-          path.relative(
-            store.root,
-            realizationDirFor(store, contextIdFor(graph, node.key)),
-          ),
-        );
-        marked.add(item.relative);
-      }
+    const contexts = new Set(
+      graph.nodes.map((node) => contextIdFor(graph, node.key)),
+    );
+    const retainedFamilies = new Set(
+      retainedInstances
+        .map((instance) => realizationIdentity(instance.id))
+        .filter((identity) => contexts.has(identity.context))
+        .map((identity) => identity.suffix),
+    );
+    if (!candidatePaths.has(item.relative) || retainedFamilies.size) {
+      marked.add(item.relative);
+      for (const node of graph.nodes) await markSource(node.sourceId);
+      // A retained physical parent keeps every child in its exact incarnation,
+      // including cycles; canonical paths cannot stand in for repaired paths.
+      for (const suffix of retainedFamilies)
+        for (const context of contexts)
+          marked.add(path.join("realizations", `${context}${suffix}`));
     }
   }
   for (const item of items.filter(
@@ -660,11 +678,25 @@ async function collect(store: Store, dryRun: boolean) {
   for (const item of candidates) {
     const dest = path.join(trash, item.relative);
     await fs.mkdir(path.dirname(dest), { recursive: true, mode: 0o700 });
-    await fs.rename(path.join(store.root, item.relative), dest);
+    const source = path.join(store.root, item.relative);
+    const originalMode =
+      item.kind === "realization"
+        ? (await fs.lstat(source)).mode & 0o777
+        : undefined;
+    // Only an unreferenced incarnation root is made movable; package files
+    // and all hard-linked payload inodes retain their original permissions.
+    if (originalMode !== undefined) await fs.chmod(source, 0o700);
+    try {
+      await fs.rename(source, dest);
+    } catch (error) {
+      if (originalMode !== undefined)
+        await fs.chmod(source, originalMode).catch(() => {});
+      throw error;
+    }
     if (await pathExists(store.paths.dbFile)) {
       const db = openStoreDb(store.paths.dbFile);
       try {
-        retire(db, item);
+        retire(db, item, store);
       } finally {
         db.close();
       }
@@ -674,16 +706,22 @@ async function collect(store: Store, dryRun: boolean) {
   await rmrfNoFollow(trash);
   return report;
 }
-function retire(db: StoreDb, item: Item) {
+function retire(db: StoreDb, item: Item, store: Store) {
   if (item.kind === "realization") {
     db.prepare(
-      "UPDATE realization_instances SET verification_state = 'retired' WHERE context_id = ?",
-    ).run(item.id);
+      "UPDATE realization_instances SET verification_state = 'retired' WHERE path = ?",
+    ).run(path.join(store.root, item.relative));
     db.prepare(
-      "UPDATE realizations SET readiness = 'retired' WHERE context_id = ?",
-    ).run(item.id);
+      "UPDATE realizations SET readiness = 'retired' WHERE context_id = ? AND NOT EXISTS (SELECT 1 FROM realization_instances WHERE realization_instances.context_id=realizations.context_id AND verification_state != 'retired')",
+    ).run(realizationIdentity(item.id).context);
   }
   if (item.kind === "object")
     db.prepare("DELETE FROM objects WHERE object_id = ?").run(item.id);
   // Source index rows remain diagnostic/rebuildable while retired instances refer to them.
+}
+
+function realizationIdentity(id: string): { context: string; suffix: string } {
+  const match = /^(ctx1_[0-9a-f]{128})(__repair1_[a-z2-7]{26})?$/.exec(id);
+  if (!match) corrupt("physical realization identity");
+  return { context: match[1]!, suffix: match[2] ?? "" };
 }

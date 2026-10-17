@@ -21,6 +21,10 @@ export async function registerGeneration(options: {
   generationId: string;
   graph: GraphDoc;
   realized: RealizeResult;
+  /** Verified shared inputs remain indexed when the active generation is private. */
+  sharedRealized?: RealizeResult;
+  /** Selected predecessor physical paths, captured before immutable repair. */
+  repairOf?: ReadonlyMap<string, string>;
   roots: readonly string[];
   readiness: "ready" | "intentionally-unbuilt";
 }): Promise<{
@@ -79,9 +83,34 @@ export async function registerGeneration(options: {
         db.prepare(
           "INSERT INTO realizations(context_id,descriptor_hash,source_id,readiness,store_format,created_at) VALUES(?,?,?,'ready',?,?) ON CONFLICT(context_id) DO NOTHING",
         ).run(context, context, node.sourceId, STORE_FORMAT_VERSION, now);
-        db.prepare(
-          "INSERT INTO realization_instances(instance_id,context_id,path,verification_state,created_at) VALUES(?,?,?,'verified',?) ON CONFLICT(instance_id) DO NOTHING",
-        ).run(instance, context, directory, now);
+        const recordInstance = (physicalDirectory: string): void => {
+          const physicalInstance = `inst1_${sha512Hex(physicalDirectory).slice(0, 32)}`;
+          const priorPath = options.repairOf?.get(node.key);
+          const prior =
+            priorPath === undefined || priorPath === physicalDirectory
+              ? undefined
+              : (db
+                  .prepare(
+                    "SELECT instance_id FROM realization_instances WHERE context_id=? AND path=?",
+                  )
+                  .get(context, priorPath) as
+                  { instance_id: string } | undefined);
+          db.prepare(
+            "INSERT INTO realization_instances(instance_id,context_id,path,verification_state,repair_of,created_at) VALUES(?,?,?,'verified',?,?) ON CONFLICT(instance_id) DO NOTHING",
+          ).run(
+            physicalInstance,
+            context,
+            physicalDirectory,
+            prior?.instance_id ?? null,
+            now,
+          );
+        };
+        recordInstance(directory);
+        const sharedDirectory = options.sharedRealized?.realizationDirByKey.get(
+          node.key,
+        );
+        if (sharedDirectory !== undefined && sharedDirectory !== directory)
+          recordInstance(sharedDirectory);
         db.prepare(
           "INSERT INTO generation_instances(generation_id,context_id,instance_id,direct_link) VALUES(?,?,?,?) ON CONFLICT(generation_id,context_id) DO NOTHING",
         ).run(

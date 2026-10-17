@@ -1,4 +1,5 @@
-import { open, rename, rm, stat, chmod } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, rename, rm, stat, chmod, lstat } from "node:fs/promises";
 import * as path from "node:path";
 import { ZyrkError } from "../errors.ts";
 import {
@@ -29,6 +30,15 @@ export type CommittedObject = {
 };
 
 export function objectPathFor(store: Store, objectId: string): string {
+  if (!/^[0-9a-f]{128}$/.test(objectId))
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
+      "Invalid content object identity.",
+      {
+        remedy:
+          "Repair the affected source using its verified registry archive.",
+      },
+    );
   return path.join(
     store.paths.objectsDir,
     "sha512",
@@ -60,23 +70,22 @@ export async function commitObjectFromStaging(
 
   const existing = await statOrNull(target);
   if (existing !== null) {
-    if (existing.size !== staged.bytes) {
-      // Same key, different bytes: digest reuse across content. Never silently
-      // accept (I-001); quarantine and report.
+    const check = await verifyObjectPayload(store, {
+      objectId,
+      innerDigestHex: staged.innerDigestHex,
+      modeClass: staged.modeClass,
+      bytes: staged.bytes,
+    });
+    if (!check.ok)
       throw new ZyrkError(
         "ZYRK_STORE_CORRUPT",
-        `object ${objectId} exists with ${existing.size} bytes but the verified staged file has ${staged.bytes}`,
+        "Existing content object failed verification before commit reuse.",
         {
-          detail: {
-            objectId,
-            expectedBytes: staged.bytes,
-            foundBytes: existing.size,
-          },
+          detail: { objectId, reason: check.reason },
           remedy:
-            "run `zyrk store verify --full` and re-fetch the affected source",
+            "Repair the affected project; corrupt shared inodes must never be edited in place.",
         },
       );
-    }
     await rm(staged.stagingPath, { force: true });
     return {
       objectId,
@@ -131,19 +140,26 @@ export async function verifyObjectPayload(
   | { ok: true }
   | {
       ok: false;
-      reason: "missing" | "digest-mismatch" | "size-mismatch" | "mode-mismatch";
+      reason:
+        | "missing"
+        | "digest-mismatch"
+        | "size-mismatch"
+        | "mode-mismatch"
+        | "type-mismatch";
     }
 > {
   const target = objectPathFor(store, object.objectId);
   let handle;
   try {
-    handle = await open(target, "r");
+    handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
   } catch (error) {
     if (isErrno(error, "ENOENT")) return { ok: false, reason: "missing" };
+    if (isErrno(error, "ELOOP")) return { ok: false, reason: "type-mismatch" };
     throw error;
   }
   try {
     const fileStat = await handle.stat();
+    if (!fileStat.isFile()) return { ok: false, reason: "type-mismatch" };
     if (object.bytes !== undefined && fileStat.size !== object.bytes) {
       return { ok: false, reason: "size-mismatch" };
     }
@@ -166,7 +182,7 @@ export async function verifyObjectPayload(
     }
     const expectedExec = object.modeClass === "exec";
     const actualExec = (fileStat.mode & 0o111) !== 0;
-    if (expectedExec !== actualExec) {
+    if (expectedExec !== actualExec || (fileStat.mode & 0o222) !== 0) {
       return { ok: false, reason: "mode-mismatch" };
     }
     return { ok: true };
@@ -184,6 +200,13 @@ export async function quarantineObject(
   objectId: string,
   incidentId: string,
 ): Promise<string | null> {
+  if (!/^inc(?:1_|-)[a-zA-Z0-9_-]{1,80}$/.test(incidentId))
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
+      "Invalid quarantine incident identity.",
+    );
+  await assertObjectStorePath(store, objectId);
+  await assertRealStoreDirectory(store.paths.quarantineDir);
   const source = objectPathFor(store, objectId);
   const destDir = path.join(store.paths.quarantineDir, incidentId, "objects");
   await ensureDirWithMode(destDir, 0o700);
@@ -226,4 +249,38 @@ async function fsyncFileAndDir(file: string, dir: string): Promise<void> {
     await handle.close();
   }
   await fsyncDir(dir);
+}
+
+/** Validate ancestor directories before a quarantine rename can affect their children. */
+export async function assertRealStoreDirectory(
+  directory: string,
+): Promise<void> {
+  let metadata;
+  try {
+    metadata = await lstat(directory);
+  } catch (error) {
+    if (isErrno(error, "ENOENT")) return;
+    throw error;
+  }
+  if (!metadata.isDirectory() || metadata.isSymbolicLink())
+    throw new ZyrkError(
+      "ZYRK_STORE_UNSAFE",
+      "Store content path passes through a non-directory or symbolic link.",
+      {
+        remedy:
+          "Restore the managed store directory layout before repairing; external filesystem targets are never quarantined.",
+      },
+    );
+}
+export async function assertObjectStorePath(
+  store: Store,
+  objectId: string,
+): Promise<void> {
+  const object = objectPathFor(store, objectId);
+  for (const directory of [
+    store.paths.objectsDir,
+    path.join(store.paths.objectsDir, "sha512"),
+    path.dirname(object),
+  ])
+    await assertRealStoreDirectory(directory);
 }

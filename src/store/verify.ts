@@ -37,13 +37,19 @@ import { modeClassOf, sha512HexOfFile } from "../util/hash.ts";
 import { contextIdFor, type GraphDoc, type GraphNode } from "./graph.ts";
 import { Store } from "./layout.ts";
 import { readSourceManifest, type ManifestEntry } from "./manifests.ts";
-import { packageDirIn, realizationDirFor } from "./realize.ts";
+import {
+  packageDirIn,
+  realizationDirFor,
+  selectRealizationDirs,
+  validRealizationDirectory,
+} from "./realize.ts";
 
 export type VerifyRealizationOptions = {
   store: Store;
   graph: GraphDoc;
   rootKey: string;
   contextId: string;
+  realizationDirs?: ReadonlyMap<string, string>;
 };
 
 export async function verifyRealization(
@@ -55,7 +61,27 @@ export async function verifyRealization(
   if (contextIdFor(graph, rootKey) !== contextId) {
     throw internal(`context mismatch: ${rootKey} is not ${contextId}`);
   }
-  const checker = new RealizationChecker(store, graph, node, contextId);
+  const directories =
+    options.realizationDirs ?? selectRealizationDirs(store, graph);
+  for (const candidate of graph.nodes) {
+    const directory = directories.get(candidate.key);
+    if (
+      directory === undefined ||
+      !validRealizationDirectory(
+        store,
+        contextIdFor(graph, candidate.key),
+        directory,
+      )
+    )
+      throw internal("invalid realization instance directory mapping");
+  }
+  const checker = new RealizationChecker(
+    store,
+    graph,
+    node,
+    contextId,
+    directories,
+  );
   await checker.run();
 }
 
@@ -70,6 +96,7 @@ class RealizationChecker {
   private readonly modulesDir: string;
   private readonly packageDir: string;
   private readonly byKey: Map<string, GraphNode>;
+  private readonly directories: ReadonlyMap<string, string>;
   /** Absolute nested/sibling link path -> exact expected target text. */
   private readonly expectedLinks: SlotMap = new Map();
   /** Manifest path (posix, relative) -> entry. */
@@ -82,12 +109,14 @@ class RealizationChecker {
     graph: GraphDoc,
     node: GraphNode,
     contextId: string,
+    directories: ReadonlyMap<string, string>,
   ) {
     this.store = store;
     this.graph = graph;
     this.node = node;
     this.contextId = contextId;
-    this.contextDir = realizationDirFor(store, contextId);
+    this.directories = directories;
+    this.contextDir = directories.get(node.key)!;
     this.modulesDir = path.join(this.contextDir, "node_modules");
     this.packageDir = packageDirIn(this.contextDir, node.name);
     this.byKey = new Map(
@@ -127,7 +156,7 @@ class RealizationChecker {
           ...detail,
         },
         remedy:
-          "remove the reported realization directory and reinstall the affected projects; do not edit shared realizations in place",
+          "run zyrk repair for the affected project; shared realizations must never be edited or removed in place",
       },
     );
   }
@@ -191,7 +220,7 @@ class RealizationChecker {
       if (dependency === undefined)
         throw internal(`edge ${edge.name} has no resolved node`);
       const targetText = packageDirIn(
-        realizationDirFor(this.store, contextIdFor(this.graph, edge.target)),
+        this.directories.get(edge.target)!,
         dependency.name,
       );
       const linkPath = siblingNames.has(edge.name)

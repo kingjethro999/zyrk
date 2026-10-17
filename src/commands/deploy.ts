@@ -1,5 +1,4 @@
 /** Self-contained pure-package deployment and explicit local Docker commands. */
-import { spawn } from "node:child_process";
 import {
   copyFile,
   chmod,
@@ -27,12 +26,12 @@ import {
 import { createGraphDoc, contextIdFor, type GraphDoc } from "../store/graph.ts";
 import { Store } from "../store/layout.ts";
 import { readSourceManifest } from "../store/manifests.ts";
-import { packageDirIn, realizationDirFor } from "../store/realize.ts";
+import { packageDirIn, selectRealizationDirs } from "../store/realize.ts";
 import { verifyRealization } from "../store/verify.ts";
 import { sha512Hex, sha512HexOfFile } from "../util/hash.ts";
 import { canonicalJson } from "../util/json.ts";
 import { acquireLock } from "../util/locks.ts";
-import { closeCode } from "../util/proc.ts";
+import { superviseChild } from "../util/proc.ts";
 
 type Obj = Record<string, unknown>;
 function object(v: unknown): v is Obj {
@@ -196,6 +195,11 @@ export async function runDeployCommand(
       "project package-lock.json",
     );
     const resolved = lockedGraph(doc);
+    if (state.linker === "private")
+      throw error(
+        "ZYRK_DEPLOY_NONRELOCATABLE",
+        "Private dependency generations require a validated export adapter to preserve project patches and lifecycle outputs.",
+      );
     if (state.readiness !== "ready")
       throw error(
         "ZYRK_SCRIPT_BLOCKED",
@@ -235,6 +239,7 @@ export async function runDeployCommand(
       const graph = createGraphDoc(
         installedNodes.map((n) => ({ ...n, deps: n.edges })),
       );
+      const directories = selectRealizationDirs(store, graph);
       const selectedRoots: Record<string, string> = {};
       const declarations = {
         ...(object(manifest.dependencies) ? manifest.dependencies : {}),
@@ -274,6 +279,7 @@ export async function runDeployCommand(
           graph,
           rootKey: key,
           contextId: contextIdFor(graph, key),
+          realizationDirs: directories,
         });
       const stage = await mkdtemp(path.join(parent, ".zyrk-deploy-"));
       try {
@@ -295,10 +301,7 @@ export async function runDeployCommand(
         for (const key of selected) {
           const node = byKey.get(key)!;
           const context = contextIdFor(graph, key);
-          const sourceDir = packageDirIn(
-            realizationDirFor(store, context),
-            node.name,
-          );
+          const sourceDir = packageDirIn(directories.get(key)!, node.name);
           const targetDir = packageDirIn(
             path.join(stage, "node_modules/.zyrk/portable", context),
             node.name,
@@ -745,33 +748,18 @@ async function subprocess(
   cwd: string,
   env: NodeJS.ProcessEnv,
 ): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+  try {
+    const result = await superviseChild(command, args, {
       cwd,
       env,
-      stdio: ["inherit", "pipe", "pipe"],
+      stdout: options.stdout,
+      stderr: options.stderr,
     });
-    child.stdout?.on("data", (c: Buffer) => options.stdout.write(c.toString()));
-    child.stderr?.on("data", (c: Buffer) => options.stderr.write(c.toString()));
-    const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
-    const listeners = signals.map((sig) => {
-      const listener = () => {
-        child.kill(sig);
-      };
-      process.on(sig, listener);
-      return [sig, listener] as const;
-    });
-    child.once("error", () =>
-      reject(
-        error(
-          "ZYRK_BUILD_FAILED",
-          "Cannot launch Docker; install the Docker CLI and enable a reachable BuildKit-capable daemon.",
-        ),
-      ),
+    return result.exitCode;
+  } catch {
+    throw error(
+      "ZYRK_BUILD_FAILED",
+      "Cannot launch Docker; install the Docker CLI and enable a reachable BuildKit-capable daemon.",
     );
-    child.once("close", (code, signal) => {
-      for (const [sig, listener] of listeners) process.off(sig, listener);
-      resolve(closeCode(code, signal));
-    });
-  });
+  }
 }
