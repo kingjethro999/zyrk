@@ -73,7 +73,28 @@ export type SourceManifestDoc = {
   provenance: SourceManifestProvenance;
 };
 
+/**
+ * Validate a sourceId before using it in filesystem paths. The sourceId format
+ * is `src1_` followed by exactly 40 lowercase hex characters (SHA-512 digest
+ * truncated to 40 chars). Any other value could be a path traversal attempt
+ * and is rejected.
+ */
+function validateSourceId(sourceId: string): void {
+  if (typeof sourceId !== "string" || !/^src1_[0-9a-f]{40}$/.test(sourceId)) {
+    throw new ZyrkError(
+      "ZYRK_STORE_CORRUPT",
+      `Invalid source identity: ${sourceId}`,
+      {
+        detail: { sourceId },
+        remedy:
+          "Remove the damaged source directory and re-fetch it; source IDs must match the format src1_<40 hex chars>",
+      },
+    );
+  }
+}
+
 export function sourceManifestPath(store: Store, sourceId: string): string {
+  validateSourceId(sourceId);
   return path.join(store.paths.sourcesDir, sourceId, "manifest.json");
 }
 
