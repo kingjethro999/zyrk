@@ -4,8 +4,9 @@
  * This is the roadmap skeleton, not the whole implementation: `dlx` and
  * `create` run temporary tool environments; `--help`, `--version`, the
  * global-install rejection, and explicit npm delegation do their jobs.
- * `install` publishes a verified shared project graph. Other dependency commands fail with ZYRK_NOT_IMPLEMENTED
- * rather than pretending to work; unknown commands fail with ZYRK_USAGE
+ * `install` publishes a verified shared project graph. Other dependency
+ * commands fail with ZYRK_NOT_IMPLEMENTED rather than pretending to work;
+ * unknown commands fail with ZYRK_USAGE
  * and the help text.
  * Nothing here launches a subprocess: rejection happens before resolution,
  * downloads, lifecycle execution, project/store mutation, or any child
@@ -19,7 +20,17 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCreate } from "../dlx/create.ts";
 import { runDlx } from "../dlx/run.ts";
+import {
+  runDependencyCommand,
+  type DependencyCommand,
+} from "../commands/dependencies.ts";
+import {
+  runProjectCommand,
+  type ProjectCommandOptions,
+} from "../commands/project.ts";
+import { runStoreCommand } from "../commands/store.ts";
 import { exitCodeFor, ZyrkError, toZyrkError } from "../errors.ts";
+export { ZyrkError };
 import { DEFAULT_REGISTRY, RegistryClient } from "../fetch/registry.ts";
 import { resolveStoreRoot } from "../config/paths.ts";
 import { Store } from "../store/layout.ts";
@@ -62,7 +73,24 @@ for (const [names] of NATIVE_COMMANDS) {
 }
 
 /** Commands with a real implementation behind runCli. */
-const IMPLEMENTED_COMMANDS = new Set(["dlx", "create", "install", "i"]);
+const IMPLEMENTED_COMMANDS = new Set([
+  "dlx",
+  "create",
+  "install",
+  "i",
+  "add",
+  "remove",
+  "update",
+  "import",
+  "run",
+  "exec",
+  "list",
+  "why",
+  "doctor",
+  "repair",
+  "store",
+  "projects",
+]);
 
 export function helpText(version: string): string {
   const lines = [
@@ -399,6 +427,112 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       );
     }
   }
+
+  // Dependency commands: add, remove, update, import
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    (parsed.command === "add" ||
+      parsed.command === "remove" ||
+      parsed.command === "update" ||
+      parsed.command === "import")
+  ) {
+    try {
+      const tools =
+        options.tools === undefined
+          ? await defaultTools(options.env, version)
+          : await options.tools();
+      const result = await runDependencyCommand({
+        command: parsed.command as DependencyCommand,
+        args: parsed.commandArgs,
+        projectDir: options.cwd ?? process.cwd(),
+        store: tools.store,
+        registry: tools.registry,
+      });
+      if (parsed.json) {
+        return emit({
+          exitCode: 0,
+          stdout: `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, status: "ok", ...result })}\n`,
+          stderr: "",
+        });
+      }
+      return emit({
+        exitCode: 0,
+        stdout: `Dependency command ${parsed.command} completed.\n`,
+        stderr: "",
+      });
+    } catch (error) {
+      return emit(
+        fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
+      );
+    }
+  }
+
+  // Project commands: run, exec, list, why, doctor, repair
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    (parsed.command === "run" ||
+      parsed.command === "exec" ||
+      parsed.command === "list" ||
+      parsed.command === "why" ||
+      parsed.command === "doctor" ||
+      parsed.command === "repair")
+  ) {
+    try {
+      return await runProjectCommand({
+        command: parsed.command,
+        args: parsed.commandArgs,
+        cwd: options.cwd ?? process.cwd(),
+        env: options.env,
+        stdout: options.stdout,
+        stderr: options.stderr,
+        json: parsed.json,
+      });
+    } catch (error) {
+      return emit(
+        fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
+      );
+    }
+  }
+
+  // Store and projects commands: store path/status/verify/gc/pin/unpin, projects list/forget
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    (parsed.command === "store" || parsed.command === "projects")
+  ) {
+    try {
+      const tools =
+        options.tools === undefined
+          ? await defaultTools(options.env, version)
+          : await options.tools();
+      const result = await runStoreCommand({
+        command: parsed.command as "store" | "projects",
+        args: parsed.commandArgs,
+        store: tools.store,
+        cwd: options.cwd ?? process.cwd(),
+        json: parsed.json,
+      });
+      if (parsed.json) {
+        return emit({
+          exitCode: 0,
+          stdout: `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, status: "ok", ...(result as Record<string, unknown>) })}\n`,
+          stderr: "",
+        });
+      }
+      return emit({
+        exitCode: 0,
+        stdout: `${JSON.stringify(result)}\n`,
+        stderr: "",
+      });
+    } catch (error) {
+      return emit(
+        fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
+      );
+    }
+  }
+
   return emit(dispatch(parsed, { version, env: options.env }));
 }
 

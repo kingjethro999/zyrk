@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dispatch } from "../src/cli/main.ts";
+import { dispatch, ZyrkError } from "../src/cli/main.ts";
 import { isGlobalInstallRequest, parseArgs } from "../src/cli/parse.ts";
 
 const VERSION = "9.9.9-test";
@@ -128,13 +128,13 @@ describe("dispatch", () => {
     expect(result.stdout).toBe("");
   });
 
-  it("reports unbuilt native commands honestly", () => {
-    const result = dispatch(parseArgs(["update", "alpha"]), {
-      version: VERSION,
-      env: {},
-    });
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("ZYRK_NOT_IMPLEMENTED");
+  it("reports implemented commands as dispatched via runCli", () => {
+    expect(() =>
+      dispatch(parseArgs(["update", "alpha"]), {
+        version: VERSION,
+        env: {},
+      }),
+    ).toThrow(ZyrkError);
   });
 
   it("emits the JSON envelope when requested", () => {
