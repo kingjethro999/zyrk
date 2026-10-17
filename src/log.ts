@@ -10,19 +10,68 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
     /((?:_authToken|_auth|_password|password|token|secret|key)=)([^&\s"']+)/gi,
     "$1***",
   ],
-  // npm classic tokens
-  [/\bnpm_[A-Za-z0-9]{36}\b/g, "npm_***"],
+  // Quoted fields in rendered JSON or configuration snippets.
+  [
+    /(["'](?:_authToken|_auth|_password|password|token|secret|authorization|cookie)["']\s*:\s*["'])[^"']*(["'])/gi,
+    "$1***$2",
+  ],
+  [/((?:authorization|cookie|set-cookie)\s*:\s*)[^\r\n]+/gi, "$1***"],
+  // npm tokens
+  [/\bnpm_[A-Za-z0-9]{20,}\b/g, "npm_***"],
   // Authorization header values and bare bearer tokens
   [/(Bearer)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 ***"],
   [/\b(gh[pousr]_[A-Za-z0-9]{20,})/g, "***"],
 ];
 
+/** Safe ordinary diagnostics: URLs are never a channel for auth or signed queries. */
 export function redactSecrets(text: string): string {
-  let out = text;
-  for (const [pattern, replacement] of SECRET_PATTERNS) {
+  let out = text.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi, (raw) => {
+    try {
+      const url = new URL(raw);
+      if (url.protocol === "file:") return "[local path]";
+      url.username = "";
+      url.password = "";
+      if (url.search) url.search = "?redacted";
+      url.hash = "";
+      return url.href;
+    } catch {
+      return "[redacted URL]";
+    }
+  });
+  for (const [pattern, replacement] of SECRET_PATTERNS)
     out = out.replace(pattern, replacement);
+  out = out.replace(/(^|[\s("'=])\\\\[^\s"'<>),]*/g, "$1[local path]");
+  out = out.replace(/\b(Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 ***");
+  // URLs have already been cleaned; preserve their paths while hiding local paths.
+  out = out.replace(
+    /(^|[\s("'=])(?:[A-Za-z]:[\\/]|\/)[^\s"'<>),]*/g,
+    "$1[local path]",
+  );
+  return out.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
+}
+
+/** Sanitize nested output without inspecting Error causes or invoking toJSON. */
+export function sanitizeDiagnostic(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return "[circular]";
+  seen.add(value);
+  if (Array.isArray(value))
+    return value.map((entry) => sanitizeDiagnostic(entry, seen));
+  const safe: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "cause" || key === "stack") continue;
+    safe[redactSecrets(key)] =
+      /(?:authorization|cookie|password|token|secret|(?:^|_)auth$|privatekey)/i.test(
+        key,
+      )
+        ? "***"
+        : sanitizeDiagnostic(entry, seen);
   }
-  return out;
+  return safe;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -56,7 +105,9 @@ export function createLogger(
     if (LEVEL_ORDER[at] < LEVEL_ORDER[level]) return;
     let line = message;
     if (detail !== undefined) {
-      const rendered = Object.entries(detail)
+      const rendered = Object.entries(
+        sanitizeDiagnostic(detail) as Record<string, unknown>,
+      )
         .map(([key, value]) => `${key}=${renderValue(value)}`)
         .join(" ");
       if (rendered !== "") line += ` (${rendered})`;

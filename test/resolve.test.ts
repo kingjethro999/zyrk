@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ZyrkError } from "../src/errors.ts";
 import type { Packument, PackumentVersion } from "../src/fetch/registry.ts";
@@ -20,7 +21,7 @@ type FakeVersion = {
 };
 
 function integrityFor(name: string, version: string): string {
-  return `sha512-${Buffer.from(`${name}@${version}`).toString("base64")}`;
+  return `sha512-${createHash("sha512").update(`${name}@${version}`).digest("base64")}`;
 }
 
 function versionEntry(name: string, fake: FakeVersion): PackumentVersion {

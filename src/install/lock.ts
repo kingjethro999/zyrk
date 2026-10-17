@@ -1,4 +1,5 @@
 /** Validate locked graph data before it can address any store/project paths. */
+import { isCanonicalStrongSri } from "../util/integrity.ts";
 import { valid } from "semver";
 import { ZyrkError } from "../errors.ts";
 import type { NpmLockDoc } from "../lockfile/types.ts";
@@ -107,7 +108,7 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
       typeof raw.version !== "string" ||
       valid(raw.version) === null ||
       typeof raw.integrity !== "string" ||
-      !/^sha512-[A-Za-z0-9+/]{86}==$/.test(raw.integrity) ||
+      !isCanonicalStrongSri(raw.integrity) ||
       typeof raw.origin !== "string" ||
       !cleanUrl(raw.origin) ||
       typeof raw.tarball !== "string" ||

@@ -1,3 +1,4 @@
+import { redactSecrets, sanitizeDiagnostic } from "./log.ts";
 /**
  * Stable error codes and the one error type the CLI turns into output.
  *
@@ -85,13 +86,17 @@ export class ZyrkError extends Error {
     options: ZyrkErrorOptions = {},
   ) {
     super(
-      message,
+      redactSecrets(message),
       options.cause === undefined ? undefined : { cause: options.cause },
     );
     this.name = "ZyrkError";
     this.code = code;
-    this.detail = options.detail;
-    this.remedy = options.remedy;
+    this.detail =
+      options.detail === undefined
+        ? undefined
+        : (sanitizeDiagnostic(options.detail) as Record<string, unknown>);
+    this.remedy =
+      options.remedy === undefined ? undefined : redactSecrets(options.remedy);
   }
 }
 
@@ -113,7 +118,7 @@ export function toZyrkError(
   const detail: Record<string, unknown> = {};
   let message = fallbackMessage;
   if (error instanceof Error) {
-    message = error.message === "" ? fallbackMessage : error.message;
+    message = fallbackMessage;
     const errno = (error as NodeJS.ErrnoException).code;
     if (typeof errno === "string") {
       detail.errno = errno;

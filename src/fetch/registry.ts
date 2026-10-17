@@ -4,25 +4,38 @@
  * bounded retries, bounded download size, mandatory integrity verification of
  * the bytes we accept, and stable error mapping.
  *
- * This adapter never runs package code. Credential handling is deliberately
- * not implemented yet: callers may pass through fetch options (an .npmrc-
- * reading adapter lands later with its own review), and nothing here can
- * disable TLS verification.
+ * This adapter never runs package code. Credentials are attached by this
+ * adapter only within their full origin and path; each redirect is reviewed
+ * before another request. Transport options cannot weaken mandatory TLS.
  */
 
 import { open, rm } from "node:fs/promises";
-import regFetch, {
-  json as fetchJson,
-  type FetchOptions,
-} from "npm-registry-fetch";
+import { createRequire } from "node:module";
+import { setTimeout as delay } from "node:timers/promises";
+import type { Readable } from "node:stream";
+import type { FetchOptions } from "npm-registry-fetch";
+
 import { ZyrkError } from "../errors.ts";
 import type { Logger } from "../log.ts";
 import {
   assertIntegrityOk,
+  canonicalStrongSri,
   IntegrityHasher,
   base64FromHex,
   type HashedBytes,
 } from "../util/integrity.ts";
+
+interface RegistryResponse {
+  status: number;
+  ok: boolean;
+  headers: { get(name: string): string | null };
+  body: Readable;
+}
+// npm-maintained transport; redirects are deliberately owned by this adapter.
+const transport = createRequire(import.meta.url)("make-fetch-happen") as (
+  url: string,
+  options: Record<string, unknown>,
+) => Promise<RegistryResponse>;
 
 /** 512 MiB: large for an npm package, small enough to bound mishaps. */
 export const DEFAULT_MAX_TARBALL_BYTES = 512 * 1024 * 1024;
@@ -76,8 +89,16 @@ export interface RegistryClientOptions {
   /** Per-request inactivity timeout in ms; passed through when set. */
   timeoutMs?: number;
   maxTarballBytes?: number;
-  /** Extra options for npm-registry-fetch. Never includes anything unsafe by default. */
+  /** Allowlisted transport settings and URL-scoped npm credentials. */
   fetchOptions?: FetchOptions;
+  /** Decoded metadata bytes, counted before JSON.parse. */
+  maxMetadataBytes?: number;
+  /** Total decoded metadata work across this client invocation. */
+  maxTotalMetadataBytes?: number;
+  maxMetadataVersions?: number;
+  /** End-to-end deadline across retries, redirects and body consumption. */
+  requestDeadlineMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface DownloadResult {
@@ -97,6 +118,13 @@ export class RegistryClient {
   readonly #logger: Logger | undefined;
   readonly #fetchOptions: FetchOptions;
   readonly #maxTarballBytes: number;
+  readonly #maxMetadataBytes: number;
+  readonly #maxTotalMetadataBytes: number;
+  #totalMetadataBytes = 0;
+  readonly #maxMetadataVersions: number;
+  readonly #requestDeadlineMs: number;
+  readonly #signal: AbortSignal | undefined;
+  readonly #credentials: Array<{ scope: URL; authorization: string }>;
 
   constructor(options: RegistryClientOptions) {
     const registry = normalizeRegistryUrl(options.registry);
@@ -120,7 +148,27 @@ export class RegistryClient {
       },
     };
     if (options.timeoutMs !== undefined) base.timeout = options.timeoutMs;
-    this.#fetchOptions = { ...base, ...options.fetchOptions };
+    const parsed = safeTransportOptions(options.fetchOptions ?? {}, registry);
+    this.#fetchOptions = { ...base, ...parsed.transport, strictSSL: true };
+    this.#credentials = parsed.credentials;
+    this.#maxMetadataBytes = positiveLimit(
+      options.maxMetadataBytes ?? 32 * 1024 * 1024,
+      "maxMetadataBytes",
+    );
+    this.#maxTotalMetadataBytes = positiveLimit(
+      options.maxTotalMetadataBytes ?? 128 * 1024 * 1024,
+      "maxTotalMetadataBytes",
+    );
+    this.#maxMetadataVersions = positiveLimit(
+      options.maxMetadataVersions ?? 100_000,
+      "maxMetadataVersions",
+    );
+    this.#requestDeadlineMs = positiveLimit(
+      options.requestDeadlineMs ?? 120_000,
+      "requestDeadlineMs",
+    );
+    positiveLimit(this.#maxTarballBytes, "maxTarballBytes");
+    this.#signal = options.signal;
   }
 
   /** Credential-free registry origin; participates in source identity (§8.1). */
@@ -133,20 +181,102 @@ export class RegistryClient {
   }
 
   /** Fetch the (abbreviated) packument for an exact package name. */
-  async packument(name: string): Promise<Packument> {
+  async packument(
+    name: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<Packument> {
     validateRegistryPackageName(name);
     const url = `${this.#registry}${escapePackageName(name)}`;
     this.#logger?.debug("fetching packument", { name, url });
     let raw: unknown;
     try {
-      raw = await fetchJson(url, {
-        ...this.#fetchOptions,
-        headers: { accept: `${INSTALL_V1_ACCEPT}, application/json` },
-      });
+      raw = await this.#withRequest(
+        url,
+        `${INSTALL_V1_ACCEPT}, application/json`,
+        (response) => this.#readMetadata(response),
+        options.signal,
+      );
     } catch (error) {
       throw mapFetchError(error, `fetch metadata for ${name}`);
     }
-    return validatePackument(raw, name, this.#origin);
+    return validatePackument(
+      raw,
+      name,
+      this.#origin,
+      this.#maxMetadataVersions,
+    );
+  }
+
+  /** Registry advisory request; private names may never follow an external redirect. */
+  async auditAdvisories(
+    packages: Readonly<Record<string, readonly string[]>>,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<unknown> {
+    for (const [name, versions] of Object.entries(packages)) {
+      validateRegistryPackageName(name);
+      if (
+        !Array.isArray(versions) ||
+        versions.some((version) => typeof version !== "string")
+      )
+        throw new ZyrkError(
+          "ZYRK_POLICY_DENIED",
+          "Invalid registry advisory package versions.",
+        );
+    }
+    const body = JSON.stringify(packages);
+    if (Buffer.byteLength(body) > this.#maxMetadataBytes)
+      throw resourceLimit(
+        "advisory request bytes",
+        this.#maxMetadataBytes,
+        "maxMetadataBytes",
+      );
+    try {
+      return await this.#withRequest(
+        new URL("-/npm/v1/security/advisories/bulk", this.#registry).href,
+        "application/json",
+        (response) => this.#readMetadata(response),
+        options.signal,
+        { method: "POST", body },
+      );
+    } catch (error) {
+      throw mapFetchError(error, "fetch security advisories");
+    }
+  }
+
+  #countMetadataBytes(bytes: number, responseBytes: number): void {
+    this.#totalMetadataBytes += bytes;
+    if (responseBytes > this.#maxMetadataBytes)
+      throw resourceLimit(
+        "metadata bytes",
+        this.#maxMetadataBytes,
+        "maxMetadataBytes",
+      );
+    if (this.#totalMetadataBytes > this.#maxTotalMetadataBytes)
+      throw resourceLimit(
+        "total metadata bytes",
+        this.#maxTotalMetadataBytes,
+        "maxTotalMetadataBytes",
+      );
+  }
+
+  async #readMetadata(response: RegistryResponse): Promise<unknown> {
+    const buffers: Buffer[] = [];
+    let bytes = 0;
+    for await (const chunk of response.body) {
+      const buffer = Buffer.from(chunk as Uint8Array);
+      bytes += buffer.length;
+      this.#countMetadataBytes(buffer.length, bytes);
+      buffers.push(buffer);
+    }
+    try {
+      return JSON.parse(Buffer.concat(buffers).toString("utf8")) as unknown;
+    } catch {
+      throw new ZyrkError(
+        "ZYRK_RESOLUTION_FAILED",
+        "Registry returned invalid metadata JSON.",
+        { remedy: "Retry against a well-formed npm registry." },
+      );
+    }
   }
 
   /**
@@ -164,6 +294,9 @@ export class RegistryClient {
     maxBytes?: number;
     allowWeakIntegrity?: boolean;
     allowMissingIntegrity?: boolean;
+    signal?: AbortSignal;
+    /** Receives each chunk byte count before staging writes; may throw to abort. */
+    onBytes?: (bytes: number) => void;
   }): Promise<DownloadResult> {
     const parsedUrl = parseTarballUrl(options.url, options.label);
     const maxBytes = options.maxBytes ?? this.#maxTarballBytes;
@@ -179,9 +312,9 @@ export class RegistryClient {
       if (isErrnoCode(error, "EEXIST")) {
         throw new ZyrkError(
           "ZYRK_INTERNAL",
-          `staging file already exists: ${options.destPath}`,
+          "tarball staging file already exists",
           {
-            detail: { destPath: options.destPath },
+            remedy: "Retry with a fresh staging transaction.",
           },
         );
       }
@@ -191,46 +324,39 @@ export class RegistryClient {
     const hasher = new IntegrityHasher();
     const startedAt = Date.now();
     try {
-      const response = await regFetch(parsedUrl.href, {
-        ...this.#fetchOptions,
-        headers: { accept: "application/octet-stream" },
-      });
-      if (!response.ok) {
-        // Drain a little of the body so the connection can be reused, then
-        // report by status.
-        response.body.resume();
-        throw httpStatusError(
-          response.status,
-          `download tarball for ${options.label}`,
-          options.url,
-        );
-      }
-
-      let written = 0;
-      for await (const chunk of response.body) {
-        const buffer = Buffer.isBuffer(chunk)
-          ? chunk
-          : Buffer.from(chunk as Uint8Array);
-        written += buffer.byteLength;
-        if (written > maxBytes) {
-          response.body.destroy();
-          throw new ZyrkError(
-            "ZYRK_FETCH_REFUSED",
-            `tarball for ${options.label} exceeds the ${formatMiB(maxBytes)} download bound`,
-            {
-              detail: {
-                label: options.label,
-                url: options.url,
-                limitBytes: maxBytes,
-              },
-              remedy:
-                "verify this is the package you expect; raise the bound deliberately if the artifact is legitimate",
-            },
-          );
-        }
-        hasher.update(buffer);
-        await handle.write(buffer);
-      }
+      await this.#withRequest(
+        parsedUrl.href,
+        "application/octet-stream",
+        async (response) => {
+          let written = 0;
+          for await (const chunk of response.body) {
+            const buffer = Buffer.isBuffer(chunk)
+              ? chunk
+              : Buffer.from(chunk as Uint8Array);
+            written += buffer.byteLength;
+            if (written > maxBytes) {
+              response.body.destroy();
+              throw new ZyrkError(
+                "ZYRK_FETCH_REFUSED",
+                `tarball for ${options.label} exceeds the ${formatMiB(maxBytes)} download bound`,
+                {
+                  detail: {
+                    label: options.label,
+                    url: options.url,
+                    limitBytes: maxBytes,
+                  },
+                  remedy:
+                    "verify this is the package you expect; raise the bound deliberately if the artifact is legitimate",
+                },
+              );
+            }
+            options.onBytes?.(buffer.byteLength);
+            hasher.update(buffer);
+            await handle!.write(buffer);
+          }
+        },
+        options.signal,
+      );
 
       await handle.sync();
       await handle.close();
@@ -279,6 +405,188 @@ export class RegistryClient {
       throw mapFetchError(error, `download tarball for ${options.label}`);
     }
   }
+  async #withRequest<T>(
+    url: string,
+    accept: string,
+    consume: (response: RegistryResponse) => Promise<T>,
+    signal?: AbortSignal,
+    request: { method?: "POST"; body?: string } = {},
+  ): Promise<T> {
+    const controller = new AbortController();
+    let active: RegistryResponse | undefined;
+    let timedOut = false;
+    const cancel = (): void => {
+      controller.abort();
+      active?.body.destroy();
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      cancel();
+    }, this.#requestDeadlineMs);
+    const externalCancel = (): void => cancel();
+    const signals = [this.#signal, signal].filter(
+      (value): value is AbortSignal => value !== undefined,
+    );
+    for (const source of signals)
+      source.addEventListener("abort", externalCancel, { once: true });
+    if (signals.some((source) => source.aborted)) cancel();
+    try {
+      let current = parseTarballUrl(url, "registry request");
+      let crossedBoundary = false;
+      for (let hop = 0; hop <= 10; hop++) {
+        if (controller.signal.aborted)
+          throw resourceLimit(
+            "request deadline or cancellation",
+            this.#requestDeadlineMs,
+            "requestDeadlineMs",
+          );
+        const auth = crossedBoundary ? undefined : this.#authorization(current);
+        const retry = this.#fetchOptions.retry;
+        const retryOptions =
+          typeof retry === "object" && retry !== null ? retry : {};
+        const retryCount =
+          request.method === "POST" || retry === false
+            ? 0
+            : typeof retry === "number"
+              ? retry
+              : (retryOptions.retries ?? 2);
+        for (let attempt = 0; ; attempt++) {
+          const pause = async (): Promise<void> => {
+            const ms = Math.min(
+              retryOptions.maxTimeout ?? 8_000,
+              (retryOptions.minTimeout ?? 250) *
+                (retryOptions.factor ?? 2) ** attempt,
+            );
+            await delay(ms, undefined, { signal: controller.signal });
+          };
+          try {
+            active = await transport(current.href, {
+              ...this.#fetchOptions,
+              ...request,
+              retry: false,
+              redirect: "manual",
+              strictSSL: true,
+              signal: controller.signal,
+              headers: {
+                accept,
+                "user-agent": this.#userAgent,
+                ...(request.method === "POST"
+                  ? { "content-type": "application/json" }
+                  : {}),
+                ...(auth === undefined ? {} : { authorization: auth }),
+              },
+            });
+          } catch (error) {
+            const code =
+              typeof error === "object" && error !== null
+                ? (error as { code?: unknown }).code
+                : undefined;
+            if (
+              controller.signal.aborted ||
+              attempt >= retryCount ||
+              typeof code !== "string" ||
+              !RETRYABLE_NETWORK_CODES.has(code)
+            )
+              throw error;
+            await pause();
+            continue;
+          }
+          if (
+            attempt >= retryCount ||
+            !([408, 420, 429].includes(active.status) || active.status >= 500)
+          )
+            break;
+          // Count and bound failed response bodies too; the transport's own
+          // implicit retries cannot account for this invocation's total work.
+          let responseBytes = 0;
+          for await (const chunk of active.body) {
+            const bytes = Buffer.byteLength(chunk as Uint8Array);
+            responseBytes += bytes;
+            this.#countMetadataBytes(bytes, responseBytes);
+          }
+          active.body.destroy();
+          await pause();
+        }
+        if ([301, 302, 303, 307, 308].includes(active.status)) {
+          const location = active.headers.get("location");
+          active.body.destroy();
+          if (!location || hop === 10)
+            throw new ZyrkError(
+              "ZYRK_FETCH_REFUSED",
+              "Registry redirect limit reached or redirect location missing.",
+              { remedy: "Check registry redirect configuration." },
+            );
+          const next = parseTarballUrl(
+            new URL(location, current).href,
+            "registry redirect",
+          );
+          if (current.protocol === "https:" && next.protocol !== "https:")
+            throw new ZyrkError(
+              "ZYRK_FETCH_REFUSED",
+              "Registry HTTPS downgrade redirect refused.",
+              { remedy: "Use HTTPS for every registry redirect." },
+            );
+          if (request.method === "POST") {
+            const registryScope = new URL(this.#registry);
+            if (
+              ![307, 308].includes(active.status) ||
+              next.origin !== registryScope.origin ||
+              !next.pathname.startsWith(registryScope.pathname)
+            )
+              throw new ZyrkError(
+                "ZYRK_FETCH_REFUSED",
+                "Registry advisory redirect crosses its authorized endpoint boundary or changes POST semantics.",
+                {
+                  remedy:
+                    "Configure the advisory service directly within the selected registry; private package names are never forwarded outside that boundary.",
+                },
+              );
+          }
+          if (
+            next.origin !== current.origin ||
+            this.#authorization(next) !== auth
+          )
+            crossedBoundary = true;
+          current = next;
+          continue;
+        }
+        if (!active.ok) {
+          active.body.destroy();
+          throw httpStatusError(
+            active.status,
+            "fetch registry content",
+            current.href,
+          );
+        }
+        return await consume(active);
+      }
+      throw resourceLimit(
+        "redirect count",
+        10,
+        "registry redirect configuration",
+      );
+    } catch (error) {
+      active?.body.destroy();
+      if (timedOut || signals.some((source) => source.aborted))
+        throw resourceLimit(
+          "request deadline or cancellation",
+          this.#requestDeadlineMs,
+          "requestDeadlineMs",
+        );
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      for (const source of signals)
+        source.removeEventListener("abort", externalCancel);
+    }
+  }
+
+  #authorization(url: URL): string | undefined {
+    return this.#credentials.find(
+      ({ scope }) =>
+        scope.origin === url.origin && url.pathname.startsWith(scope.pathname),
+    )?.authorization;
+  }
 }
 
 /**
@@ -289,7 +597,7 @@ export function expectedIntegrityFromDist(
   dist: PackumentDist,
 ): string | undefined {
   if (typeof dist.integrity === "string" && dist.integrity.trim() !== "") {
-    return dist.integrity;
+    return canonicalStrongSri(dist.integrity);
   }
   if (typeof dist.shasum === "string" && /^[0-9a-f]{40}$/.test(dist.shasum)) {
     return `sha1-${base64FromHex(dist.shasum)}`;
@@ -304,19 +612,15 @@ function normalizeRegistryUrl(registry: string): string {
   try {
     url = new URL(registry);
   } catch (error) {
-    throw new ZyrkError(
-      "ZYRK_MANIFEST_INVALID",
-      `registry URL is not valid: ${registry}`,
-      {
-        remedy: "set a registry URL such as https://registry.npmjs.org/",
-        cause: error,
-      },
-    );
+    throw new ZyrkError("ZYRK_MANIFEST_INVALID", "registry URL is not valid", {
+      remedy: "set a registry URL such as https://registry.npmjs.org/",
+      cause: error,
+    });
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new ZyrkError(
       "ZYRK_MANIFEST_INVALID",
-      `registry URL must be http(s): ${registry}`,
+      "registry URL must be http(s)",
       {
         remedy: "set an http(s) registry URL",
       },
@@ -405,6 +709,14 @@ function parseTarballUrl(url: string, label: string): URL {
       },
     );
   }
+  if (parsed.username || parsed.password)
+    throw new ZyrkError(
+      "ZYRK_FETCH_REFUSED",
+      "Registry artifact URL must not embed credentials.",
+      {
+        remedy: "Configure credentials separately from registry artifact URLs.",
+      },
+    );
   return parsed;
 }
 
@@ -436,8 +748,8 @@ const RETRYABLE_NETWORK_CODES = new Set([
 ]);
 
 /**
- * Map library/transport errors to stable codes. Keeps the library's message
- * and status available in `detail` without dumping config or headers.
+ * Map library/transport errors to stable codes without exposing arbitrary
+ * library messages, request URLs, response bodies, config or headers.
  */
 function mapFetchError(error: unknown, what: string): ZyrkError {
   if (error instanceof ZyrkError) return error;
@@ -448,8 +760,6 @@ function mapFetchError(error: unknown, what: string): ZyrkError {
     statusCode?: unknown;
     errno?: unknown;
   };
-  const message =
-    typeof record.message === "string" ? record.message : String(error);
   const status =
     typeof record.statusCode === "number" ? record.statusCode : undefined;
   const code = typeof record.code === "string" ? record.code : undefined;
@@ -472,7 +782,7 @@ function mapFetchError(error: unknown, what: string): ZyrkError {
   if (code !== undefined && RETRYABLE_NETWORK_CODES.has(code)) {
     return new ZyrkError(
       "ZYRK_FETCH_FAILED",
-      `network failure while trying to ${what}: ${message}`,
+      `network failure while trying to ${what}`,
       {
         detail: { errno: code },
         remedy:
@@ -481,7 +791,7 @@ function mapFetchError(error: unknown, what: string): ZyrkError {
       },
     );
   }
-  return new ZyrkError("ZYRK_FETCH_FAILED", `failed to ${what}: ${message}`, {
+  return new ZyrkError("ZYRK_FETCH_FAILED", `failed to ${what}`, {
     ...(code === undefined ? {} : { detail: { errno: code } }),
     remedy: "check registry availability, then retry",
     cause: error,
@@ -534,6 +844,7 @@ function validatePackument(
   raw: unknown,
   requestedName: string,
   origin: string,
+  maxVersions: number,
 ): Packument {
   const bad = (why: string): never => {
     throw new ZyrkError(
@@ -562,6 +873,12 @@ function validatePackument(
   ) {
     bad("missing versions map");
   }
+  if (Object.keys(versionsRaw as object).length > maxVersions)
+    throw resourceLimit(
+      "metadata versions",
+      maxVersions,
+      "maxMetadataVersions",
+    );
   const distTagsRaw = doc["dist-tags"] ?? doc["distTags"];
   if (
     distTagsRaw !== undefined &&
@@ -612,4 +929,99 @@ function validatePackument(
   const packument: Packument = { name: requestedName, distTags, versions };
   if (typeof doc["modified"] === "string") packument.modified = doc["modified"];
   return packument;
+}
+
+function positiveLimit(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1)
+    throw new ZyrkError(
+      "ZYRK_POLICY_DENIED",
+      `Invalid registry resource limit ${name}.`,
+      {
+        remedy:
+          "Use a positive safe integer for each registry resource budget.",
+      },
+    );
+  return value;
+}
+function resourceLimit(
+  subject: string,
+  limit: number,
+  setting: string,
+): ZyrkError {
+  return new ZyrkError(
+    "ZYRK_FETCH_REFUSED",
+    `Registry ${subject} budget exceeded.`,
+    {
+      detail: { limit, setting },
+      remedy: `Verify the registry response; deliberately raise ${setting} through RegistryClient options only if appropriate.`,
+    },
+  );
+}
+function safeTransportOptions(
+  options: FetchOptions,
+  registry: string,
+): {
+  transport: FetchOptions;
+  credentials: Array<{ scope: URL; authorization: string }>;
+} {
+  const transport: FetchOptions = {};
+  const credentials: Array<{ scope: URL; authorization: string }> = [];
+  const config = options as Record<string, unknown>;
+  const refuse = (): never => {
+    throw new ZyrkError(
+      "ZYRK_POLICY_DENIED",
+      "Unsupported registry transport option or TLS policy weakening.",
+      {
+        remedy:
+          "Use verified TLS, scoped registry credentials, and supported transport options.",
+      },
+    );
+  };
+  for (const [key, value] of Object.entries(config)) {
+    if (["ca", "timeout", "retry", "maxSockets", "strictSSL"].includes(key)) {
+      if (key === "strictSSL" && value !== true) refuse();
+      transport[key] = value;
+    } else if (
+      /^\/\/[^/]+\/.*:(?:_authToken|_auth|username|_password)$/.test(key)
+    ) {
+      // Handled as one credential group below.
+    } else if (key === "headers") {
+      if (!value || typeof value !== "object") refuse();
+      for (const [header, content] of Object.entries(value as object)) {
+        if (
+          header.toLowerCase() !== "authorization" ||
+          typeof content !== "string" ||
+          /[\r\n]/.test(content)
+        )
+          refuse();
+        credentials.push({
+          scope: new URL(registry),
+          authorization: content as string,
+        });
+      }
+    } else refuse();
+  }
+  const scopes = new Set(
+    Object.keys(config)
+      .filter((key) => key.startsWith("//"))
+      .map((key) => key.slice(0, key.lastIndexOf(":"))),
+  );
+  for (const key of scopes) {
+    const scope = new URL(`${new URL(registry).protocol}${key}`);
+    if (!scope.pathname.endsWith("/")) refuse();
+    const token = config[`${key}:_authToken`];
+    const auth = config[`${key}:_auth`];
+    const username = config[`${key}:username`];
+    const password = config[`${key}:_password`];
+    let authorization: string;
+    if (typeof token === "string") authorization = `Bearer ${token}`;
+    else if (typeof auth === "string") authorization = `Basic ${auth}`;
+    else if (typeof username === "string" && typeof password === "string")
+      authorization = `Basic ${Buffer.from(`${username}:${Buffer.from(password, "base64").toString("utf8")}`).toString("base64")}`;
+    else refuse();
+    if (/[\r\n]/.test(authorization!)) refuse();
+    credentials.push({ scope, authorization: authorization! });
+  }
+  credentials.sort((a, b) => b.scope.pathname.length - a.scope.pathname.length);
+  return { transport, credentials };
 }

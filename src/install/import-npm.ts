@@ -1,5 +1,6 @@
 /** Adopt npm v2/v3 exact selections without asking the registry to pick versions. */
 import { validateLockDoc } from "../lockfile/read.ts";
+import { canonicalStrongSri } from "../util/integrity.ts";
 import { valid, satisfies } from "semver";
 import type { NpmLockDoc } from "../lockfile/types.ts";
 import type {
@@ -46,6 +47,10 @@ export function importNpmLock(
       );
     const request = parseRequirement(edgeName, spec);
     const name = typeof entry.name === "string" ? entry.name : request.realName;
+    const integrity =
+      typeof entry.integrity === "string"
+        ? canonicalStrongSri(entry.integrity)
+        : undefined;
     if (
       !packageName(name) ||
       name !== request.realName ||
@@ -53,11 +58,10 @@ export function importNpmLock(
       valid(entry.version) === null ||
       typeof entry.resolved !== "string" ||
       !cleanUrl(entry.resolved) ||
-      typeof entry.integrity !== "string" ||
-      !/^sha512-[A-Za-z0-9+/]{86}==$/.test(entry.integrity)
+      integrity === undefined
     )
       throw lockMismatch(
-        "npm selection lacks a valid name, version, archive, or SHA-512 integrity",
+        "npm selection lacks a valid name, version, archive, or strong integrity",
       );
     if (
       request.targetKind !== "tag" &&
@@ -72,13 +76,13 @@ export function importNpmLock(
       name,
       version: entry.version,
       origin,
-      integrity: entry.integrity,
+      integrity,
       sourceId: sourceIdOf({
         sourceType: "registry",
         name,
         version: entry.version,
         origin,
-        integrity: entry.integrity,
+        integrity,
       }),
       tarballUrl: entry.resolved,
       bin: {},

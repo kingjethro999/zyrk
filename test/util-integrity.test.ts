@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   assertIntegrityOk,
@@ -141,4 +142,30 @@ describe("checkIntegrity and assertIntegrityOk", () => {
       assertIntegrityOk(hashed, "garbage", { what: "tarball x" }),
     ).toThrow(ZyrkError);
   });
+});
+
+it.each(["sha256", "sha384"])(
+  "verifies streaming %s and strongest alternatives",
+  (algorithm) => {
+    const digest = createHash(algorithm).update("abc").digest("base64");
+    expect(checkIntegrity(hashedABC(), `${algorithm}-${digest}`).status).toBe(
+      "verified",
+    );
+    expect(
+      checkIntegrity(
+        hashedABC(),
+        `${algorithm}-${Buffer.alloc(algorithm === "sha256" ? 32 : 48).toString("base64")} ${algorithm}-${digest}`,
+      ).status,
+    ).toBe("verified");
+  },
+);
+
+it("does not accept a weaker digest when the strongest algorithm mismatches", () => {
+  const weak = createHash("sha256").update("abc").digest("base64");
+  expect(
+    checkIntegrity(
+      hashedABC(),
+      `sha512-${Buffer.alloc(64).toString("base64")} sha256-${weak}`,
+    ).status,
+  ).toBe("mismatch");
 });

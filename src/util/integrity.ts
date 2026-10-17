@@ -2,8 +2,8 @@
  * Subresource-Integrity handling for fetched archives (§13.5).
  *
  * zyrk verifies integrity itself rather than trusting a library flag: while a
- * tarball streams to disk we hash it (sha512 and sha1, so legacy `shasum`
- * metadata can also be checked), then compare against the expected SRI string.
+ * tarball streams to disk we hash it with every accepted algorithm (including
+ * sha1 so legacy `shasum` metadata can also be checked), then compare against the expected SRI string.
  * Nothing unverified ever reaches the store (I-001, I-009).
  *
  * Policy:
@@ -75,9 +75,21 @@ export function parseSri(value: string): ParsedSri {
       valid = false;
       continue;
     }
+    const bytes = Buffer.from(digestRaw, "base64");
+    const expectedBytes = { sha512: 64, sha384: 48, sha256: 32, sha1: 20 }[
+      algorithm as SriAlgorithm
+    ];
+    const canonical = bytes.toString("base64");
+    if (
+      bytes.length !== expectedBytes ||
+      canonical.replace(/=+$/, "") !== digestRaw.replace(/=+$/, "")
+    ) {
+      valid = false;
+      continue;
+    }
     entries.push({
       algorithm: algorithm as SriAlgorithm,
-      digestBase64: digestRaw,
+      digestBase64: canonical,
     });
   }
   if (entries.length === 0) valid = false;
@@ -90,6 +102,31 @@ export function parseSri(value: string): ParsedSri {
     }
   }
   return { entries, valid, strongest };
+}
+
+/** Canonical strongest-algorithm allowed digest set, independent of token order.
+ * Verification still has to match one member before this set can be trusted.
+ * Weak-only or malformed metadata has no strong canonical identity.
+ */
+export function canonicalStrongSri(value: string): string | undefined {
+  const parsed = parseSri(value);
+  if (
+    !parsed.valid ||
+    !parsed.strongest ||
+    parsed.strongest.algorithm === "sha1"
+  )
+    return undefined;
+  const entries = new Set(
+    parsed.entries
+      .filter((entry) => entry.algorithm === parsed.strongest!.algorithm)
+      .map((entry) => formatSri(entry.algorithm, entry.digestBase64)),
+  );
+  return [...entries].sort().join(" ");
+}
+
+/** Strict portable locks already contain the canonical strongest allowed set. */
+export function isCanonicalStrongSri(value: unknown): value is string {
+  return typeof value === "string" && canonicalStrongSri(value) === value;
 }
 
 /** Build an SRI string from a base64 digest. */
@@ -110,6 +147,8 @@ export function hexFromBase64(base64: string): string {
 
 export interface HashedBytes {
   bytes: number;
+  sha256Base64: string;
+  sha384Base64: string;
   sha512Hex: string;
   sha512Base64: string;
   sha512Sri: string;
@@ -119,9 +158,11 @@ export interface HashedBytes {
 }
 
 /**
- * Streaming hasher. Computes sha512 and sha1 in one pass and counts bytes.
+ * Streaming hasher. Computes all accepted algorithms in one pass and counts bytes.
  */
 export class IntegrityHasher {
+  #sha256: Hash = createHash("sha256");
+  #sha384: Hash = createHash("sha384");
   #sha512: Hash = createHash("sha512");
   #sha1: Hash = createHash("sha1");
   #bytes = 0;
@@ -134,6 +175,8 @@ export class IntegrityHasher {
         "IntegrityHasher used after finalize()",
       );
     }
+    this.#sha256.update(chunk);
+    this.#sha384.update(chunk);
     this.#sha512.update(chunk);
     this.#sha1.update(chunk);
     this.#bytes += chunk.byteLength;
@@ -150,6 +193,8 @@ export class IntegrityHasher {
       const sha512Base64 = base64FromHex(sha512Hex);
       this.#finalized = {
         bytes: this.#bytes,
+        sha256Base64: this.#sha256.digest("base64"),
+        sha384Base64: this.#sha384.digest("base64"),
         sha512Hex,
         sha512Base64,
         sha512Sri: formatSri("sha512", sha512Base64),
@@ -191,7 +236,13 @@ export function checkIntegrity(
   }
   const entry = parsed.strongest;
   const actual = digestFor(hashed, entry.algorithm);
-  if (actual !== entry.digestBase64) {
+  if (
+    !parsed.entries.some(
+      (candidate) =>
+        candidate.algorithm === entry.algorithm &&
+        candidate.digestBase64 === actual,
+    )
+  ) {
     return {
       status: "mismatch",
       algorithm: entry.algorithm,
@@ -212,15 +263,13 @@ export function checkIntegrity(
 function digestFor(hashed: HashedBytes, algorithm: SriAlgorithm): string {
   if (algorithm === "sha512") return hashed.sha512Base64;
   if (algorithm === "sha1") return base64FromHex(hashed.sha1Hex);
-  throw new ZyrkError(
-    "ZYRK_INTEGRITY_FAILED",
-    `Integrity algorithm ${algorithm} is accepted in metadata but not implemented`,
-  );
+  return algorithm === "sha256" ? hashed.sha256Base64 : hashed.sha384Base64;
 }
 
 /**
  * Enforce the integrity outcome under the given policy.
- * Returns the verified digest (always sha512 when the hashes are ours to pin).
+ * Returns the canonical strongest allowed digest set after one member matches.
+ * Without expected metadata an explicitly permitted computed digest uses sha512.
  * Throws ZyrkError(ZYRK_INTEGRITY_FAILED) on mismatch, and on weak or missing
  * integrity unless the policy explicitly allows them.
  */
@@ -233,7 +282,7 @@ export function assertIntegrityOk(
   switch (outcome.status) {
     case "verified":
       return {
-        verifiedSri: formatSri(outcome.algorithm, outcome.digestBase64),
+        verifiedSri: canonicalStrongSri(expectedSRI!)!,
         weak: false,
       };
     case "weak-verified":
@@ -258,7 +307,7 @@ export function assertIntegrityOk(
     case "malformed":
       throw new ZyrkError(
         "ZYRK_INTEGRITY_FAILED",
-        `${options.what} has a malformed integrity string: ${String(expectedSRI)}`,
+        `${options.what} has a malformed integrity string`,
       );
     case "mismatch":
       throw new ZyrkError(
