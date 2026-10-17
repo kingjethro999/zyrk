@@ -30,3 +30,19 @@ jobs:
         with:
           ref: ${{ github.ref }}
       - run: test "$(cat VERSION)" = "${GITHUB_REF#refs/tags/}"
+
+  publish:
+    # Publish to npm on version tag push
+    needs: [version-tag]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org/
+      - run: npm ci
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
