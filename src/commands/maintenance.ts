@@ -1,7 +1,10 @@
+import { currentPlatform } from "../resolve/resolver.ts";
+import { loadProjectPatches } from "./patch.ts";
+import { sha512Hex } from "../util/hash.ts";
+import { canonicalJson } from "../util/json.ts";
 /** Read-only advisory reporting and verified source prefetch. */
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
-import { json as fetchJson } from "npm-registry-fetch";
 import { satisfies, validRange } from "semver";
 import { ZyrkError } from "../errors.ts";
 import type { RegistryClient } from "../fetch/registry.ts";
@@ -45,6 +48,7 @@ export async function runMaintenanceCommand(options: {
   projectDir: string;
   store: Store;
   registry: RegistryClient;
+  env?: NodeJS.ProcessEnv;
 }): Promise<InstallResult | AuditResult> {
   let frozen = false,
     offline = false;
@@ -62,15 +66,19 @@ export async function runMaintenanceCommand(options: {
       threshold = arg.slice(14);
     else throw usage("an unsupported option or argument was supplied");
   }
-  if (options.command === "repair")
-    throw new ZyrkError(
-      "ZYRK_STORE_CORRUPT",
-      "Cannot repair shared content in place while other projects may reference it.",
-      {
-        remedy:
-          "Use store verify to identify affected sources; immutable replacement and reverse-closure repair are not available yet.",
-      },
-    );
+  if (options.command === "repair") {
+    if (options.args.some((arg) => arg !== "--offline"))
+      throw usage("repair accepts only --offline");
+    return installProject({
+      projectDir: options.projectDir,
+      store: options.store,
+      registry: options.registry,
+      frozen: true,
+      repair: true,
+      offline,
+      ...(options.env ? { env: options.env } : {}),
+    });
+  }
   if (options.command === "fetch") {
     if (!frozen) throw usage("fetch requires --frozen-lockfile");
     return installProject({
@@ -80,6 +88,7 @@ export async function runMaintenanceCommand(options: {
       frozen: true,
       offline,
       fetchOnly: true,
+      ...(options.env ? { env: options.env } : {}),
     });
   }
   let manifest: unknown;
@@ -143,6 +152,7 @@ export async function runMaintenanceCommand(options: {
   );
   if (!lock?.doc.zyrk)
     throw lockMismatch("audit requires an exact zyrk lockfile");
+  const patches = await loadProjectPatches(options.projectDir);
   assertFrozenCompatible(lock.doc, {
     manifest: manifestFingerprint(manifest),
     scripts: scriptPolicyFingerprint(
@@ -151,6 +161,22 @@ export async function runMaintenanceCommand(options: {
     config: configFingerprint({
       registry: options.registry.origin,
       linker: "shared",
+      platform: currentPlatform(),
+      ...(object(manifest.zyrk) && Array.isArray(manifest.zyrk.mutablePackages)
+        ? { mutablePackages: manifest.zyrk.mutablePackages as string[] }
+        : {}),
+      ...(patches.length
+        ? {
+            patches: sha512Hex(
+              canonicalJson(
+                patches.map((p) => ({
+                  sourceId: p.sourceId,
+                  digest: p.digest,
+                })),
+              ),
+            ),
+          }
+        : {}),
     }),
   });
   const graph = lockedGraph(lock.doc);
@@ -175,18 +201,7 @@ export async function runMaintenanceCommand(options: {
   if (!graph.nodes.length) return base;
   let response: unknown;
   try {
-    response = await fetchJson(
-      new URL("-/npm/v1/security/advisories/bulk", options.registry.registry)
-        .href,
-      {
-        method: "POST",
-        body: packages,
-        registry: options.registry.registry,
-        retry: false,
-        timeout: 15_000,
-        headers: { "content-type": "application/json" },
-      },
-    );
+    response = await options.registry.auditAdvisories(packages);
   } catch {
     return {
       ...base,

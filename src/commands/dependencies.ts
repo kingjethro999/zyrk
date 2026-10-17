@@ -29,12 +29,14 @@ export async function runDependencyCommand(options: {
   projectDir: string;
   store: Store;
   registry: RegistryClient;
+  env?: NodeJS.ProcessEnv;
 }): Promise<InstallResult> {
   const { command } = options;
   const install: InstallOptions = {
     projectDir: options.projectDir,
     store: options.store,
     registry: options.registry,
+    ...(options.env ? { env: options.env } : {}),
   };
   const names: string[] = [];
   let from: string | undefined;

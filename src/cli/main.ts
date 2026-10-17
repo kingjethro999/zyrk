@@ -1,16 +1,11 @@
-/**
- * zyrk command dispatch (SPEC 15).
- *
- * This is the roadmap skeleton, not the whole implementation: `dlx` and
- * `create` run temporary tool environments; `--help`, `--version`, the
- * global-install rejection, and explicit npm delegation do their jobs.
- * `install` publishes a verified shared project graph. Other dependency
- * commands fail with ZYRK_NOT_IMPLEMENTED rather than pretending to work;
- * unknown commands fail with ZYRK_USAGE
- * and the help text.
- * Nothing here launches a subprocess: rejection happens before resolution,
- * downloads, lifecycle execution, project/store mutation, or any child
- * process (SPEC 15.3.1).
+import { runMaintenanceCommand } from "../commands/maintenance.ts";
+import { runDeployCommand } from "../commands/deploy.ts";
+import { runPatchCommand } from "../commands/patch.ts";
+import { sanitizeDiagnostic, redactSecrets } from "../log.ts";
+/** zyrk command dispatch (SPEC 15).
+ * Native handlers share validated graph and registry adapters; delegated registry
+ * operations preserve npm arguments. Global install rejection precedes effects.
+ * Unsupported command modes fail explicitly in their handler.
  */
 
 import { installProject, type InstallOptions } from "../install/run.ts";
@@ -90,6 +85,14 @@ const IMPLEMENTED_COMMANDS = new Set([
   "repair",
   "store",
   "projects",
+  "fetch",
+  "audit",
+  "approve-builds",
+  "rebuild",
+  "patch",
+  "patch-commit",
+  "deploy",
+  "docker",
 ]);
 
 export function helpText(version: string): string {
@@ -157,7 +160,7 @@ function fail(
   if (error.remedy !== undefined) body.remedy = error.remedy;
   return {
     exitCode: exitCodeFor(error),
-    stdout: `${JSON.stringify(body)}\n`,
+    stdout: `${JSON.stringify(sanitizeDiagnostic(body))}\n`,
     stderr: "",
   };
 }
@@ -297,6 +300,13 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     if (result.stderr !== "") options.stderr.write(result.stderr);
     return result.exitCode;
   };
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    parsed.command &&
+    isGlobalInstallRequest(parsed.command, parsed.commandArgs, options.env)
+  )
+    return emit(fail(globalInstallError(parsed.command), parsed));
   // Delegation bypasses dispatch: zyrk interprets no command arguments
   // itself, adds no JSON envelope, and forwards every non-zyrk token
   // verbatim — before the command as well as after it. A leading
@@ -328,6 +338,150 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           toZyrkError(error, "zyrk failed while delegating to npm."),
           parsed,
         ),
+      );
+    }
+  }
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    parsed.command &&
+    [
+      "fetch",
+      "audit",
+      "approve-builds",
+      "rebuild",
+      "repair",
+      "patch",
+      "patch-commit",
+      "deploy",
+      "docker",
+    ].includes(parsed.command)
+  ) {
+    try {
+      const command = parsed.command,
+        cwd = options.cwd ?? process.cwd();
+      if (command === "deploy" || command === "docker")
+        return await runDeployCommand({
+          command,
+          args: parsed.commandArgs,
+          cwd,
+          env: options.env,
+          stdout: options.stdout,
+          stderr: options.stderr,
+          json: parsed.json,
+        });
+      const tools = options.tools
+        ? await options.tools()
+        : await defaultTools(options.env, version, cwd);
+      let result: unknown;
+      if (command === "patch" || command === "patch-commit")
+        result = await runPatchCommand({
+          command,
+          args: parsed.commandArgs,
+          cwd,
+          store: tools.store,
+        });
+      else if (command === "approve-builds") {
+        if (parsed.commandArgs.some((v) => v.startsWith("-") && v !== "--all"))
+          throw new ZyrkError(
+            "ZYRK_USAGE",
+            "Unsupported build approval option.",
+            {
+              remedy:
+                "Use approve-builds to review; approve-builds <name...> or --all explicitly trusts reviewed source code.",
+            },
+          );
+        const selected = parsed.commandArgs.includes("--all")
+          ? ["*"]
+          : parsed.commandArgs;
+        result = await installProject({
+          ...tools,
+          projectDir: cwd,
+          env: options.env,
+          reviewBuilds: true,
+          ...(selected.length ? { approveBuilds: selected } : {}),
+        });
+      } else if (command === "rebuild") {
+        if (parsed.commandArgs.some((v) => v !== "--offline"))
+          throw new ZyrkError(
+            "ZYRK_USAGE",
+            "Rebuild operates on the complete approved project graph.",
+            { remedy: "Use zyrk rebuild [--offline]; review approvals first." },
+          );
+        result = await installProject({
+          ...tools,
+          projectDir: cwd,
+          env: options.env,
+          frozen: true,
+          rebuild: true,
+          offline: parsed.commandArgs.includes("--offline"),
+        });
+      } else if (command === "repair") {
+        if (parsed.commandArgs.some((arg) => arg !== "--offline"))
+          throw new ZyrkError("ZYRK_USAGE", "Repair accepts only --offline.", {
+            remedy:
+              "Use zyrk repair to rebuild verified instances selected by the lock.",
+          });
+        result = await installProject({
+          ...tools,
+          projectDir: cwd,
+          env: options.env,
+          frozen: true,
+          repair: true,
+          offline: parsed.commandArgs.includes("--offline"),
+        });
+      } else
+        result = await runMaintenanceCommand({
+          command: command as "fetch" | "audit",
+          env: options.env,
+          args: parsed.commandArgs,
+          projectDir: cwd,
+          ...tools,
+        });
+      const payload = (
+        command === "audit" ? sanitizeDiagnostic(result) : result
+      ) as Record<string, unknown>;
+      if (Array.isArray(payload.builds))
+        payload.builds = sanitizeDiagnostic(payload.builds);
+      const exitCode =
+        payload.status === "unavailable" || payload.thresholdExceeded === true
+          ? 1
+          : 0;
+      if (parsed.json)
+        return emit({
+          exitCode,
+          stdout: `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, ...payload, status: payload.status ?? "ok" })}\n`,
+          stderr: "",
+        });
+      if (command === "approve-builds") {
+        const builds = (payload.builds ?? []) as Array<{
+          name: string;
+          version: string;
+          sourceId: string;
+          stages: Array<{ name: string; command: string }>;
+        }>;
+        return emit({
+          exitCode,
+          stdout: builds.length
+            ? builds
+                .map(
+                  (b) =>
+                    `${b.name}@${b.version} ${b.sourceId}\n${b.stages.map((s) => `  ${s.name}: ${redactSecrets(s.command)}`).join("\n")}`,
+                )
+                .join("\n") +
+              "\nReview runs no package code. Approval trusts these exact candidate sources.\n"
+            : "No dependency builds require approval.\n",
+          stderr: "",
+        });
+      }
+      return emit({
+        exitCode,
+        stdout: `${JSON.stringify(payload)}\n`,
+        stderr: "",
+      });
+    } catch (error) {
+      return emit(
+        fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
       );
     }
   }
@@ -391,6 +545,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           };
       const result = await installProject({
         ...flags,
+        env: options.env,
         specs,
         projectDir: cwd,
         ...tools,
@@ -440,10 +595,15 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     try {
       const tools =
         options.tools === undefined
-          ? await defaultTools(options.env, version)
+          ? await defaultTools(
+              options.env,
+              version,
+              options.cwd ?? process.cwd(),
+            )
           : await options.tools();
       const result = await runDependencyCommand({
         command: parsed.command as DependencyCommand,
+        env: options.env,
         args: parsed.commandArgs,
         projectDir: options.cwd ?? process.cwd(),
         store: tools.store,
@@ -503,14 +663,17 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     (parsed.command === "store" || parsed.command === "projects")
   ) {
     try {
-      const tools =
+      const store =
         options.tools === undefined
-          ? await defaultTools(options.env, version)
-          : await options.tools();
+          ? await Store.open({
+              root: resolveStoreRoot({ env: options.env }).root,
+              create: false,
+            })
+          : (await options.tools()).store;
       const result = await runStoreCommand({
         command: parsed.command as "store" | "projects",
         args: parsed.commandArgs,
-        store: tools.store,
+        store,
         cwd: options.cwd ?? process.cwd(),
         json: parsed.json,
       });
@@ -539,14 +702,12 @@ export async function runCli(options: RunCliOptions): Promise<number> {
 async function defaultTools(
   env: NodeJS.ProcessEnv,
   version: string,
+  cwd: string = process.cwd(),
 ): Promise<ToolEnvironment> {
+  const registry = await installRegistry({ cwd, env, version });
   const store = await Store.open({
     root: resolveStoreRoot({ env }).root,
     create: true,
-  });
-  const registry = new RegistryClient({
-    registry: DEFAULT_REGISTRY,
-    userAgent: `zyrk/${version}`,
   });
   return { store, registry };
 }
@@ -586,7 +747,7 @@ async function runToolCommand(
   }
   const tools =
     options.tools === undefined
-      ? await defaultTools(options.env, version)
+      ? await defaultTools(options.env, version, options.cwd ?? process.cwd())
       : await options.tools();
   const base = {
     store: tools.store,

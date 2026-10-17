@@ -147,22 +147,35 @@ export async function hasProjectPatches(project: string): Promise<boolean> {
 /** Caller supplies the complete private generation, copied/reflinked without store hardlinks. */
 export async function applyProjectPatches(options: {
   project: string;
+  store: Store;
   packages: ReadonlyMap<string, { sourceId: string; directory: string }>;
 }): Promise<{ digest: string; count: number }> {
   const project = await fs.realpath(options.project);
   const patches = await loadProjectPatches(project);
   let count = 0;
   for (const patch of patches) {
+    if (
+      (await readSourceManifest(options.store, patch.sourceId)).manifestHash !==
+      patch.manifestHash
+    )
+      fail(
+        "patch source manifest binding disagrees with the selected verified source",
+      );
     const targets = [...options.packages.values()].filter(
       (pkg) => pkg.sourceId === patch.sourceId,
     );
     if (!targets.length)
       fail("patched source is absent from the selected graph");
+    const seenDirectories = new Set<string>();
     for (const pkg of targets) {
+      if (seenDirectories.has(pkg.directory)) continue;
+      seenDirectories.add(pkg.directory);
       const root = await fs.realpath(pkg.directory);
       if (
         !root.startsWith(`${project}${path.sep}`) ||
-        !root.startsWith(path.join(project, ".zyrk") + path.sep)
+        !root.startsWith(
+          path.join(project, ".zyrk-local", "generations") + path.sep,
+        )
       )
         fail("patch destination is outside the private generation");
       for (const change of patch.changes) {
@@ -207,7 +220,7 @@ export async function runPatchCommand(options: {
   if (options.args.length !== 1 || !options.args[0])
     fail("expected one package selector or editing-area path");
   const project = await fs.realpath(options.cwd);
-  const control = path.join(project, ".zyrk");
+  const control = path.join(project, ".zyrk-local");
   try {
     if (!(await fs.lstat(control)).isDirectory())
       fail("project control directory is not a real directory");
@@ -245,8 +258,8 @@ async function createEditingArea(
     fail("selector must identify exactly one installed source");
   const sourceId = ids[0];
   const doc = await readSourceManifest(store, sourceId);
-  const base = path.join(project, ".zyrk", "patch-work");
-  await safeParent(project, ".zyrk/patch-work/placeholder", true);
+  const base = path.join(project, ".zyrk-local", "patch-work");
+  await safeParent(project, ".zyrk-local/patch-work/placeholder", true);
   const editingArea = path.join(base, randomId("edit1_"));
   await fs.mkdir(editingArea, { mode: 0o700 });
   const packageRoot = path.join(editingArea, "package");
@@ -289,7 +302,7 @@ async function createEditingArea(
 async function commitPatch(project: string, argument: string, store: Store) {
   let area = await fs.realpath(path.resolve(project, argument));
   if (path.basename(area) === "package") area = path.dirname(area);
-  const base = path.join(project, ".zyrk", "patch-work");
+  const base = path.join(project, ".zyrk-local", "patch-work");
   if (path.dirname(area) !== base) fail("editing area is outside this project");
   const info = (await readJson(path.join(area, "edit.json"))) as {
     sourceId: string;

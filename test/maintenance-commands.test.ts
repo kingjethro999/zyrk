@@ -246,7 +246,7 @@ it("prefetches locked sources without projection, lock edits, or lifecycle execu
   ).toMatchObject({ readiness: "fetched" });
   expect(posted).toEqual([]);
 });
-it("rejects unsupported maintenance arguments and unsafe repair", async () => {
+it("rejects unsupported maintenance arguments and repair without a lock", async () => {
   await expect(command("fetch")).rejects.toMatchObject({ code: "ZYRK_USAGE" });
   await expect(command("audit", "fix")).rejects.toMatchObject({
     code: "ZYRK_USAGE",
@@ -255,7 +255,7 @@ it("rejects unsupported maintenance arguments and unsafe repair", async () => {
     { code: "ZYRK_USAGE" },
   );
   await expect(command("repair")).rejects.toMatchObject({
-    code: "ZYRK_STORE_CORRUPT",
+    code: "ZYRK_LOCK_MISMATCH",
   });
   expect(posted).toEqual([]);
 });
