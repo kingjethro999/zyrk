@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runCli } from "../src/cli/main.ts";
+import { runCli } from "../dist/cli/main.js";
 
 process.exitCode = await runCli({
   argv: process.argv.slice(2),
