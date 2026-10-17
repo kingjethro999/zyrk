@@ -15,6 +15,7 @@ const localBin = (name) =>
 
 const steps = [
   ["typecheck", localBin("tsc"), ["-p", "tsconfig.json"]],
+  ["build", localBin("tsc"), ["-p", "tsconfig.build.json"]],
   ["test", localBin("vitest"), ["run"]],
 ];
 
