@@ -6,6 +6,7 @@
  * fails loudly: a frozen install must never silently re-resolve.
  */
 
+import { validateWorkspaceLockDoc } from "../install/workspace-lock.ts";
 import { assertPortableLockMetadata, lockedGraph } from "../install/lock.ts";
 import { readFile } from "node:fs/promises";
 import { ZyrkError } from "../errors.ts";
@@ -100,6 +101,10 @@ export function validateLockDoc(doc: unknown, label: string): NpmLockDoc {
         throw bad(`packages entry ${location} is not an object`);
       }
     }
+  }
+  if ((record["zyrk"] as { version?: unknown } | undefined)?.version === 2) {
+    validateWorkspaceLockDoc(doc);
+    return doc as NpmLockDoc;
   }
   assertPortableLockMetadata(doc);
   if (record["zyrk"] !== undefined) validateExtension(record["zyrk"], label);

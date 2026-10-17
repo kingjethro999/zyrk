@@ -37,9 +37,9 @@ zyrk --help
 zyrk --version
 ```
 
-Requires **Node.js 24 or newer**. The source runs directly with Node's native
-TypeScript support; no compilation step or native toolchain is required to
-install zyrk itself.
+Requires **Node.js 24 or newer**. Published packages contain compiled JavaScript. A checkout runs TypeScript
+through Node's native type stripping; the check gate also builds and tests the
+source-free package layout. Installing zyrk requires no native toolchain.
 
 From a checkout:
 
@@ -90,19 +90,60 @@ Offline installs use locked verified sources and fail if an input is missing.
 Manifest, lock, and projection changes are journaled for process-crash recovery;
 a failed resolution, verification, or build-policy check keeps the prior graph.
 
-Dependency install scripts and implicit native builds are blocked by default.
-`--ignore-scripts` explicitly produces an **intentionally unbuilt** installation.
-Root install hooks are reported and never run automatically. Script approval,
-private native builds, runtime-mutable packages, workspaces, overrides, Git/local
-sources, and authenticated or mixed scoped registries are not supported by this
-install path yet. Unsupported platform constraints and failed optional packages
-currently fail installation instead of being silently omitted. macOS/Windows
-compatibility and framework support remain unverified.
+Dependency install scripts and implicit `binding.gyp` builds require explicit
+approval. Review first, trust the selected sources, then install:
 
-Use `--registry=https://your-registry.example/` for a compatible unauthenticated
-registry. The adapter reads the default registry from user/project `.npmrc`, and
-fails closed on scoped registry routing or disabled TLS verification. Tool
-commands (`dlx`/`create`) still use their existing public-registry configuration.
+```bash
+zyrk approve-builds                # inspect exact sources and commands; executes no package code
+zyrk approve-builds esbuild        # approve reviewed candidates by package name
+zyrk install
+zyrk rebuild --offline             # rebuild the complete approved locked graph
+```
+
+Approvals are local to the exact graph, sources, patch contents, and script
+policy. Mandatory user denies override project approvals. Approved scripts run
+with your account's permissions; permission is not a sandbox. Packages that need
+writes use a complete private dependency generation under `.zyrk-local/`, with
+independent writable files and dependency links confined to that generation.
+Build failure keeps the previous project graph active. `--ignore-scripts`
+explicitly publishes an **intentionally unbuilt** installation. Root install
+hooks never run automatically. A project can request runtime writable packages
+with `"zyrk": { "mutablePackages": ["package-name"] }`; this also uses a complete
+private graph.
+
+Default registry and authentication settings are loaded from user/project
+`.npmrc` for installation, dependency edits, `dlx`, and `create`. Environment
+token placeholders are supported. Credentials are restricted to their configured
+scheme, host, port, and path; redirects cannot expand that scope. Use
+`--registry=https://your-registry.example/` on install for an explicit registry.
+Mixed scoped routing and disabled TLS verification are rejected before public
+lookup. Git sources, non-workspace local sources, and overrides remain unsupported;
+they fail explicitly. Optional dependencies incompatible with the selected platform
+are omitted; missing packages, integrity failures, and other optional failures
+remain errors. Platform selection is recorded in the lock. macOS, Windows, and
+broad framework compatibility have not passed their release gates.
+
+### Workspaces
+
+Standard `package.json` workspaces use one root lock and a recoverable transaction
+for all importer projections. Workspace packages remain editable live directories;
+registry closures independent of live sources can still use shared realizations.
+Run install or dependency edits from the root or a member directory. Root settings
+and registry policy apply to every member.
+
+```bash
+zyrk install
+zyrk run --workspace app start       # exact workspace name or relative path
+zyrk run --recursive build           # dependency-first member scripts
+cd packages/app
+zyrk add package-name                # edit this importer, preserve other selections
+```
+
+Frozen/offline installs, live peers, patches, mutable registry packages, inspection,
+and repair have workspace fixtures. Builds that reach live workspace sources are
+blocked before execution. Workspace npm-lock adoption and portable workspace
+export still need adapters and fail explicitly. Recursive execution supports
+member scripts; filters are exact names or paths, not arbitrary glob expressions.
 
 ### Run a one-off tool
 
@@ -115,15 +156,17 @@ When running from source, replace `zyrk` with `node bin/zyrk.js`.
 
 `dlx` resolves the requested package and its dependencies, verifies downloaded
 archives, creates a dependency-aware tool graph, and launches the selected
-JavaScript bin entry with the supplied arguments. Its temporary projection is
+JavaScript, shell, or native executable bin entry with the supplied arguments. Its temporary projection is
 removed afterward; verified sources and shared realizations remain in the
 store.
 
 `create` uses the same execution path and maps initializer names to their
 `create-*` packages. For example, `vite` maps to `create-vite`, while a scoped
 initializer stays in its scope. Compatibility depends on the selected tool:
-closures declaring install lifecycle scripts are currently blocked, and native
-or shell executable bins are not supported by the JavaScript-only launcher.
+closures declaring install lifecycle scripts, implicit native builds, or bundled
+install hooks are blocked. Dependency executables are available on the tool
+PATH. Parent cancellation terminates the supervised process group with bounded
+escalation on POSIX systems.
 
 These commands run the tool's code with your account's permissions. The tool
 working directory is your current directory. A temporary tool projection is
@@ -131,16 +174,77 @@ not a sandbox.
 
 ### Current command coverage
 
-| Surface                                                                                | Current behavior                                                                    |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `install`, `i`                                                                         | Resolve or reuse the lock, verify sources, and publish shared project dependencies. |
-| `--help`, `--version`                                                                  | Show the CLI surface and package version.                                           |
-| `dlx`, `create`                                                                        | Resolve, fetch, verify archives, and run temporary tool environments.               |
-| `publish`, `unpublish`, `access`, `deprecate`, `dist-tag`, `owner`                     | Explicitly delegate to your npm CLI.                                                |
-| `token`, `adduser`, `login`, `logout`, `whoami`, `ping`, `pack`                        | Explicitly delegate to your npm CLI.                                                |
-| `add`, `remove`, `update`, `run`, `exec`                                               | Report `ZYRK_NOT_IMPLEMENTED`.                                                      |
-| `store`, `projects`, `repair`, `import`, `deploy`, `docker`                            | Report `ZYRK_NOT_IMPLEMENTED`.                                                      |
-| `list`, `why`, `doctor`, `approve-builds`, `rebuild`, `audit`, `patch`, `patch-commit` | Report `ZYRK_NOT_IMPLEMENTED`.                                                      |
+| Commands                                                                                                                            | Behavior                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `install`, `i`, `add`, `remove`, `update`                                                                                           | Resolve or reuse exact selections; publish verified dependencies transactionally.                                         |
+| `import --from npm`                                                                                                                 | Adopt supported npm v2/v3 lock selections without changing versions.                                                      |
+| `fetch --frozen-lockfile`                                                                                                           | Prefetch verified locked sources without running scripts or publishing a projection.                                      |
+| `run`, `exec`                                                                                                                       | Execute project scripts or installed binaries; `exec` never fetches.                                                      |
+| `dlx`, `create`                                                                                                                     | Verify and run temporary tool closures.                                                                                   |
+| `list`, `why`, `doctor`                                                                                                             | Inspect selected dependencies, dependency paths, and project health.                                                      |
+| `approve-builds`, `rebuild`                                                                                                         | Review and approve exact build candidates; build a new private generation.                                                |
+| `audit`                                                                                                                             | Query exact selected versions under the project privacy policy; distinguish unavailable service from no known advisories. |
+| `patch`, `patch-commit`                                                                                                             | Create a private editing area and portable source-bound patch; apply on reinstall.                                        |
+| `repair`                                                                                                                            | Re-fetch corrupt locked sources and publish a new realization closure without editing existing shared inodes.             |
+| `store path/status/verify/gc/pin/unpin`, `projects list/forget`                                                                     | Inspect storage, verify content, and manage explicit retention roots.                                                     |
+| `deploy`, `docker init/build/run`                                                                                                   | Export supported production closures or generate and invoke a pinned Docker setup.                                        |
+| `publish`, `unpublish`, `access`, `deprecate`, `dist-tag`, `owner`, `token`, `adduser`, `login`, `logout`, `whoami`, `ping`, `pack` | Explicitly delegate to your npm CLI.                                                                                      |
+
+### Patches, recovery, and cleanup
+
+```bash
+zyrk patch package-name            # prints a private editing directory
+# Edit files in that directory, then:
+zyrk patch-commit <editing-directory>
+zyrk install                       # refresh the lock and apply the patch privately
+zyrk install --offline --frozen-lockfile
+
+zyrk doctor
+zyrk store verify --full
+zyrk repair                        # preserve locked versions, publish replacement instances
+zyrk store gc --dry-run
+zyrk store gc
+```
+
+Commit `package.json`, `package-lock.json`, and `.zyrk/patches/` artifacts.
+Keep `.zyrk-local/` out of version control: it contains approvals, private builds,
+logs, and local install state. Patches bind to verified source manifests; changed
+patches invalidate frozen selections. Other projects retain their selected
+package instances. Repair retains incident evidence and replaces corrupted
+object pathnames, so existing hard links are never rewritten in place.
+
+GC uses recorded project roots, pins, leases, a store coordination lock, and a
+30-day grace period. Preview collection before removing retention roots. Live
+or uncertain owners are retained. A process killed inside the short lock-publication
+guard can leave a guard requiring manual recovery after all zyrk processes stop;
+zyrk fails closed instead of guessing which process owns it.
+
+### Export an application
+
+Declare runtime files explicitly and select a direct Node entry:
+
+```bash
+zyrk deploy --out ./dist-runtime --omit=dev --files dist --entry dist/server.js
+node ./dist-runtime/dist/server.js
+```
+
+The exporter validates that links stay inside the output and excludes the host
+store. Generic export supports shared production graphs and relocatable private
+JavaScript outputs, including selected patches and generated files. Native binaries,
+host-path-dependent outputs, workspace export, and arbitrary shell startup adapters
+remain unsupported. Exports validate active generation/profile metadata and reject
+credentials or escaping links. Structural validation does not prove application health. Run an
+application smoke test from the exported directory with host-store access removed.
+
+`zyrk docker init` requires a supported Node image pinned by SHA-256, a local CLI
+tarball pinned by SHA-512, runtime files, and an entry. It generates reviewable
+`Dockerfile`, `.dockerignore`, `zyrk-docker.json`, and `ZYRK_DOCKER.md`. Builds fetch
+with an optional BuildKit npmrc secret, then install and export without networking.
+`zyrk docker build --tag app:local` and `zyrk docker run --tag app:local` require a
+reachable Docker daemon. Generated configuration has fixture coverage. The opt-in
+`node scripts/docker-smoke.mjs` gate exercises a pinned image and a network-free
+runtime. A Linux daemon run passed cold/warm builds, imports and asset access
+without host mounts. Broad framework compatibility still requires application-specific checks.
 
 Native commands that support `--json` return a versioned result envelope.
 `dlx` and `create` reject that option because the tool owns stdout. Delegated
@@ -164,16 +268,18 @@ The design separates three things:
   publication. Extraction rejects unsafe paths and links and normalizes modes.
 - **Dependency context:** a package instance records its selected dependency
   wiring, so incompatible versions and peer contexts are not merged.
-- **Mutable work:** the planned build/runtime mutation model uses private
-  project generations. Writable build outputs must not change shared source.
+- **Mutable work:** approved builds, patches, and runtime-writable packages use
+  independent private project generations. Writable outputs do not alter shared source.
 
 Read-only modes help prevent accidental writes; they are not a security boundary
 against code running as the same OS user. Shared stores should be used only by
 mutually trusted processes. Do not share them across unrelated CI trust domains.
 
-Native tool commands currently use the public npm registry. Private registry
-configuration and credential support are not implemented; do not use these
-commands for internal tools that depend on private registry routing.
+Archive expansion, metadata sizes, resolution growth, fetch totals, and operation
+deadlines are bounded. These limits defend against accidental and hostile
+resource exhaustion; they do not make executed dependencies trustworthy.
+Security reports belong in the private reporting channel described in
+[SECURITY.md](SECURITY.md).
 
 ## Global installs and npm delegation
 
@@ -222,7 +328,10 @@ tag after the commit. Keep changes focused and never bypass the hooks.
 
 CI checks pushed commits and pull requests. The separate
 [npm publishing action](.github/workflows/npm-publish.yml) is triggered when a
-GitHub release is created; ordinary commits do not trigger that action.
+GitHub release is published. It verifies the release tag, formatting, typecheck,
+build, and tests, then publishes that exact commit. Ordinary commits do not
+publish packages. Dependabot and a scheduled advisory check supplement CI; an
+unavailable advisory service fails separately from a clean result.
 
 The contributor guide is [AGENTS.md](AGENTS.md). Bug reports and reproducible
 compatibility cases belong in

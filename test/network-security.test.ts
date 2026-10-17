@@ -598,3 +598,30 @@ test("free text redacts long npm tokens and cookie headers", () => {
     redactSecrets("Cookie: session=FAKE_COOKIE_SECRET\nnext line"),
   ).not.toContain("FAKE_COOKIE_SECRET");
 });
+
+test("workspace child commands retain the authoritative root registry policy", async () => {
+  const root = await dir();
+  await mkdir(path.join(root, "packages/child"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({ workspaces: ["packages/*"] }),
+  );
+  await writeFile(
+    path.join(root, "packages/child/package.json"),
+    JSON.stringify({ name: "child", version: "1.0.0" }),
+  );
+  await writeFile(
+    path.join(root, ".npmrc"),
+    "@private:registry=https://private.invalid/\n",
+  );
+  await expect(
+    installRegistry({
+      cwd: path.join(root, "packages/child"),
+      env: {
+        HOME: root,
+        npm_config_userconfig: path.join(root, "missing-user-config"),
+      },
+      version: "test",
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
+});

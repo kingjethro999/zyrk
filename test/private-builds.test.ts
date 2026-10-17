@@ -180,3 +180,54 @@ it("local mandatory denies beat reviewed approvals without rewriting the lock", 
     before,
   );
 });
+
+it("collects unrelated sources while private generations retain their exact source closure", async () => {
+  const { runStoreCommand } = await import("../src/commands/store.ts");
+  const { Transaction } = await import("../src/store/txn.ts");
+  const { fetchAndCommitSource } = await import("../src/fetch/package.ts");
+  const { sourceManifestPath } = await import("../src/store/manifests.ts");
+  await install({ reviewBuilds: true, approveBuilds: ["builder"] });
+  await install();
+  const txn = await Transaction.begin(store, "fixture-unreferenced");
+  let orphan;
+  try {
+    orphan = await fetchAndCommitSource({
+      store,
+      registry,
+      txn,
+      name: "failing",
+      version: "1.0.0",
+    });
+  } finally {
+    await txn.finish();
+  }
+  const gc = () =>
+    runStoreCommand({
+      command: "store",
+      args: ["gc"],
+      store,
+      cwd: project,
+    }) as Promise<{ retentionReasons: string[]; removed: number }>;
+  expect((await gc()).retentionReasons).toEqual([]);
+  const marksFile = path.join(store.paths.metadataDir, "gc-unreferenced.json");
+  const marks = JSON.parse(await readFile(marksFile, "utf8")) as Record<
+    string,
+    number
+  >;
+  for (const key of Object.keys(marks))
+    marks[key] = Date.now() - 31 * 86400_000;
+  await writeFile(marksFile, JSON.stringify(marks));
+  expect((await gc()).removed).toBeGreaterThan(0);
+  expect(await pathExists(sourceManifestPath(store, orphan!.sourceId))).toBe(
+    false,
+  );
+  expect(
+    (
+      await exec(
+        process.execPath,
+        ["-e", 'console.log(require("builder").value)'],
+        { cwd: project },
+      )
+    ).stdout.trim(),
+  ).toBe("private");
+});

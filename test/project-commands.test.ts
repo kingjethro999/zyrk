@@ -216,3 +216,19 @@ it("fails closed for configured user execution policy and missing script names",
     code: "ZYRK_POLICY_DENIED",
   });
 });
+
+it("honors explicit project script denies while allowing unrelated dependency restrictions", async () => {
+  await mkdir(path.join(root, "config/zyrk"), { recursive: true });
+  const file = path.join(root, "config/zyrk/config.json");
+  await writeFile(
+    file,
+    JSON.stringify({
+      scripts: { default: "deny", deny: ["dependency-with-build"] },
+    }),
+  );
+  expect(await run("run", ["check"])).toBe(0);
+  await writeFile(file, JSON.stringify({ scripts: { deny: ["*"] } }));
+  await expect(run("run", ["check"])).rejects.toMatchObject({
+    code: "ZYRK_POLICY_DENIED",
+  });
+});

@@ -1,3 +1,5 @@
+import { findWorkspaceRoot } from "./workspaces.ts";
+import { assertSupportedSourcePayload } from "./source-policy.ts";
 import { prepareRepair } from "./repair.ts";
 import { createFetchOperation } from "../fetch/package.ts";
 import {
@@ -210,6 +212,10 @@ function scriptPolicy(manifest: Manifest): unknown {
 export async function installProject(
   options: InstallOptions,
 ): Promise<InstallResult> {
+  if (await findWorkspaceRoot(options.projectDir)) {
+    const { installWorkspaceProject } = await import("./workspace-install.ts");
+    return installWorkspaceProject(options);
+  }
   const project = await realpath(options.projectDir);
   // A local control-directory link would redirect locks and recovery writes.
   const local = path.join(project, PROJECT_STATE_DIR);
@@ -706,6 +712,11 @@ export async function installProject(
         );
       await rm(tarball, { force: true });
     }
+    for (const node of unique.values())
+      assertSupportedSourcePayload(
+        node,
+        await readSourceManifest(options.store, node.sourceId),
+      );
     await txn.setState("sources-committed");
     if (options.fetchOnly)
       return {

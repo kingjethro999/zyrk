@@ -1,5 +1,12 @@
+import {
+  discoverWorkspaces,
+  findWorkspaceRoot,
+  planWorkspaceDependencies,
+  selectWorkspaceImporters,
+  workspaceScriptOrder,
+} from "../install/workspaces.ts";
+import { readWorkspaceLock } from "../install/workspace-lock.ts";
 /** Project inspection and explicit execution (SPEC 12.2, 18.3.1, D-1). */
-import { spawn } from "node:child_process";
 import { access, lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import * as path from "node:path";
@@ -21,7 +28,7 @@ import { PROJECT_STATE_DIR } from "../project/projection.ts";
 import { openStoreDb } from "../store/db.ts";
 import { Store } from "../store/layout.ts";
 import { acquireLock } from "../util/locks.ts";
-import { closeCode, currentProcessIdentity } from "../util/proc.ts";
+import { superviseChild, currentProcessIdentity } from "../util/proc.ts";
 import { randomId } from "../util/ids.ts";
 import { canonicalJson } from "../util/json.ts";
 import { sha512Hex } from "../util/hash.ts";
@@ -55,6 +62,8 @@ export type ProjectCommandOptions = {
   stdout: { write(chunk: string): unknown };
   stderr: { write(chunk: string): unknown };
   json?: boolean;
+  workspaceLockHeld?: boolean;
+  initialCwd?: string;
 };
 type State = {
   generationId: string;
@@ -62,6 +71,7 @@ type State = {
   graphDigest: string;
   lockDigest: string;
   readiness: string;
+  linker?: "private" | "shared";
   direct: { name: string; target: string }[];
 };
 function validateState(raw: unknown): State {
@@ -74,6 +84,9 @@ function validateState(raw: unknown): State {
     typeof raw.graphDigest !== "string" ||
     typeof raw.lockDigest !== "string" ||
     typeof raw.readiness !== "string" ||
+    (raw.linker !== undefined &&
+      raw.linker !== "private" &&
+      raw.linker !== "shared") ||
     !Array.isArray(raw.direct) ||
     raw.direct.some(
       (e) =>
@@ -89,12 +102,74 @@ function validateState(raw: unknown): State {
     );
   return raw as unknown as State;
 }
-async function load(
-  project: string,
-): Promise<{ state: State; extension: ZyrkLockExtension }> {
+async function load(project: string): Promise<{
+  state: State;
+  extension: Pick<ZyrkLockExtension, "manifest" | "roots"> & {
+    nodes: Record<
+      string,
+      Pick<
+        ZyrkLockExtension["nodes"][string],
+        "name" | "version" | "source" | "edges" | "peers"
+      >
+    >;
+  };
+}> {
   const state = validateState(
     await json(path.join(project, "node_modules/.zyrk/install-state.json")),
   );
+  const workspaceRoot = await findWorkspaceRoot(project);
+  if (workspaceRoot) {
+    const workspace = await discoverWorkspaces(workspaceRoot);
+    const locked = await readWorkspaceLock(workspaceRoot, workspace);
+    if (
+      !locked ||
+      locked.doc.zyrk?.manifest !== workspace.manifestFingerprint ||
+      state.lockDigest !== sha512Hex(canonicalJson(locked.doc))
+    )
+      throw fail(
+        "ZYRK_LOCK_MISMATCH",
+        "The workspace manifests, authoritative lock and installed generation disagree.",
+      );
+    const importer = workspace.importers.find(
+      (item) => item.directory === project,
+    );
+    const own = locked.graph.nodes.find(
+      (node) => node.kind === "local" && node.importer === importer?.id,
+    );
+    if (!own)
+      throw fail(
+        "ZYRK_LOCK_MISMATCH",
+        "The selected workspace importer is absent from the authoritative graph.",
+      );
+    return {
+      state,
+      extension: {
+        manifest: manifestFingerprint(importer!.manifest),
+        roots: {
+          ".": Object.fromEntries(
+            own.edges.map((edge) => [edge.name, edge.target]),
+          ),
+        },
+        nodes: Object.fromEntries(
+          locked.graph.nodes.map((node) => [
+            node.key,
+            {
+              name: node.name,
+              version: node.version,
+              source:
+                node.kind === "registry"
+                  ? node.sourceId
+                  : `workspace:${node.importer}`,
+              edges: Object.fromEntries(
+                node.edges.map((edge) => [edge.name, edge.target]),
+              ),
+              peers: node.peers,
+            },
+          ]),
+        ),
+      },
+    };
+  }
   let doc;
   try {
     doc = validateLockDoc(
@@ -137,6 +212,101 @@ function emit(
 export async function runProjectCommand(
   options: ProjectCommandOptions,
 ): Promise<number> {
+  const selectors: string[] = [];
+  let recursive = false,
+    consumed = 0;
+  while (consumed < options.args.length) {
+    const arg = options.args[consumed]!;
+    if (arg === "--workspace" || arg === "-w") {
+      const selector = options.args[consumed + 1];
+      if (!selector || selector.startsWith("-"))
+        throw fail(
+          "ZYRK_USAGE",
+          "Select an exact workspace name or path after --workspace.",
+        );
+      selectors.push(selector);
+      consumed += 2;
+    } else if (arg.startsWith("--workspace=")) {
+      selectors.push(arg.slice(12));
+      consumed++;
+    } else if (arg === "--recursive" || arg === "-r") {
+      recursive = true;
+      consumed++;
+    } else break;
+  }
+  if (consumed) {
+    const root = await findWorkspaceRoot(options.cwd);
+    if (!root || (recursive && selectors.length))
+      throw fail(
+        "ZYRK_USAGE",
+        "Use exact --workspace selections or --recursive inside a workspace.",
+      );
+    const workspace = await discoverWorkspaces(root);
+    let selected = recursive
+      ? workspace.importers.filter((item) => item.id !== ".")
+      : selectWorkspaceImporters(workspace, selectors);
+    if (recursive) {
+      const order = workspaceScriptOrder(planWorkspaceDependencies(workspace));
+      selected = order.flatMap((id) =>
+        selected.filter((item) => item.id === id),
+      );
+    }
+    if (!selected.length)
+      throw fail("ZYRK_USAGE", "No workspace importers were selected.");
+    const control = await lstat(path.join(root, PROJECT_STATE_DIR)).catch(
+      () => null,
+    );
+    if (!control?.isDirectory() || control.isSymbolicLink())
+      throw fail(
+        "ZYRK_STORE_CORRUPT",
+        "Install the workspace before executing or inspecting its importers.",
+      );
+    const outer = await acquireLock(
+      path.join(root, PROJECT_STATE_DIR, "project.lock"),
+      { name: "workspace operation" },
+    );
+    try {
+      const results: unknown[] = [];
+      for (const member of selected) {
+        let captured = "";
+        const inspecting =
+          options.command !== "run" && options.command !== "exec";
+        const code = await runProjectCommand({
+          ...options,
+          cwd: member.directory,
+          initialCwd: options.initialCwd ?? options.cwd,
+          args: options.args.slice(consumed),
+          workspaceLockHeld: true,
+          ...(options.json && inspecting
+            ? {
+                stdout: {
+                  write: (value: string) => {
+                    captured += value;
+                  },
+                },
+              }
+            : {}),
+        });
+        if (options.json && inspecting)
+          results.push({
+            workspace: member.id,
+            ...(JSON.parse(captured) as Obj),
+          });
+        if (code !== 0) return code;
+      }
+      if (results.length)
+        options.stdout.write(
+          JSON.stringify({
+            schemaVersion: 1,
+            command: options.command,
+            workspaces: results,
+          }) + "\n",
+        );
+      return 0;
+    } finally {
+      await outer.release();
+    }
+  }
   const boundary = await findProjectBoundary(options.cwd);
   if (!boundary)
     throw fail("ZYRK_MANIFEST_INVALID", "Cannot find a project package.json.");
@@ -160,18 +330,21 @@ export async function runProjectCommand(
       "Select a project script or installed executable.",
     );
   // Never follow a replaced control directory when acquiring the project lock.
-  const control = await lstat(path.join(project, PROJECT_STATE_DIR)).catch(
-    () => null,
-  );
+  const coordinationRoot = (await findWorkspaceRoot(project)) ?? project;
+  const control = await lstat(
+    path.join(coordinationRoot, PROJECT_STATE_DIR),
+  ).catch(() => null);
   if (control && (!control.isDirectory() || control.isSymbolicLink()))
     throw fail(
       "ZYRK_STORE_CORRUPT",
       "Project control directory is not a real directory.",
     );
-  const held = await acquireLock(
-    path.join(project, PROJECT_STATE_DIR, "project.lock"),
-    { name: "project execution or inspection" },
-  );
+  const held = options.workspaceLockHeld
+    ? undefined
+    : await acquireLock(
+        path.join(coordinationRoot, PROJECT_STATE_DIR, "project.lock"),
+        { name: "project execution or inspection" },
+      );
   try {
     if (options.command === "doctor")
       return await doctor(options, project, manifest);
@@ -221,7 +394,7 @@ export async function runProjectCommand(
             .filter(([, target]) => target === key)
             .map(([name]) => ({ parent, name })),
         ),
-        realization: "shared",
+        realization: state.linker ?? "shared",
       }));
       if (options.command === "why" && !nodes.length)
         throw fail(
@@ -254,7 +427,7 @@ export async function runProjectCommand(
     let command: string, args: string[];
     const selected = options.args[0]!;
     if (options.command === "run") {
-      await authorizeScript(options.env);
+      await authorizeScript(options.env, selected);
       const scripts = manifest.scripts;
       if (
         !object(scripts) ||
@@ -296,7 +469,7 @@ export async function runProjectCommand(
         path.join(project, "node_modules/.bin") +
         path.delimiter +
         (options.env.PATH ?? ""),
-      INIT_CWD: options.cwd,
+      INIT_CWD: options.initialCwd ?? options.cwd,
       npm_package_json: path.join(project, "package.json"),
       npm_execpath: path.resolve(import.meta.dirname, "../../bin/zyrk.js"),
       npm_config_user_agent: `zyrk/${CLI_VERSION} node/${process.version} ${process.platform} ${process.arch}`,
@@ -308,13 +481,16 @@ export async function runProjectCommand(
       });
     return await leasedChild(options, state, command, args, project, env);
   } finally {
-    await held.release();
+    await held?.release();
   }
 }
 function quote(value: string): string {
   return "'" + value.replaceAll("'", "'\\''") + "'";
 }
-async function authorizeScript(env: NodeJS.ProcessEnv): Promise<void> {
+async function authorizeScript(
+  env: NodeJS.ProcessEnv,
+  selected: string,
+): Promise<void> {
   let raw: unknown;
   try {
     raw = JSON.parse(await readFile(resolveConfigFile({ env }), "utf8"));
@@ -328,12 +504,45 @@ async function authorizeScript(env: NodeJS.ProcessEnv): Promise<void> {
   // No permissive interpretation of security settings not implemented by this runner.
   if (
     !object(raw) ||
-    Object.keys(raw).some((key) => /script|policy|security/i.test(key))
+    Object.keys(raw).some(
+      (key) => key !== "scripts" && /script|policy|security/i.test(key),
+    )
   )
     throw fail(
       "ZYRK_POLICY_DENIED",
       "Configured user script policy cannot be enforced by this runner; project script execution is denied.",
     );
+  const policy = raw.scripts;
+  if (policy === undefined) return;
+  if (
+    !object(policy) ||
+    Object.keys(policy).some(
+      (key) => !["default", "allow", "deny"].includes(key),
+    ) ||
+    (policy.default !== undefined && policy.default !== "deny") ||
+    [policy.allow, policy.deny].some(
+      (value) =>
+        value !== undefined &&
+        (!Array.isArray(value) ||
+          value.some((rule) => typeof rule !== "string")),
+    )
+  )
+    throw fail(
+      "ZYRK_POLICY_DENIED",
+      "Configured user script policy is malformed or unsupported.",
+    );
+  if (
+    Array.isArray(policy.deny) &&
+    policy.deny.some(
+      (rule) =>
+        rule === "*" || rule === selected || rule === `project:${selected}`,
+    )
+  )
+    throw fail(
+      "ZYRK_POLICY_DENIED",
+      "The explicitly selected project script is denied by mandatory user policy.",
+    );
+  // The named run command is explicit permission; default deny prevents implicit hooks.
 }
 async function leasedChild(
   options: ProjectCommandOptions,
@@ -359,9 +568,11 @@ async function leasedChild(
     path.join(store.paths.locksDir, "liveness.lock"),
     { name: "generation lease registration" },
   );
-  const db = openStoreDb(store.paths.dbFile);
+  let db: ReturnType<typeof openStoreDb> | undefined;
   const lease = "lease1_" + randomId("", 16);
+  let registered = false;
   try {
+    db = openStoreDb(store.paths.dbFile);
     const generation = db
       .prepare(
         "SELECT generation_id FROM generations WHERE generation_id = ? AND project_id = ? AND graph_digest = ? AND state = 'active'",
@@ -393,68 +604,51 @@ async function leasedChild(
       now,
       now,
     );
-  } catch (error) {
-    db.close();
-    throw error;
-  } finally {
-    await barrier.release();
-  }
-  try {
-    return await new Promise<number>((resolve, reject) => {
-      const child = spawn(command, args, {
-        cwd,
-        env,
-        stdio: ["inherit", "pipe", "pipe"],
-        detached: process.platform !== "win32",
-      });
-      // Once spawned, the child owns liveness even if the wrapper is killed.
-      // A null start discriminator intentionally retains a recycled PID conservatively.
-      if (child.pid !== undefined)
-        db.prepare(
-          "UPDATE leases SET holder_pid=?, holder_start_id=NULL WHERE lease_id=?",
-        ).run(child.pid, lease);
-      const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
-      const listeners = signals.map((signal) => {
-        const listener = () => {
-          try {
-            if (child.pid)
-              process.kill(
-                process.platform === "win32" ? child.pid : -child.pid,
-                signal,
-              );
-          } catch {
-            /* A finished child needs no forwarding. */
-          }
-        };
-        process.on(signal, listener);
-        return [signal, listener] as const;
-      });
-      child.stdout?.on("data", (chunk: Buffer) =>
-        options.stdout.write(chunk.toString()),
+    registered = true;
+    // Keep the project -> store lock order and conservatively retain the store
+    // barrier until supervised children have stopped and the lease is released.
+    try {
+      return (
+        await superviseChild(command, args, {
+          cwd,
+          env,
+          stdout: options.stdout,
+          stderr: options.stderr,
+          onSpawn(pid, startId) {
+            db!
+              .prepare(
+                "UPDATE leases SET holder_pid=?, holder_start_id=? WHERE lease_id=?",
+              )
+              .run(pid, startId, lease);
+          },
+        })
+      ).exitCode;
+    } catch (error) {
+      throw new ZyrkError(
+        "ZYRK_BUILD_FAILED",
+        "Cannot launch the selected project command.",
+        {
+          cause: error,
+          remedy:
+            "Verify the project script or installed executable supports this OS and retry.",
+        },
       );
-      child.stderr?.on("data", (chunk: Buffer) =>
-        options.stderr.write(chunk.toString()),
-      );
-      child.once("error", () => {
-        reject(
-          fail(
-            "ZYRK_BUILD_FAILED",
-            "Cannot launch the selected project command.",
-          ),
-        );
-      });
-      child.once("close", (code, signal) => {
-        for (const [sig, listener] of listeners) process.off(sig, listener);
-        resolve(closeCode(code, signal));
-      });
-    });
+    }
   } finally {
-    db.prepare(
-      "UPDATE leases SET state='released', heartbeat_at=? WHERE lease_id=?",
-    ).run(new Date().toISOString(), lease);
-    db.close();
+    try {
+      if (registered)
+        db!
+          .prepare(
+            "UPDATE leases SET state='released', heartbeat_at=? WHERE lease_id=?",
+          )
+          .run(new Date().toISOString(), lease);
+    } finally {
+      db?.close();
+      await barrier.release();
+    }
   }
 }
+
 async function doctor(
   options: ProjectCommandOptions,
   project: string,

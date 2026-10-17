@@ -1,3 +1,4 @@
+import { findWorkspaceRoot } from "./workspaces.ts";
 /** Shared data-only registry configuration for every native CLI command. */
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -17,7 +18,10 @@ export async function installRegistry(options: {
   let registry = DEFAULT_REGISTRY;
   const auth: Record<string, string> = {};
   const home = options.env.HOME ?? os.homedir();
-  const project = (await findProjectBoundary(options.cwd)) ?? options.cwd;
+  const project =
+    (await findWorkspaceRoot(options.cwd)) ??
+    (await findProjectBoundary(options.cwd)) ??
+    options.cwd;
   const files = [
     options.env.npm_config_userconfig ??
       options.env.NPM_CONFIG_USERCONFIG ??

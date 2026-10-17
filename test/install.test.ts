@@ -264,7 +264,7 @@ it("writes lockfile-only without publishing a projection or executing scripts", 
   expect(await pathExists(path.join(project, "node_modules"))).toBe(false);
   expect(JSON.parse(await lockText()).zyrk.nodes["built@1.0.0"]).toBeDefined();
 });
-it("fails explicitly on npm-only locks, unsupported project policy, and workspaces", async () => {
+it("rejects unsafe locks and policy while supporting discovered workspace roots", async () => {
   await writeFile(
     path.join(project, "package-lock.json"),
     JSON.stringify({ lockfileVersion: 3, packages: {} }),
@@ -272,9 +272,8 @@ it("fails explicitly on npm-only locks, unsupported project policy, and workspac
   await expect(install()).rejects.toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
   await rmrfNoFollow(path.join(project, "package-lock.json"));
   await manifest({ workspaces: ["packages/*"] });
-  await expect(install()).rejects.toMatchObject({
-    code: "ZYRK_NOT_IMPLEMENTED",
-  });
+  expect((await install()).readiness).toBe("ready");
+  expect(JSON.parse(await lockText()).zyrk.version).toBe(2);
   await manifest({ zyrk: { scripts: { default: "allow-all" } } });
   await expect(install()).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
 });

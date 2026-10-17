@@ -1,3 +1,8 @@
+import {
+  findWorkspaceRoot,
+  discoverWorkspaces,
+} from "../install/workspaces.ts";
+import { readWorkspaceLock } from "../install/workspace-lock.ts";
 import { currentPlatform } from "../resolve/resolver.ts";
 import { loadProjectPatches } from "./patch.ts";
 import { sha512Hex } from "../util/hash.ts";
@@ -50,6 +55,8 @@ export async function runMaintenanceCommand(options: {
   registry: RegistryClient;
   env?: NodeJS.ProcessEnv;
 }): Promise<InstallResult | AuditResult> {
+  const workspaceRoot = await findWorkspaceRoot(options.projectDir);
+  if (workspaceRoot) options = { ...options, projectDir: workspaceRoot };
   let frozen = false,
     offline = false;
   let threshold: string | undefined;
@@ -154,7 +161,9 @@ export async function runMaintenanceCommand(options: {
     throw lockMismatch("audit requires an exact zyrk lockfile");
   const patches = await loadProjectPatches(options.projectDir);
   assertFrozenCompatible(lock.doc, {
-    manifest: manifestFingerprint(manifest),
+    manifest: workspaceRoot
+      ? (await discoverWorkspaces(workspaceRoot)).manifestFingerprint
+      : manifestFingerprint(manifest),
     scripts: scriptPolicyFingerprint(
       object(manifest.zyrk) ? manifest.zyrk.scripts : undefined,
     ),
@@ -179,12 +188,17 @@ export async function runMaintenanceCommand(options: {
         : {}),
     }),
   });
-  const graph = lockedGraph(lock.doc);
+  const graphNodes = workspaceRoot
+    ? (await readWorkspaceLock(
+        workspaceRoot,
+        await discoverWorkspaces(workspaceRoot),
+      ))!.graph.nodes.filter((node) => node.kind === "registry")
+    : lockedGraph(lock.doc).nodes;
   const packages: Record<string, string[]> = Object.create(null) as Record<
     string,
     string[]
   >;
-  for (const node of graph.nodes) {
+  for (const node of graphNodes) {
     if (node.origin !== options.registry.origin)
       throw new ZyrkError(
         "ZYRK_POLICY_DENIED",
@@ -198,7 +212,7 @@ export async function runMaintenanceCommand(options: {
     if (!packages[node.name]!.includes(node.version))
       packages[node.name]!.push(node.version);
   }
-  if (!graph.nodes.length) return base;
+  if (!graphNodes.length) return base;
   let response: unknown;
   try {
     response = await options.registry.auditAdvisories(packages);

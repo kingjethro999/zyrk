@@ -579,11 +579,43 @@ async function collect(store: Store, dryRun: boolean) {
       // Any indexed generation reference is retained, including rollback/pending roots.
       const indexed = db
         .prepare(
-          "SELECT DISTINCT path FROM realization_instances JOIN generation_instances USING (instance_id) JOIN generations USING (generation_id) WHERE generations.state != 'abandoned'",
+          "SELECT DISTINCT ri.path,gi.context_id,g.generation_id,g.project_id,g.graph_digest,p.canonical_path FROM realization_instances ri JOIN generation_instances gi ON gi.instance_id=ri.instance_id JOIN generations g ON g.generation_id=gi.generation_id JOIN projects p ON p.project_id=g.project_id WHERE g.state != 'abandoned'",
         )
-        .all() as { path: string }[];
+        .all() as {
+        path: string;
+        context_id: string;
+        generation_id: string;
+        project_id: string;
+        graph_digest: string;
+        canonical_path: string;
+      }[];
       if (
-        indexed.some((row) => !marked.has(path.relative(store.root, row.path)))
+        indexed.some((row) => {
+          if (path.dirname(row.path) === store.paths.realizationsDir)
+            return !marked.has(path.relative(store.root, row.path));
+          // Private payloads are outside this collector's inventory. A validated
+          // project/graph retention root already marks their complete CAS inputs.
+          // Treat unknown external paths conservatively, never as a reason to delete.
+          if (
+            !/^gen1_[a-z2-7]+$/.test(row.generation_id) ||
+            !/^[A-Za-z0-9_-]+$/.test(row.context_id) ||
+            path.basename(row.path) !== row.context_id ||
+            path.dirname(row.path) !==
+              path.join(
+                row.canonical_path,
+                ".zyrk-local",
+                "generations",
+                row.generation_id,
+              )
+          )
+            return true;
+          return !retainedRoots.some(
+            ({ root }) =>
+              root.projectId === row.project_id &&
+              root.project === row.canonical_path &&
+              root.graph === row.graph_digest,
+          );
+        })
       )
         reasons.push(
           "Additional indexed generation instances require conservative retention.",

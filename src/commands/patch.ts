@@ -1,8 +1,11 @@
+import { findProjectBoundary } from "../config/paths.ts";
+import { findWorkspaceRoot } from "../install/workspaces.ts";
+import { validateWorkspaceLockDoc } from "../install/workspace-lock.ts";
+import { validateLockDoc } from "../lockfile/read.ts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { ZyrkError } from "../errors.ts";
 import { lockedGraph } from "../install/lock.ts";
-import type { NpmLockDoc } from "../lockfile/types.ts";
 import { Store } from "../store/layout.ts";
 import { readSourceManifest } from "../store/manifests.ts";
 import { objectPathFor, verifyObjectPayload } from "../store/objects.ts";
@@ -219,7 +222,9 @@ export async function runPatchCommand(options: {
 }): Promise<unknown> {
   if (options.args.length !== 1 || !options.args[0])
     fail("expected one package selector or editing-area path");
-  const project = await fs.realpath(options.cwd);
+  const cwd = await fs.realpath(options.cwd);
+  const project =
+    (await findWorkspaceRoot(cwd)) ?? (await findProjectBoundary(cwd)) ?? cwd;
   const control = path.join(project, ".zyrk-local");
   try {
     if (!(await fs.lstat(control)).isDirectory())
@@ -244,9 +249,18 @@ async function createEditingArea(
   selector: string,
   store: Store,
 ) {
-  const graph = lockedGraph(
-    (await readJson(path.join(project, "package-lock.json"))) as NpmLockDoc,
+  const lockDoc = validateLockDoc(
+    await readJson(path.join(project, "package-lock.json")),
+    "project package-lock.json",
   );
+  const graph =
+    lockDoc.zyrk?.version === 2
+      ? {
+          nodes: validateWorkspaceLockDoc(lockDoc).nodes.filter(
+            (node) => node.kind === "registry",
+          ),
+        }
+      : lockedGraph(lockDoc);
   const matches = graph.nodes.filter(
     (node) =>
       node.name === selector ||

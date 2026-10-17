@@ -216,6 +216,13 @@ it("generates pinned Docker inputs with isolated fetch/build and refuses overwri
   expect(await readFile(path.join(project, ".dockerignore"), "utf8")).toContain(
     "**/.npmrc",
   );
+  const guide = await readFile(path.join(project, "ZYRK_DOCKER.md"), "utf8");
+  expect(guide).toContain(
+    "Relocatable JavaScript output from ready private generations is supported",
+  );
+  expect(guide).toContain(
+    "Native outputs, embedded host paths, live workspace exports",
+  );
   await expect(run("docker", args)).rejects.toMatchObject({
     code: "ZYRK_USAGE",
   });

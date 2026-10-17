@@ -27,6 +27,8 @@ export async function registerGeneration(options: {
   repairOf?: ReadonlyMap<string, string>;
   roots: readonly string[];
   readiness: "ready" | "intentionally-unbuilt";
+  /** Explicit project-qualified contexts for registry occurrences with live workspace peers. */
+  contextIds?: ReadonlyMap<string, string>;
 }): Promise<{
   instances: string[];
   contexts: string[];
@@ -75,7 +77,8 @@ export async function registerGeneration(options: {
         "INSERT INTO generations(generation_id,project_id,graph_digest,readiness,state,created_at) VALUES(?,?,?,?,'pending',?)",
       ).run(generationId, projectId, graphHash(graph), options.readiness, now);
       for (const node of graph.nodes) {
-        const context = contextIdFor(graph, node.key);
+        const context =
+          options.contextIds?.get(node.key) ?? contextIdFor(graph, node.key);
         const directory = realized.realizationDirByKey.get(node.key)!;
         const instance = `inst1_${sha512Hex(directory).slice(0, 32)}`;
         contexts.push(context);
