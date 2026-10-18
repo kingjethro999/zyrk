@@ -141,8 +141,11 @@ zyrk add package-name                # edit this importer, preserve other select
 
 Frozen/offline installs, live peers, patches, mutable registry packages, inspection,
 and repair have workspace fixtures. Builds that reach live workspace sources are
-blocked before execution. Workspace npm-lock adoption and portable workspace
-export still need adapters and fail explicitly. Recursive execution supports
+blocked before execution. Existing npm v2/v3 workspace `package-lock.json` selections can be adopted with
+`zyrk import --from npm`, preserving exact versions, aliases and live members.
+Adoption validates the complete graph before project changes; npm shrinkwrap
+precedence and unsupported bundled/external links fail explicitly. Portable
+workspace export still needs its adapter. Recursive execution supports
 member scripts; filters are exact names or paths, not arbitrary glob expressions.
 
 ### Run a one-off tool

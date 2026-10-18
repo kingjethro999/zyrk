@@ -17,6 +17,7 @@ import {
   discoverWorkspaces,
   findWorkspaceRoot,
   assertNoLiveSourceBuilds,
+  type WorkspaceProject,
 } from "./workspaces.ts";
 import {
   resolveWorkspaceGraph,
@@ -25,6 +26,7 @@ import {
   assertWorkspacePlatform,
   type WorkspaceGraph,
 } from "./workspace-graph.ts";
+import { importNpmWorkspaceLock } from "./import-npm-workspace.ts";
 import { readWorkspaceLock, workspaceLockDoc } from "./workspace-lock.ts";
 import {
   publishWorkspaceProjection,
@@ -90,11 +92,56 @@ async function realDirectory(directory: string) {
   if (!st.isDirectory() || st.isSymbolicLink())
     throw lockMismatch("workspace control parent must be a real directory");
 }
+async function readNpmWorkspaceImport(
+  root: string,
+  project: WorkspaceProject,
+  options: InstallOptions,
+): Promise<WorkspaceGraph> {
+  if (options.frozen || options.offline)
+    throw lockMismatch(
+      "npm workspace adoption needs a non-frozen online install",
+    );
+  if (await pathExists(path.join(root, "npm-shrinkwrap.json")))
+    throw lockMismatch(
+      "npm-shrinkwrap.json takes npm precedence; workspace adoption currently supports package-lock.json only",
+    );
+  let npmDoc;
+  try {
+    npmDoc = JSON.parse(
+      await readFile(path.join(root, "package-lock.json"), "utf8"),
+    );
+  } catch {
+    throw lockMismatch(
+      "npm workspace adoption needs an existing readable JSON lock",
+    );
+  }
+  const graph = importNpmWorkspaceLock(
+    npmDoc,
+    project,
+    options.registry.origin,
+  );
+  // Prove the complete graph and ordinary npm projection are representable
+  // before any project state is created. Actual policy fingerprints are added
+  // under the install lock after policy validation.
+  workspaceLockDoc(project, graph, {
+    manifest: project.manifestFingerprint,
+    scripts: scriptPolicyFingerprint(undefined),
+    config: configFingerprint({
+      registry: options.registry.origin,
+      linker: "shared",
+    }),
+  });
+  return graph;
+}
 export async function installWorkspaceProject(
   options: InstallOptions,
 ): Promise<InstallResult> {
   const root = await findWorkspaceRoot(options.projectDir);
   if (!root) throw lockMismatch("no authoritative workspace root");
+  // Refuse untranslatable locks before creating control directories or
+  // recovering a previous generation. Revalidate under the project lock below.
+  if (options.importNpm)
+    await readNpmWorkspaceImport(root, await discoverWorkspaces(root), options);
   await realDirectory(path.join(root, ".zyrk-local"));
   const held = await acquireLock(path.join(root, ".zyrk-local/project.lock"), {
     name: "workspace install",
@@ -120,10 +167,6 @@ export async function installWorkspaceProject(
         ),
       ),
     );
-    if (options.importNpm)
-      unsupported(
-        "Workspace npm-lock adoption needs its multi-importer adapter.",
-      );
     const mutation = await prepareWorkspaceMutation(project, options);
     if (
       manifest.overrides !== undefined ||
@@ -200,12 +243,13 @@ export async function installWorkspaceProject(
         ...(patchDigest ? { patches: patchDigest } : {}),
       }),
     };
-    let existing = await readWorkspaceLock(
-        root,
-        project,
-        options.registry.origin,
-      ),
-      graph: WorkspaceGraph | undefined;
+    const imported = options.importNpm
+      ? await readNpmWorkspaceImport(root, project, options)
+      : undefined;
+    let existing = options.importNpm
+        ? null
+        : await readWorkspaceLock(root, project, options.registry.origin),
+      graph: WorkspaceGraph | undefined = imported;
     if (existing) {
       const ext = existing.doc.zyrk!;
       if (

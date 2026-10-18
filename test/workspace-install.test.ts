@@ -587,3 +587,211 @@ it("rejects npm package selections that disagree with the authoritative workspac
     }),
   ).rejects.toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
 });
+it.each([2, 3])(
+  "adopts npm v%s exact workspace selections with live peers and frozen offline reuse",
+  async (lockfileVersion) => {
+    const { installProject } = await import("../src/install/run.ts");
+    const pure = (await registry.packument("pure")).versions["1.0.0"]!;
+    const plugin = (await registry.packument("plugin")).versions["1.0.0"]!;
+    const pure2 = (await registry.packument("pure")).versions["2.0.0"]!;
+    const rootManifest = JSON.parse(
+      await readFile(path.join(project, "package.json"), "utf8"),
+    );
+    rootManifest.dependencies.a = "*";
+    rootManifest.dependencies.pure = "*";
+    rootManifest.dependencies.renamed = "npm:pure@1.0.0";
+    rootManifest.dependencies.linked = "file:packages/b";
+    await writeFile(
+      path.join(project, "package.json"),
+      JSON.stringify(rootManifest),
+    );
+    const aManifest = JSON.parse(
+      await readFile(path.join(project, "packages/a/package.json"), "utf8"),
+    );
+    aManifest.dependencies.b = "*";
+    aManifest.dependencies.pure = "2.0.0";
+    await writeFile(
+      path.join(project, "packages/a/package.json"),
+      JSON.stringify(aManifest),
+    );
+    await writeFile(
+      path.join(project, "packages/a/index.js"),
+      'module.exports=[require("b"),require("plugin"),require("pure")];',
+    );
+    const packages = {
+      "": JSON.parse(
+        await readFile(path.join(project, "package.json"), "utf8"),
+      ),
+      "packages/a": JSON.parse(
+        await readFile(path.join(project, "packages/a/package.json"), "utf8"),
+      ),
+      "packages/b": JSON.parse(
+        await readFile(path.join(project, "packages/b/package.json"), "utf8"),
+      ),
+      "node_modules/a": { resolved: "packages/a", link: true },
+      "node_modules/b": { resolved: "packages/b", link: true },
+      "node_modules/pure": {
+        version: "1.0.0",
+        resolved: pure.dist.tarball,
+        integrity: pure.dist.integrity,
+      },
+      "node_modules/linked": { resolved: "packages/b", link: true },
+      "node_modules/renamed": {
+        name: "pure",
+        version: "1.0.0",
+        resolved: pure.dist.tarball,
+        integrity: pure.dist.integrity,
+      },
+      "packages/a/node_modules/pure": {
+        version: "2.0.0",
+        resolved: pure2.dist.tarball,
+        integrity: pure2.dist.integrity,
+      },
+      "node_modules/plugin": {
+        version: "1.0.0",
+        resolved: plugin.dist.tarball,
+        integrity: plugin.dist.integrity,
+        peerDependencies: { b: "*" },
+      },
+    };
+    await writeFile(
+      path.join(project, "package-lock.json"),
+      JSON.stringify({ lockfileVersion, packages }),
+    );
+    await installProject({
+      projectDir: project,
+      store,
+      registry,
+      importNpm: true,
+    });
+    expect(
+      (
+        await exec(
+          process.execPath,
+          [
+            "-e",
+            'const [a,b]=require("a");if(a!==b)throw Error("peer");console.log(require("pure"),require("renamed"),require("a")[2]);',
+          ],
+          { cwd: project },
+        )
+      ).stdout.trim(),
+    ).toBe("42 42 84");
+    expect(
+      (
+        await exec(
+          process.execPath,
+          [
+            "--input-type=module",
+            "-e",
+            'import a from "a"; import pure from "pure"; console.log(a[2],pure)',
+          ],
+          { cwd: project },
+        )
+      ).stdout.trim(),
+    ).toBe("84 42");
+    const { createRequire } = await import("node:module"),
+      require = createRequire(import.meta.url),
+      Arborist = require("@npmcli/arborist");
+    expect(require("@npmcli/arborist/package.json").version).toBe("10.0.3");
+    const tree = await new Arborist({
+      path: project,
+      offline: true,
+      ignoreScripts: true,
+    }).loadVirtual();
+    expect(tree.edgesOut.get("pure").to.package.version).toBe("1.0.0");
+    const a = tree.edgesOut.get("a").to.target;
+    expect(a.edgesOut.get("pure").to.package.version).toBe("2.0.0");
+    expect(a.edgesOut.get("plugin").to.edgesOut.get("b").valid).toBe(true);
+
+    await installProject({
+      projectDir: project,
+      store,
+      registry,
+      frozen: true,
+      offline: true,
+    });
+  },
+);
+it.each([2, 3])(
+  "rejects malformed npm v%s workspace links without changing the lock or projection",
+  async (lockfileVersion) => {
+    const lock = JSON.stringify({
+      lockfileVersion,
+      packages: {
+        "": {},
+        "node_modules/a": { link: true, resolved: "../outside" },
+      },
+    });
+    await writeFile(path.join(project, "package-lock.json"), lock);
+    await expect(
+      installWorkspaceProject({
+        projectDir: project,
+        store,
+        registry,
+        importNpm: true,
+      }),
+    ).rejects.toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
+    expect(
+      await readFile(path.join(project, "package-lock.json"), "utf8"),
+    ).toBe(lock);
+    await expect(
+      realpath(path.join(project, ".zyrk-local")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      realpath(path.join(project, "node_modules")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+it("refuses npm shrinkwrap precedence before creating workspace import state", async () => {
+  await writeFile(path.join(project, "npm-shrinkwrap.json"), "{}");
+  await writeFile(path.join(project, "package-lock.json"), "{}");
+  await expect(
+    installWorkspaceProject({
+      projectDir: project,
+      store,
+      registry,
+      importNpm: true,
+    }),
+  ).rejects.toThrow(/shrinkwrap/);
+  await expect(
+    realpath(path.join(project, ".zyrk-local")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
+it("refuses unrepresentable npm binary metadata before creating workspace state", async () => {
+  const pure = (await registry.packument("pure")).versions["1.0.0"]!;
+  const packages: Record<string, unknown> = {};
+  for (const relative of ["", "packages/a", "packages/b"])
+    packages[relative] = JSON.parse(
+      await readFile(path.join(project, relative, "package.json"), "utf8"),
+    );
+  packages["node_modules/a"] = { link: true, resolved: "packages/a" };
+  packages["node_modules/b"] = { link: true, resolved: "packages/b" };
+  packages["node_modules/pure"] = {
+    version: "1.0.0",
+    resolved: pure.dist.tarball,
+    integrity: pure.dist.integrity,
+    bin: { pure: "../escape.js" },
+  };
+  const plugin = (await registry.packument("plugin")).versions["1.0.0"]!;
+  packages["node_modules/plugin"] = {
+    version: "1.0.0",
+    resolved: plugin.dist.tarball,
+    integrity: plugin.dist.integrity,
+    peerDependencies: { b: "*" },
+  };
+  await writeFile(
+    path.join(project, "package-lock.json"),
+    JSON.stringify({ lockfileVersion: 3, packages }),
+  );
+  await expect(
+    installWorkspaceProject({
+      projectDir: project,
+      store,
+      registry,
+      importNpm: true,
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_LOCK_MISMATCH" });
+  await expect(
+    realpath(path.join(project, ".zyrk-local")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
