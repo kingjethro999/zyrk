@@ -119,7 +119,7 @@ scheme, host, port, and path; redirects cannot expand that scope. Use
 Scoped registries route metadata, exact sources, imports and tool commands by
 the real package name, including aliases. Advisory requests are partitioned by
 registry; private names never fall back to a public endpoint. Disabled TLS
-verification is rejected before lookup. Git sources, non-workspace local sources, and overrides remain unsupported;
+verification is rejected before lookup. Git sources and non-workspace local sources remain unsupported;
 they fail explicitly. Optional dependencies incompatible with the selected platform
 are omitted; missing packages, integrity failures, and other optional failures
 remain errors. Platform selection is recorded in the lock. macOS, Windows, and
@@ -356,3 +356,9 @@ Keep existing data until an explicit migration is supported.
 
 [MIT](LICENSE). If you want to support development,
 [sponsor the maintainer](https://github.com/sponsors/kingjethro999).
+
+Root `package.json` dependency overrides support exact specifications, nested and
+version-qualified selectors, self rules (`.`), and `$direct` references. Direct
+dependency overrides must match the declared specification. Workspace member
+overrides are ignored, matching npm root-only policy. Override rule order is
+recorded in the manifest fingerprint; frozen installs reject policy drift.

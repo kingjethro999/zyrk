@@ -1,5 +1,11 @@
 /** Translate npm's physical virtual tree without selecting new registry versions. */
 import * as path from "node:path";
+import type { OverrideContext } from "../resolve/overrides.ts";
+import {
+  workspaceOverrides,
+  refineWorkspaceOverride,
+  WorkspaceOverrideRestart,
+} from "./workspace-overrides.ts";
 import { satisfies } from "semver";
 import type { NpmLockDoc } from "../lockfile/types.ts";
 import { validateLockDoc } from "../lockfile/read.ts";
@@ -16,10 +22,11 @@ import type {
   WorkspaceEdge,
 } from "./workspace-graph.ts";
 
-export function importNpmWorkspaceLock(
+function importNpmWorkspaceLockPass(
   doc: NpmLockDoc,
   project: WorkspaceProject,
   origin: string | ((name: string) => string),
+  overrideState: ReturnType<typeof workspaceOverrides>,
 ): WorkspaceGraph {
   if (
     !doc ||
@@ -100,6 +107,8 @@ export function importNpmWorkspaceLock(
       "workspace adoption needs an unannotated npm v2/v3 lock",
     );
   const packages = doc.packages;
+  const overrides = overrideState.policy;
+  const contexts = new Map(overrideState.contexts);
   const graph: WorkspaceGraph = { nodes: [], importers: {}, omissions: [] };
   const locations = new Map<string, WorkspaceNode>();
   const local = new Map(
@@ -179,7 +188,11 @@ export function importNpmWorkspaceLock(
     name: string,
     spec: string,
     from: string,
+    parentContext: OverrideContext,
   ): WorkspaceNode => {
+    const selectedOverride = overrides.select(parentContext, name, spec);
+    spec = selectedOverride.spec;
+    const contextKey = `${location}\0${selectedOverride.context.id}`;
     const entry = packages[location]!;
     if (entry.link === true) {
       const target = locations.get(entry.resolved as string)!;
@@ -193,6 +206,11 @@ export function importNpmWorkspaceLock(
               !satisfies(target.version, range))
       )
         throw lockMismatch("npm workspace link disagrees with requirement");
+      refineWorkspaceOverride(
+        overrideState.contexts,
+        target.key,
+        selectedOverride.context,
+      );
       return target;
     }
     // Reuse the strict single-selection adapter's archive, alias, source and
@@ -209,12 +227,12 @@ export function importNpmWorkspaceLock(
       { [name]: spec },
       origin,
     ).nodes[0]!;
-    let node = locations.get(location);
+    let node = locations.get(contextKey);
     if (!node) {
       const { peerBindings: _bindings, ...source } = selected;
       node = {
         ...source,
-        key: `${selected.name}@${selected.version}#${sha512Hex(location).slice(0, 16)}`,
+        key: `${selected.name}@${selected.version}#${sha512Hex(selectedOverride.context.id ? contextKey : location).slice(0, 16)}`,
         kind: "registry",
         edges: [],
         peers: {},
@@ -222,23 +240,24 @@ export function importNpmWorkspaceLock(
       };
       assertWorkspacePlatform({ nodes: [node], importers: {}, omissions: [] });
       graph.nodes.push(node);
-      locations.set(location, node);
+      locations.set(contextKey, node);
+      contexts.set(node.key, selectedOverride.context);
     }
     try {
       populate(location, node);
     } catch (cause) {
-      populated.delete(location);
-      locations.delete(location);
+      populated.delete(node.key);
+      locations.delete(contextKey);
       graph.nodes = graph.nodes.filter((n) => n !== node);
       throw cause;
     }
     return node;
   };
   const populate = (location: string, node: WorkspaceNode): void => {
-    if (populated.has(location)) return;
+    if (populated.has(node.key)) return;
     if (populated.size >= 10000)
       throw lockMismatch("npm import resource limit exceeded");
-    populated.add(location);
+    populated.add(node.key);
     const entry = packages[location]!;
     const requirements = new Map<
       string,
@@ -282,7 +301,13 @@ export function importNpmWorkspaceLock(
       }
       let target: WorkspaceNode;
       try {
-        target = load(targetLocation, name, requirement.spec, location);
+        target = load(
+          targetLocation,
+          name,
+          requirement.spec,
+          location,
+          contexts.get(node.key)!,
+        );
       } catch (cause) {
         if (
           requirement.kind === "optional" &&
@@ -313,7 +338,13 @@ export function importNpmWorkspaceLock(
         node.peers[name] = null;
         continue;
       }
-      const target = load(targetLocation, name, spec, location);
+      const target = load(
+        targetLocation,
+        name,
+        spec,
+        location,
+        contexts.get(node.key)!,
+      );
       node.peers[name] = target.key;
       if (!node.edges.some((edge) => edge.name === name))
         node.edges.push({ name, target: target.key, kind: "peer", spec });
@@ -333,4 +364,22 @@ export function importNpmWorkspaceLock(
   graph.omissions = graph.omissions.filter((o) => reachable.has(o.parent));
   graph.nodes.sort((a, b) => a.key.localeCompare(b.key));
   return graph;
+}
+
+/** Import stays pure while live-node scope refinement converges. */
+export function importNpmWorkspaceLock(
+  doc: NpmLockDoc,
+  project: WorkspaceProject,
+  origin: string | ((name: string) => string),
+): WorkspaceGraph {
+  const state = workspaceOverrides(project),
+    expires = Date.now() + 30000;
+  for (let round = 0; round < 128 && Date.now() < expires; round++) {
+    try {
+      return importNpmWorkspaceLockPass(doc, project, origin, state);
+    } catch (cause) {
+      if (!(cause instanceof WorkspaceOverrideRestart)) throw cause;
+    }
+  }
+  throw lockMismatch("npm workspace override import resource limit exceeded");
 }

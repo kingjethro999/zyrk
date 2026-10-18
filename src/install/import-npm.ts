@@ -1,4 +1,9 @@
 /** Adopt npm v2/v3 exact selections without asking the registry to pick versions. */
+import {
+  createRootOverrides,
+  type OverridePolicy,
+  type OverrideContext,
+} from "../resolve/overrides.ts";
 import { validateLockDoc } from "../lockfile/read.ts";
 import { canonicalStrongSri } from "../util/integrity.ts";
 import { valid, satisfies } from "semver";
@@ -15,6 +20,7 @@ export function importNpmLock(
   doc: NpmLockDoc,
   requirements: Record<string, string>,
   origin: string | ((name: string) => string),
+  overrides: OverridePolicy = createRootOverrides({}),
 ): FinalizedGraph {
   validateLockDoc(doc, "package-lock.json");
   const packages = doc.packages;
@@ -38,8 +44,12 @@ export function importNpmLock(
     location: string,
     edgeName: string,
     spec: string,
+    parentContext: OverrideContext,
   ): ResolvedOccurrence => {
-    const existing = locations.get(location);
+    const selected = overrides.select(parentContext, edgeName, spec);
+    spec = selected.spec;
+    const contextKey = `${location}\0${selected.context.id}`;
+    const existing = locations.get(contextKey);
     const entry = packages[location];
     if (!entry || entry.link === true || entry.inBundle === true)
       throw lockMismatch(
@@ -74,7 +84,7 @@ export function importNpmLock(
     // a location already selected by a different dependency.
     if (existing) return existing;
     const node: ResolvedOccurrence = {
-      key: `${name}@${entry.version}#${sha512Hex(location).slice(0, 16)}`,
+      key: `${name}@${entry.version}#${sha512Hex(selected.context.id ? contextKey : location).slice(0, 16)}`,
       name,
       version: entry.version,
       origin: selectedOrigin,
@@ -121,7 +131,7 @@ export function importNpmLock(
         node.platform[field] = value as string[];
       }
     }
-    locations.set(location, node);
+    locations.set(contextKey, node);
     const dependencies: Record<
       string,
       { spec: string; kind: "prod" | "optional" | "peer" }
@@ -162,7 +172,12 @@ export function importNpmLock(
         }
         throw lockMismatch("npm lock is missing a required dependency");
       }
-      const target = load(targetLocation, dep, requirement.spec);
+      const target = load(
+        targetLocation,
+        dep,
+        requirement.spec,
+        selected.context,
+      );
       node.edges.push({
         name: dep,
         target: target.key,
@@ -181,7 +196,7 @@ export function importNpmLock(
   const roots = Object.entries(requirements).map(([name, spec]) => {
     const location = find("", name);
     if (!location) throw lockMismatch("npm lock is missing a direct selection");
-    return { name, target: load(location, name, spec).key };
+    return { name, target: load(location, name, spec, overrides.root).key };
   });
   return {
     nodes: [...locations.values()].sort((a, b) => a.key.localeCompare(b.key)),

@@ -11,6 +11,11 @@ import type {
   RuntimePlatform,
 } from "../resolve/resolver.ts";
 import { currentPlatform } from "../resolve/resolver.ts";
+import {
+  workspaceOverrides,
+  refineWorkspaceOverride,
+  WorkspaceOverrideRestart,
+} from "./workspace-overrides.ts";
 import { parseRequirement } from "../resolve/spec.ts";
 import { sourceIdOf, sha512Hex } from "../util/hash.ts";
 import { ZyrkError } from "../errors.ts";
@@ -70,7 +75,7 @@ const fail = (reason: string): never => {
   );
 };
 class PlatformMismatch extends Error {}
-export async function resolveWorkspaceGraph(
+async function resolveWorkspaceGraphPass(
   project: WorkspaceProject,
   provider: MetadataProvider,
   options: {
@@ -81,7 +86,10 @@ export async function resolveWorkspaceGraph(
     maxDepth?: number;
     deadlineMs?: number;
   } = {},
+  overrideState = workspaceOverrides(project),
 ): Promise<WorkspaceGraph> {
+  const overrides = overrideState.policy;
+  const overrideContexts = new Map(overrideState.contexts);
   const graph: WorkspaceGraph = { nodes: [], importers: {}, omissions: [] };
   const byKey = new Map<string, WorkspaceNode>(),
     manifests = new Map<string, WorkspaceManifest | PackumentVersion>(),
@@ -177,6 +185,13 @@ export async function resolveWorkspaceGraph(
   ): Promise<string | null> => {
     check(ancestry.length);
     try {
+      const overridden = overrides.select(
+        overrideContexts.get(parent.key)!,
+        name,
+        spec,
+      );
+      if (overridden.spec !== spec) explicitLocal = undefined;
+      spec = overridden.spec;
       let local =
         explicitLocal === undefined
           ? undefined
@@ -205,7 +220,15 @@ export async function resolveWorkspaceGraph(
             local = candidate;
         }
       }
-      if (local) return graph.importers[local.id]!;
+      if (local) {
+        const key = graph.importers[local.id]!;
+        refineWorkspaceOverride(
+          overrideState.contexts,
+          key,
+          overridden.context,
+        );
+        return key;
+      }
       if (!requirement) throw lockMismatch("missing workspace requirement");
       const doc = await packument(requirement.realName);
       const priorEdge = options.previous?.nodes
@@ -257,7 +280,8 @@ export async function resolveWorkspaceGraph(
           (node) =>
             node?.kind === "registry" &&
             node.name === requirement!.realName &&
-            node.version === version,
+            node.version === version &&
+            overrideContexts.get(node.key)?.id === overridden.context.id,
         );
       if (ancestor) return ancestor.key;
       const key = `${requirement.realName}@${version}#${sha512Hex(parent.key + "\0" + name).slice(0, 16)}`;
@@ -297,6 +321,7 @@ export async function resolveWorkspaceGraph(
         optionalPeers: [],
       };
       graph.nodes.push(node);
+      overrideContexts.set(key, overridden.context);
       byKey.set(key, node);
       manifests.set(key, entry);
       chains.set(key, [...ancestry, parent.key]);
@@ -364,9 +389,14 @@ export async function resolveWorkspaceGraph(
     for (const node of graph.nodes) {
       check();
       const manifest = manifests.get(node.key)!;
-      for (const [name, range] of Object.entries(
+      for (const [name, rawRange] of Object.entries(
         manifest.peerDependencies ?? {},
       ).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        const range = overrides.select(
+          overrideContexts.get(node.key)!,
+          name,
+          rawRange,
+        ).spec;
         const optional =
           manifest.peerDependenciesMeta?.[name]?.optional === true;
         if (optional && !node.optionalPeers.includes(name))
@@ -389,7 +419,7 @@ export async function resolveWorkspaceGraph(
           const selected = byKey.get(target)!;
           const requested = range.startsWith("workspace:")
             ? range.slice(10)
-            : range;
+            : parseRequirement(name, range).targetSpec;
           if (
             !["*", "^", "~"].includes(requested) &&
             !satisfies(selected.version, requested)
@@ -437,6 +467,47 @@ export async function resolveWorkspaceGraph(
     }
   }
   return fail("peer binding iteration limit exceeded");
+}
+/** Retry pure planning when a registry edge narrows a live importer's scope. */
+export async function resolveWorkspaceGraph(
+  project: WorkspaceProject,
+  provider: MetadataProvider,
+  options: Parameters<typeof resolveWorkspaceGraphPass>[2] = {},
+): Promise<WorkspaceGraph> {
+  const state = workspaceOverrides(project),
+    expires = Date.now() + (options.deadlineMs ?? 30000);
+  const packuments = new Map<
+    string,
+    ReturnType<MetadataProvider["packument"]>
+  >();
+  const cached = {
+    ...provider,
+    origin: provider.origin,
+    ...(provider.originFor
+      ? { originFor: (name: string) => provider.originFor!(name) }
+      : {}),
+    packument: (name: string) => {
+      let pending = packuments.get(name);
+      if (!pending) {
+        pending = provider.packument(name);
+        packuments.set(name, pending);
+      }
+      return pending;
+    },
+  };
+  for (let round = 0; round < 128 && Date.now() < expires; round++) {
+    try {
+      return await resolveWorkspaceGraphPass(
+        project,
+        cached,
+        { ...options, deadlineMs: Math.max(1, expires - Date.now()) },
+        state,
+      );
+    } catch (cause) {
+      if (!(cause instanceof WorkspaceOverrideRestart)) throw cause;
+    }
+  }
+  throw lockMismatch("workspace override planning resource limit exceeded");
 }
 export function workspaceRegistryOccurrences(
   graph: WorkspaceGraph,

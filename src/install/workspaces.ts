@@ -231,7 +231,11 @@ export async function discoverWorkspaces(
           member.id,
           member.manifest.name ?? null,
           member.manifest.version ?? null,
-          manifestFingerprint(member.manifest),
+          manifestFingerprint({
+            ...member.manifest,
+            overrides:
+              member.id === "." ? member.manifest.overrides : undefined,
+          }),
         ]),
       ),
     ),

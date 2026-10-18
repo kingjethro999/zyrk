@@ -14,6 +14,7 @@ import {
 import { loadProjectPatches, applyProjectPatches } from "../commands/patch.ts";
 import { registerGeneration } from "./metadata.ts";
 import { randomId } from "../util/ids.ts";
+import { createRootOverrides } from "../resolve/overrides.ts";
 import { importNpmLock } from "./import-npm.ts";
 /** Native project install: resolve -> verify -> realize -> journaled publication. */
 import { readFile, realpath, lstat, mkdir, rm } from "node:fs/promises";
@@ -164,13 +165,12 @@ async function readManifest(
   }
   if (
     doc.workspaces !== undefined ||
-    doc.overrides !== undefined ||
     doc.bundledDependencies !== undefined ||
     doc.bundleDependencies !== undefined
   )
     throw error(
       "ZYRK_NOT_IMPLEMENTED",
-      "Project workspaces, overrides, and bundled dependencies are not supported by install yet.",
+      "Project workspaces and bundled dependencies are not supported by install yet.",
     );
   if (
     doc.zyrk !== undefined &&
@@ -217,6 +217,20 @@ export async function installProject(
     return installWorkspaceProject(options);
   }
   const project = await realpath(options.projectDir);
+  const preliminaryManifest = (await readManifest(project)).doc;
+  const preliminaryOverrides = createRootOverrides(preliminaryManifest);
+  if (options.importNpm) {
+    const preliminaryLock = (
+      await readLockfile(path.join(project, "package-lock.json"))
+    )?.doc;
+    if (preliminaryLock && !preliminaryLock.zyrk)
+      importNpmLock(
+        preliminaryLock,
+        requirements(preliminaryManifest),
+        (name) => options.registry.originFor(name),
+        preliminaryOverrides,
+      );
+  }
   // A local control-directory link would redirect locks and recovery writes.
   const local = path.join(project, PROJECT_STATE_DIR);
   try {
@@ -341,6 +355,7 @@ export async function installProject(
         if (other !== group && manifest[other])
           delete manifest[other]![parsed.name];
     }
+    const overrides = createRootOverrides(manifest);
     const allDeps = requirements(manifest);
     for (const [name, spec] of Object.entries(allDeps))
       parseRequirement(name, spec);
@@ -371,8 +386,11 @@ export async function installProject(
         throw lockMismatch(
           "npm-only lockfile requires a non-frozen adoption install before adding packages",
         );
-      resolved = importNpmLock(existing, allDeps, (name) =>
-        options.registry.originFor(name),
+      resolved = importNpmLock(
+        existing,
+        allDeps,
+        (name) => options.registry.originFor(name),
+        overrides,
       );
     }
     if (
@@ -400,6 +418,7 @@ export async function installProject(
       const prior = existing?.zyrk ? lockedGraph(existing) : undefined;
       const fresh = new Set(specs.map((spec) => npa(spec).name));
       resolved = await resolveRequirements({
+        overrides,
         provider: {
           origin: options.registry.origin,
           originFor: (name: string) => options.registry.originFor(name),

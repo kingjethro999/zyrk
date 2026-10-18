@@ -29,6 +29,18 @@ export type ManifestDeclaration = {
   workspaces?: unknown;
 };
 
+/** npm evaluates sibling override rules in declaration order. Preserve that
+ * order inside canonical JSON instead of sorting the policy's object keys. */
+function orderedOverridePolicy(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(orderedOverridePolicy);
+  if (value && typeof value === "object")
+    return Object.entries(value).map(([key, rule]) => [
+      key,
+      orderedOverridePolicy(rule),
+    ]);
+  return value;
+}
+
 export function manifestFingerprint(manifest: ManifestDeclaration): string {
   const normalized: Record<string, Record<string, string> | undefined> = {};
   for (const group of [
@@ -51,7 +63,7 @@ export function manifestFingerprint(manifest: ManifestDeclaration): string {
     peerDependenciesMeta: manifest.peerDependenciesMeta ?? {},
     ...(manifest.overrides === undefined
       ? {}
-      : { overrides: manifest.overrides }),
+      : { overrides: orderedOverridePolicy(manifest.overrides) }),
     ...(manifest.workspaces === undefined
       ? {}
       : { workspaces: manifest.workspaces }),

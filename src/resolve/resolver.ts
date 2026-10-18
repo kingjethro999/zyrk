@@ -29,6 +29,11 @@ import {
 } from "../fetch/registry.ts";
 import { sha512Hex, sourceIdOf } from "../util/hash.ts";
 import { canonicalJson } from "../util/json.ts";
+import {
+  createRootOverrides,
+  type OverridePolicy,
+  type OverrideContext,
+} from "./overrides.ts";
 import { parseRequirement } from "./spec.ts";
 
 export type MetadataProvider = {
@@ -73,6 +78,7 @@ export type ResolvedOccurrence = {
 export type ResolveOptions = {
   provider: MetadataProvider;
   requirements: Array<{ name: string; spec: string; optional?: boolean }>;
+  overrides?: OverridePolicy;
   limits?: Partial<ResolverLimits>;
   platform?: RuntimePlatform;
 };
@@ -118,7 +124,11 @@ export async function resolveRequirements(
   options: ResolveOptions,
 ): Promise<FinalizedGraph> {
   const state = new ResolverState(options);
-  const rootFrame: Frame = { label: "<root>", children: [] };
+  const rootFrame: Frame = {
+    label: "<root>",
+    children: [],
+    overrideContext: state.overrides.root,
+  };
   const seenRoots = new Set<string>();
   for (const requirement of [...options.requirements].sort((a, b) =>
     compareStrings(a.name, b.name),
@@ -162,6 +172,7 @@ type ChildLink = {
 };
 
 type Frame = {
+  overrideContext: OverrideContext;
   label: string;
   children: ChildLink[];
 };
@@ -173,6 +184,7 @@ type PeerSpec = {
 };
 
 type Occurrence = {
+  overrideContext: OverrideContext;
   name: string;
   version: string;
   entry: PackumentVersion;
@@ -187,6 +199,7 @@ type Occurrence = {
 
 class ResolverState {
   readonly provider: MetadataProvider;
+  readonly overrides: OverridePolicy;
   private readonly packuments = new Map<string, Promise<Packument>>();
   private readonly peerless = new Map<string, Occurrence>();
   private readonly peerBearing = new Map<Frame, Map<string, Occurrence>>();
@@ -200,6 +213,7 @@ class ResolverState {
   private peerExpansions = 0;
   constructor(options: ResolveOptions) {
     this.provider = options.provider;
+    this.overrides = options.overrides ?? createRootOverrides({});
     this.limits = {
       maxNodes: 10000,
       maxDepth: 128,
@@ -302,7 +316,18 @@ class ResolverState {
     kind: "prod" | "optional",
   ): Promise<Occurrence> {
     this.checkBudget();
-    const req = parseRequirement(edgeName, rawSpec);
+    const override = this.overrides.select(
+      parentFrame.overrideContext,
+      edgeName,
+      rawSpec,
+    );
+    // Root override legality was checked against the declared manifest.
+    // A caller may pass an existing exact root pin inside that declaration;
+    // applying the identical declared range again would discard the pin.
+    const req = parseRequirement(
+      edgeName,
+      parentFrame.label === "<root>" ? rawSpec : override.spec,
+    );
     const { version, entry } = await selectVersion(this, req);
     this.checkPlatform(req.realName, entry);
     const integrity = expectedIntegrityFromDist(entry.dist);
@@ -318,10 +343,11 @@ class ResolverState {
       );
     }
     const baseKey = `${req.realName}@${version}`;
+    const memoKey = `${baseKey}\0${override.context.id}`;
     const hasPeers = peerSpecsOf(entry).length > 0;
 
     if (!hasPeers) {
-      const existing = this.peerless.get(baseKey);
+      const existing = this.peerless.get(memoKey);
       if (existing !== undefined) return existing;
     } else {
       let perParent = this.peerBearing.get(parentFrame);
@@ -329,27 +355,36 @@ class ResolverState {
         perParent = new Map();
         this.peerBearing.set(parentFrame, perParent);
       } else {
-        const existing = perParent.get(baseKey);
+        const existing = perParent.get(memoKey);
         if (existing !== undefined) return existing;
       }
     }
 
     this.checkBudget(chain.length, true);
     const occ: Occurrence = {
+      overrideContext: override.context,
       name: req.realName,
       version,
       entry,
       integrity,
       children: [],
-      peerSpecs: peerSpecsOf(entry),
+      peerSpecs: peerSpecsOf(entry).map((peer) => ({
+        ...peer,
+        range: this.overrides.select(override.context, peer.name, peer.range)
+          .spec,
+      })),
       peerBindings: new Map(),
       chain: hasPeers ? [...chain, parentFrame] : [],
     };
-    if (!hasPeers) this.peerless.set(baseKey, occ);
-    else this.peerBearing.get(parentFrame)?.set(baseKey, occ);
+    if (!hasPeers) this.peerless.set(memoKey, occ);
+    else this.peerBearing.get(parentFrame)?.set(memoKey, occ);
     this.occurrences.push(occ);
 
-    const selfFrame: Frame = { label: baseKey, children: occ.children };
+    const selfFrame: Frame = {
+      label: baseKey,
+      children: occ.children,
+      overrideContext: override.context,
+    };
     const childChain = [...chain, parentFrame];
     for (const dep of regularDepsOf(entry)) {
       const child = await this.buildChild(
@@ -459,7 +494,12 @@ class ResolverState {
     }
     const existing = perOcc.get(spec.name);
     if (existing !== undefined) return existing;
-    const req = parseRequirement(spec.name, spec.range);
+    const override = this.overrides.select(
+      occ.overrideContext,
+      spec.name,
+      spec.range,
+    );
+    const req = parseRequirement(spec.name, override.spec);
     const { version, entry } = await selectVersion(this, {
       realName: req.realName,
       targetSpec: req.targetSpec,
@@ -480,12 +520,17 @@ class ResolverState {
     this.checkPlatform(req.realName, entry);
     this.checkBudget(occ.chain.length + 1, true);
     const fresh: Occurrence = {
+      overrideContext: override.context,
       name: req.realName,
       version,
       entry,
       integrity,
       children: [],
-      peerSpecs: peerSpecsOf(entry),
+      peerSpecs: peerSpecsOf(entry).map((peer) => ({
+        ...peer,
+        range: this.overrides.select(override.context, peer.name, peer.range)
+          .spec,
+      })),
       peerBindings: new Map(),
       chain: [...occ.chain, this.frameOf(occ)],
     };
@@ -517,7 +562,11 @@ class ResolverState {
   private frameOf(occ: Occurrence): Frame {
     let frame = this.frames.get(occ);
     if (frame === undefined) {
-      frame = { label: `${occ.name}@${occ.version}`, children: occ.children };
+      frame = {
+        label: `${occ.name}@${occ.version}`,
+        children: occ.children,
+        overrideContext: occ.overrideContext,
+      };
       this.frames.set(occ, frame);
     }
     return frame;
@@ -686,8 +735,12 @@ function lookupPeer(
   for (const level of levels) {
     const matches = level.children.filter((link) => link.edgeName === peerName);
     if (matches.length === 0) continue;
-    const satisfying = matches.filter((link) =>
-      satisfies(link.child.version, range),
+    const requested = parseRequirement(peerName, range);
+    const satisfying = matches.filter(
+      (link) =>
+        link.child.name === requested.realName &&
+        (requested.targetKind === "tag" ||
+          satisfies(link.child.version, requested.targetSpec)),
     );
     const first = satisfying[0];
     if (first !== undefined) return { status: "bound", target: first.child };
@@ -732,9 +785,9 @@ function occurrenceKey(
   check: (depth: number) => void,
 ): string {
   const base = `${occ.name}@${occ.version}`;
-  if (occ.peerSpecs.length === 0) return base;
+  if (occ.peerSpecs.length === 0 && !occ.overrideContext.id) return base;
   const expansion = expandPeerBindings(occ, new Set<Occurrence>([occ]), check);
-  return `${base}#${sha512Hex(canonicalJson(expansion)).slice(0, 12)}`;
+  return `${base}#${sha512Hex(canonicalJson(occ.overrideContext.id ? [occ.overrideContext.id, expansion] : expansion)).slice(0, 12)}`;
 }
 
 function expandPeerBindings(
@@ -752,13 +805,23 @@ function expandPeerBindings(
     if (bound === null) {
       parts.push([spec.name, "absent"]);
     } else if (visiting.has(bound)) {
-      parts.push([spec.name, ["ref", `${bound.name}@${bound.version}`]]);
+      parts.push([
+        spec.name,
+        [
+          "ref",
+          bound.overrideContext.id
+            ? [`${bound.name}@${bound.version}`, bound.overrideContext.id]
+            : `${bound.name}@${bound.version}`,
+        ],
+      ]);
     } else {
       parts.push([
         spec.name,
         [
           "node",
-          `${bound.name}@${bound.version}`,
+          bound.overrideContext.id
+            ? [`${bound.name}@${bound.version}`, bound.overrideContext.id]
+            : `${bound.name}@${bound.version}`,
           expandPeerBindings(bound, new Set([...visiting, bound]), check),
         ],
       ]);

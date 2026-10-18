@@ -26,6 +26,7 @@ import {
   assertWorkspacePlatform,
   type WorkspaceGraph,
 } from "./workspace-graph.ts";
+import { workspaceOverrides } from "./workspace-overrides.ts";
 import { importNpmWorkspaceLock } from "./import-npm-workspace.ts";
 import { readWorkspaceLock, workspaceLockDoc } from "./workspace-lock.ts";
 import {
@@ -137,6 +138,7 @@ export async function installWorkspaceProject(
 ): Promise<InstallResult> {
   const root = await findWorkspaceRoot(options.projectDir);
   if (!root) throw lockMismatch("no authoritative workspace root");
+  workspaceOverrides(await discoverWorkspaces(root));
   // Refuse untranslatable locks before creating control directories or
   // recovering a previous generation. Revalidate under the project lock below.
   if (options.importNpm)
@@ -168,13 +170,10 @@ export async function installWorkspaceProject(
     );
     const mutation = await prepareWorkspaceMutation(project, options);
     if (
-      manifest.overrides !== undefined ||
       manifest.bundledDependencies !== undefined ||
       manifest.bundleDependencies !== undefined
     )
-      unsupported(
-        "Workspace overrides and bundled root dependencies are unsupported.",
-      );
+      unsupported("Workspace bundled root dependencies are unsupported.");
     const policy = object(manifest.zyrk) ? manifest.zyrk.scripts : undefined;
     if (
       manifest.zyrk !== undefined &&
