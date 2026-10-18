@@ -151,3 +151,12 @@ describe("dispatch", () => {
     });
   });
 });
+
+it("accepts help as a successful command without altering delegated help arguments", () => {
+  const parsed = parseArgs(["help"]);
+  expect(dispatch(parsed, { version: VERSION, env: {} })).toMatchObject({
+    exitCode: 0,
+    stderr: "",
+  });
+  expect(parseArgs(["publish", "help"]).help).toBe(false);
+});

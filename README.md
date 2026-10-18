@@ -362,3 +362,8 @@ version-qualified selectors, self rules (`.`), and `$direct` references. Direct
 dependency overrides must match the declared specification. Workspace member
 overrides are ignored, matching npm root-only policy. Override rule order is
 recorded in the manifest fingerprint; frozen installs reject policy drift.
+
+`zyrk help` and `zyrk --help` both show help successfully. Installs report
+preparation, resolution, verified source counts, realization, approved builds,
+and project linking on stderr. Interactive terminals show an activity spinner;
+redirected output contains plain phase messages. `--json` disables progress.

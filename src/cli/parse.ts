@@ -68,6 +68,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     }
     if (parsed.command === undefined && !token.startsWith("-")) {
       parsed.command = token;
+      if (token === "help") parsed.help = true;
       commandIndex = index;
       return;
     }

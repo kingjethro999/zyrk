@@ -290,7 +290,8 @@ it("routes install and i through the CLI with matching human/JSON readiness", as
       stderr: { write: (x) => (err += x) },
     });
     expect(code).toBe(0);
-    expect(err).toBe("");
+    if (args.includes("--json")) expect(err).toBe("");
+    else expect(err).toContain("Preparing installation");
     if (args.includes("--json"))
       expect(JSON.parse(out)).toMatchObject({
         status: "ok",
@@ -359,4 +360,20 @@ it("serializes concurrent installs of one project and retains a complete result"
     "alpha:one",
   );
   await install({ offline: true, frozen: true });
+});
+
+it("reports real install phases and verified source counts", async () => {
+  const events: { phase: string; completed?: number; total?: number }[] = [];
+  await install({ onProgress: (event) => events.push(event) });
+  expect(events.map((e) => e.phase)).toEqual(
+    expect.arrayContaining([
+      "planning",
+      "resolving",
+      "fetching",
+      "realizing",
+      "linking",
+    ]),
+  );
+  const fetched = events.filter((e) => e.phase === "fetching");
+  expect(fetched.at(-1)).toMatchObject({ completed: 2, total: 2 });
 });

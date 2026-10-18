@@ -57,7 +57,19 @@ import { sha512Hex } from "../util/hash.ts";
 import { canonicalJson } from "../util/json.ts";
 import { lockedGraph, packageName, cleanUrl, lockMismatch } from "./lock.ts";
 
+export type InstallProgress = {
+  phase:
+    | "planning"
+    | "resolving"
+    | "fetching"
+    | "realizing"
+    | "building"
+    | "linking";
+  completed?: number;
+  total?: number;
+};
 export type InstallOptions = {
+  onProgress?: (event: InstallProgress) => void;
   projectDir: string;
   store: Store;
   registry: RegistryClient;
@@ -212,6 +224,7 @@ function scriptPolicy(manifest: Manifest): unknown {
 export async function installProject(
   options: InstallOptions,
 ): Promise<InstallResult> {
+  options.onProgress?.({ phase: "planning" });
   if (await findWorkspaceRoot(options.projectDir)) {
     const { installWorkspaceProject } = await import("./workspace-install.ts");
     return installWorkspaceProject(options);
@@ -417,6 +430,7 @@ export async function installProject(
         );
       const prior = existing?.zyrk ? lockedGraph(existing) : undefined;
       const fresh = new Set(specs.map((spec) => npa(spec).name));
+      options.onProgress?.({ phase: "resolving" });
       resolved = await resolveRequirements({
         overrides,
         provider: {
@@ -694,10 +708,21 @@ export async function installProject(
         })
       : undefined;
     const unique = new Map(activeNodes.map((n) => [n.sourceId, n]));
+    let completedSources = 0;
+    options.onProgress?.({
+      phase: "fetching",
+      completed: 0,
+      total: unique.size,
+    });
     for (const node of unique.values()) {
       operation.operation.checkpoint();
       if (await pathExists(sourceManifestPath(options.store, node.sourceId))) {
         await readSourceManifest(options.store, node.sourceId);
+        options.onProgress?.({
+          phase: "fetching",
+          completed: ++completedSources,
+          total: unique.size,
+        });
         continue;
       }
       if (options.offline)
@@ -736,6 +761,11 @@ export async function installProject(
           "download identity disagrees with the locked source",
         );
       await rm(tarball, { force: true });
+      options.onProgress?.({
+        phase: "fetching",
+        completed: ++completedSources,
+        total: unique.size,
+      });
     }
     for (const node of unique.values())
       assertSupportedSourcePayload(
@@ -753,6 +783,7 @@ export async function installProject(
     const graph = createGraphDoc(
       activeNodes.map((n) => ({ ...n, deps: n.edges })),
     );
+    options.onProgress?.({ phase: "realizing" });
     const sharedRealized = await realizeGraph({
       store: options.store,
       graph,
@@ -841,6 +872,7 @@ export async function installProject(
         });
         privateGraph = true;
       }
+      options.onProgress?.({ phase: "building" });
       await buildPrivate({
         project,
         generationId,
@@ -961,6 +993,7 @@ export async function installProject(
       roots: selectedRoots.map((r) => r.target),
       readiness,
     });
+    options.onProgress?.({ phase: "linking" });
     const published = await installProjection(project, entries, {
       generationId,
       lockHeld: true,

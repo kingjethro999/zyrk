@@ -1,3 +1,4 @@
+import { createInstallProgress } from "./progress.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
 import { runDeployCommand } from "../commands/deploy.ts";
 import { runPatchCommand } from "../commands/patch.ts";
@@ -285,7 +286,7 @@ export type RunCliOptions = {
   argv: readonly string[];
   env: NodeJS.ProcessEnv;
   stdout: { write(chunk: string): unknown };
-  stderr: { write(chunk: string): unknown };
+  stderr: { write(chunk: string): unknown; isTTY?: boolean };
   readVersion?: () => string;
   cwd?: string;
   tools?: () => Promise<ToolEnvironment>;
@@ -492,6 +493,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
   ) {
     if (isGlobalInstallRequest(parsed.command, parsed.commandArgs, options.env))
       return emit(fail(globalInstallError(parsed.command), parsed));
+    const progress = createInstallProgress(options.stderr, parsed.json);
     try {
       if (
         parsed.commandArgs.includes("--help") ||
@@ -528,6 +530,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           });
         else specs.push(token);
       }
+      progress.update({ phase: "planning" });
       const cwd = options.cwd ?? process.cwd();
       const tools = options.tools
         ? await options.tools()
@@ -544,12 +547,14 @@ export async function runCli(options: RunCliOptions): Promise<number> {
             }),
           };
       const result = await installProject({
+        onProgress: progress.update,
         ...flags,
         env: options.env,
         specs,
         projectDir: cwd,
         ...tools,
       });
+      progress.close();
       if (parsed.json)
         return emit({
           exitCode: 0,
@@ -566,7 +571,10 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         stderr: result.warnings.map((w) => `zyrk: ${w}\n`).join(""),
       });
     } catch (error) {
+      progress.close();
       return emit(fail(toZyrkError(error, "zyrk install failed."), parsed));
+    } finally {
+      progress.close();
     }
   }
   if (

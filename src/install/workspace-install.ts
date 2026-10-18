@@ -269,6 +269,7 @@ export async function installWorkspaceProject(
         throw lockMismatch(
           "offline/frozen workspace install needs a compatible lock",
         );
+      options.onProgress?.({ phase: "resolving" });
       graph = await resolveWorkspaceGraph(
         project,
         {
@@ -413,7 +414,14 @@ export async function installWorkspaceProject(
           offline: options.offline === true,
         })
       : undefined;
-    for (const node of new Map(nodes.map((n) => [n.sourceId, n])).values()) {
+    const uniqueSources = new Map(nodes.map((n) => [n.sourceId, n]));
+    let completedSources = 0;
+    options.onProgress?.({
+      phase: "fetching",
+      completed: 0,
+      total: uniqueSources.size,
+    });
+    for (const node of uniqueSources.values()) {
       operation.operation.checkpoint();
       if (
         !(await pathExists(sourceManifestPath(options.store, node.sourceId)))
@@ -461,6 +469,11 @@ export async function installWorkspaceProject(
         node,
         await readSourceManifest(options.store, node.sourceId),
       );
+      options.onProgress?.({
+        phase: "fetching",
+        completed: ++completedSources,
+        total: uniqueSources.size,
+      });
     }
     if (options.fetchOnly)
       return {
@@ -469,6 +482,7 @@ export async function installWorkspaceProject(
         reused: 0,
         warnings,
       };
+    options.onProgress?.({ phase: "realizing" });
     const shared = await realizeGraph({
         store: options.store,
         graph: pureGraph,
@@ -649,6 +663,7 @@ export async function installWorkspaceProject(
       });
       // Approved writes need a coherent fully private registry closure.
       await allocatePrivate(new Set(nodes.map((n) => n.key)));
+      options.onProgress?.({ phase: "building" });
       await buildPrivate({
         project: root,
         generationId,
@@ -718,6 +733,7 @@ export async function installWorkspaceProject(
           bins[name] = actual;
         }
       }
+      options.onProgress?.({ phase: "linking" });
       await installProjection(
         holder,
         node.edges.map((e) => ({
