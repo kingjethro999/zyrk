@@ -19,7 +19,7 @@ import type {
 export function importNpmWorkspaceLock(
   doc: NpmLockDoc,
   project: WorkspaceProject,
-  origin: string,
+  origin: string | ((name: string) => string),
 ): WorkspaceGraph {
   if (
     !doc ||
@@ -94,7 +94,7 @@ export function importNpmWorkspaceLock(
     doc.zyrk ||
     ![2, 3].includes(doc.lockfileVersion ?? 0) ||
     !doc.packages ||
-    !cleanUrl(origin)
+    (typeof origin === "string" && !cleanUrl(origin))
   )
     throw lockMismatch(
       "workspace adoption needs an unannotated npm v2/v3 lock",

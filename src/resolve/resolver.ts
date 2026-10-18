@@ -33,6 +33,7 @@ import { parseRequirement } from "./spec.ts";
 
 export type MetadataProvider = {
   readonly origin: string;
+  originFor?(name: string): string;
   packument(name: string): Promise<Packument>;
 };
 
@@ -559,14 +560,26 @@ class ResolverState {
       if (key === undefined) throw internal("missing finalized key");
       const existing = byKey.get(key);
       if (existing !== undefined) {
-        assertMergeable(existing, occ, keys, this.provider.origin);
+        assertMergeable(
+          existing,
+          occ,
+          keys,
+          this.provider.originFor?.(occ.name) ?? this.provider.origin,
+        );
         continue;
       }
       byKey.set(key, occ);
     }
     const nodes = [...byKey.entries()]
       .sort((a, b) => compareStrings(a[0], b[0]))
-      .map(([key, occ]) => toResolved(occ, key, keys, this.provider.origin));
+      .map(([key, occ]) =>
+        toResolved(
+          occ,
+          key,
+          keys,
+          this.provider.originFor?.(occ.name) ?? this.provider.origin,
+        ),
+      );
     const roots = rootLinks.map((link) => {
       const target = keys.get(link.child);
       if (target === undefined)

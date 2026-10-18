@@ -398,7 +398,7 @@ export function validateWorkspaceLockDoc(doc: unknown): WorkspaceGraph {
 export async function readWorkspaceLock(
   root: string,
   project?: WorkspaceProject,
-  registryOrigin?: string,
+  registryOrigin?: string | ((name: string) => string),
 ): Promise<{ doc: NpmLockDoc; graph: WorkspaceGraph } | null> {
   let text: string;
   try {
@@ -432,7 +432,12 @@ export async function readWorkspaceLock(
   if (
     registryOrigin &&
     graph.nodes.some(
-      (n) => n.kind === "registry" && n.origin !== registryOrigin,
+      (n) =>
+        n.kind === "registry" &&
+        n.origin !==
+          (typeof registryOrigin === "string"
+            ? registryOrigin
+            : registryOrigin(n.name)),
     )
   )
     throw lockMismatch("workspace registry origin differs");

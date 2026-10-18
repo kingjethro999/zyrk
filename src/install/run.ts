@@ -349,6 +349,7 @@ export async function installProject(
       scripts: scriptPolicyFingerprint(scriptPolicy(manifest)),
       config: configFingerprint({
         registry: options.registry.origin,
+        registries: options.registry.scopedRegistries,
         linker: "shared",
         platform: currentPlatform(),
         ...(object(manifest.zyrk) &&
@@ -370,7 +371,9 @@ export async function installProject(
         throw lockMismatch(
           "npm-only lockfile requires a non-frozen adoption install before adding packages",
         );
-      resolved = importNpmLock(existing, allDeps, options.registry.origin);
+      resolved = importNpmLock(existing, allDeps, (name) =>
+        options.registry.originFor(name),
+      );
     }
     if (
       existing?.zyrk &&
@@ -399,6 +402,7 @@ export async function installProject(
       resolved = await resolveRequirements({
         provider: {
           origin: options.registry.origin,
+          originFor: (name: string) => options.registry.originFor(name),
           packument: (name) =>
             options.registry.packument(name, {
               signal: operation.operation.signal,
@@ -521,7 +525,7 @@ export async function installProject(
         !packageName(node.name) ||
         !cleanUrl(node.origin) ||
         !cleanUrl(node.tarballUrl) ||
-        node.origin !== options.registry.origin
+        node.origin !== options.registry.originFor(node.name)
       )
         throw error(
           "ZYRK_POLICY_DENIED",
@@ -683,14 +687,16 @@ export async function installProject(
           `Verified source for ${node.name}@${node.version} is missing from the store.`,
         );
       const tarball = path.join(txn.dir, `${node.sourceId}.tgz`);
-      const download = await options.registry.downloadTarball({
-        signal: operation.operation.signal,
-        onBytes: operation.operation.consumeArchiveBytes,
-        url: node.tarballUrl,
-        expectedIntegrity: node.integrity,
-        destPath: tarball,
-        label: `${node.name}@${node.version}`,
-      });
+      const download = await options.registry
+        .forPackage(node.name)
+        .downloadTarball({
+          signal: operation.operation.signal,
+          onBytes: operation.operation.consumeArchiveBytes,
+          url: node.tarballUrl,
+          expectedIntegrity: node.integrity,
+          destPath: tarball,
+          label: `${node.name}@${node.version}`,
+        });
       const extracted = await extractTarball({
         signal: operation.operation.signal,
         onExpandedBytes: operation.operation.consumeExpandedBytes,
@@ -962,6 +968,10 @@ export async function installProject(
         instances: registration.instances,
         activeContexts: registration.contexts,
         lockDigest: sha512Hex(canonicalJson(doc)),
+        registryConfig: {
+          registry: options.registry.origin,
+          registries: options.registry.scopedRegistries,
+        },
         graphDigest: digest,
         platform: process.platform,
         arch: process.arch,

@@ -1,3 +1,4 @@
+import { installedRegistryConfig } from "../install/registry-policy.ts";
 /** Self-contained runtime deployment and explicit local Docker commands. */
 import { constants } from "node:fs";
 import {
@@ -247,19 +248,14 @@ export async function runDeployCommand(
         "Deployment manifest, lock, and installed generation disagree.",
       );
     if (resolved.nodes.length) {
-      const origins = new Set(resolved.nodes.map((node) => node.origin));
-      if (origins.size !== 1)
-        throw error(
-          "ZYRK_DEPLOY_NONRELOCATABLE",
-          "Mixed-origin deployment requires a validated registry adapter.",
-        );
+      const registryConfig = installedRegistryConfig(state, resolved.nodes);
       const patches = await loadProjectPatches(project);
       const policy = object(manifest.zyrk) ? manifest.zyrk : {};
       assertFrozenCompatible(doc, {
         manifest: manifestFingerprint(manifest as ManifestDeclaration),
         scripts: scriptPolicyFingerprint(policy.scripts),
         config: configFingerprint({
-          registry: [...origins][0]!,
+          ...registryConfig,
           linker: "shared",
           platform: currentPlatform(),
           ...(Array.isArray(policy.mutablePackages)
@@ -1298,20 +1294,17 @@ async function exportWorkspace(
       "ZYRK_LOCK_MISMATCH",
       "Workspace deployment build policy changed after installation.",
     );
-  const origins = new Set(
-    locked.graph.nodes
-      .filter((n) => n.kind === "registry")
-      .map((n) => n.origin),
+  const registryNodesForPolicy = locked.graph.nodes.filter(
+    (n) => n.kind === "registry",
   );
-  if (origins.size > 1)
-    throw error(
-      "ZYRK_DEPLOY_NONRELOCATABLE",
-      "Mixed-origin workspace export requires a validated registry adapter.",
+  if (registryNodesForPolicy.length || state.registryConfig !== undefined) {
+    const registryConfig = installedRegistryConfig(
+      state,
+      registryNodesForPolicy,
     );
-  if (origins.size === 1) {
     const patches = await loadProjectPatches(project);
     const expected = configFingerprint({
-      registry: [...origins][0]!,
+      ...registryConfig,
       linker: "shared",
       platform: currentPlatform(),
       ...(Array.isArray(policy.mutablePackages)

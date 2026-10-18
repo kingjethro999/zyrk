@@ -1,6 +1,6 @@
 {
   "name": "zyrk",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",

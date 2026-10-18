@@ -80,6 +80,7 @@ export interface Packument {
 }
 
 export interface RegistryClientOptions {
+  scopedRegistries?: Readonly<Record<string, string>>;
   /** Registry base URL; must be http(s). Trailing slash optional. */
   registry: string;
   userAgent: string;
@@ -112,6 +113,8 @@ export interface DownloadResult {
 }
 
 export class RegistryClient {
+  #routeBoundaries: readonly URL[] = [];
+  readonly #scopedClients = new Map<string, RegistryClient>();
   readonly #registry: string;
   readonly #origin: string;
   readonly #userAgent: string;
@@ -120,11 +123,11 @@ export class RegistryClient {
   readonly #maxTarballBytes: number;
   readonly #maxMetadataBytes: number;
   readonly #maxTotalMetadataBytes: number;
-  #totalMetadataBytes = 0;
+  #metadataBudget = { bytes: 0 };
   readonly #maxMetadataVersions: number;
   readonly #requestDeadlineMs: number;
   readonly #signal: AbortSignal | undefined;
-  readonly #credentials: Array<{ scope: URL; authorization: string }>;
+  #credentials: Array<{ scope: URL; authorization: string }>;
 
   constructor(options: RegistryClientOptions) {
     const registry = normalizeRegistryUrl(options.registry);
@@ -150,7 +153,13 @@ export class RegistryClient {
     if (options.timeoutMs !== undefined) base.timeout = options.timeoutMs;
     const parsed = safeTransportOptions(options.fetchOptions ?? {}, registry);
     this.#fetchOptions = { ...base, ...parsed.transport, strictSSL: true };
-    this.#credentials = parsed.credentials;
+    const boundary = new URL(registry);
+    this.#credentials = parsed.credentials.filter(
+      ({ scope }) =>
+        scope.origin === boundary.origin &&
+        (scope.pathname.startsWith(boundary.pathname) ||
+          boundary.pathname.startsWith(scope.pathname)),
+    );
     this.#maxMetadataBytes = positiveLimit(
       options.maxMetadataBytes ?? 32 * 1024 * 1024,
       "maxMetadataBytes",
@@ -169,6 +178,60 @@ export class RegistryClient {
     );
     positiveLimit(this.#maxTarballBytes, "maxTarballBytes");
     this.#signal = options.signal;
+    const { scopedRegistries, ...baseOptions } = options;
+    for (const [scope, selected] of Object.entries(scopedRegistries ?? {}).sort(
+      ([a], [b]) => a.localeCompare(b),
+    )) {
+      if (!/^@[a-z0-9][a-z0-9._-]*$/.test(scope))
+        throw new ZyrkError(
+          "ZYRK_POLICY_DENIED",
+          "Invalid scoped registry name.",
+          { remedy: "Use an npm @scope registry setting." },
+        );
+      const { headers, ...childFetchOptions } = options.fetchOptions ?? {};
+      const client = new RegistryClient({
+        ...baseOptions,
+        fetchOptions: childFetchOptions,
+        registry: selected,
+      });
+      // Raw Authorization headers are scoped once to the original registry.
+      // Cloning must never reinterpret them as credentials for a child host.
+      for (const authorization of Object.values(
+        (headers ?? {}) as Record<string, string>,
+      )) {
+        const originalScope = new URL(registry),
+          childScope = new URL(client.registry);
+        if (
+          originalScope.origin === childScope.origin &&
+          (originalScope.pathname.startsWith(childScope.pathname) ||
+            childScope.pathname.startsWith(originalScope.pathname))
+        )
+          client.#credentials.push({ scope: originalScope, authorization });
+      }
+      client.#credentials.sort(
+        (a, b) => b.scope.pathname.length - a.scope.pathname.length,
+      );
+      client.#metadataBudget = this.#metadataBudget;
+      this.#scopedClients.set(scope, client);
+    }
+    // A containing public registry must not borrow a credential belonging to a
+    // narrower configured private registry on the same host. Explicit broad
+    // credentials retain their declared scope, including use by child routes.
+    const clients = [this, ...this.#scopedClients.values()];
+    const boundaries = clients.map((client) => new URL(client.registry));
+    for (const client of clients) {
+      const own = new URL(client.registry);
+      client.#routeBoundaries = boundaries;
+      client.#credentials = client.#credentials.filter(
+        ({ scope }) =>
+          !boundaries.some(
+            (boundary) =>
+              boundary.origin === scope.origin &&
+              boundary.pathname.length > own.pathname.length &&
+              scope.pathname.startsWith(boundary.pathname),
+          ),
+      );
+    }
   }
 
   /** Credential-free registry origin; participates in source identity (§8.1). */
@@ -180,12 +243,29 @@ export class RegistryClient {
     return this.#registry;
   }
 
+  /** Routing always follows the real package name, including npm aliases. */
+  forPackage(name: string): RegistryClient {
+    validateRegistryPackageName(name);
+    return name.startsWith("@")
+      ? (this.#scopedClients.get(name.slice(0, name.indexOf("/"))) ?? this)
+      : this;
+  }
+  originFor(name: string): string {
+    return this.forPackage(name).origin;
+  }
+  get scopedRegistries(): Readonly<Record<string, string>> {
+    return Object.fromEntries(
+      [...this.#scopedClients].map(([scope, client]) => [scope, client.origin]),
+    );
+  }
+
   /** Fetch the (abbreviated) packument for an exact package name. */
   async packument(
     name: string,
     options: { signal?: AbortSignal } = {},
   ): Promise<Packument> {
-    validateRegistryPackageName(name);
+    const selected = this.forPackage(name);
+    if (selected !== this) return selected.packument(name, options);
     const url = `${this.#registry}${escapePackageName(name)}`;
     this.#logger?.debug("fetching packument", { name, url });
     let raw: unknown;
@@ -223,6 +303,21 @@ export class RegistryClient {
           "Invalid registry advisory package versions.",
         );
     }
+    const routes = new Set(
+      Object.keys(packages).map((name) => this.forPackage(name)),
+    );
+    if (routes.size > 1)
+      throw new ZyrkError(
+        "ZYRK_POLICY_DENIED",
+        "Mixed-registry audit requests must be partitioned by registry.",
+        {
+          remedy:
+            "Audit each selected registry independently so private names are never disclosed across origins.",
+        },
+      );
+    const selected = [...routes][0];
+    if (selected && selected !== this)
+      return selected.auditAdvisories(packages, options);
     const body = JSON.stringify(packages);
     if (Buffer.byteLength(body) > this.#maxMetadataBytes)
       throw resourceLimit(
@@ -244,14 +339,14 @@ export class RegistryClient {
   }
 
   #countMetadataBytes(bytes: number, responseBytes: number): void {
-    this.#totalMetadataBytes += bytes;
+    this.#metadataBudget.bytes += bytes;
     if (responseBytes > this.#maxMetadataBytes)
       throw resourceLimit(
         "metadata bytes",
         this.#maxMetadataBytes,
         "maxMetadataBytes",
       );
-    if (this.#totalMetadataBytes > this.#maxTotalMetadataBytes)
+    if (this.#metadataBudget.bytes > this.#maxTotalMetadataBytes)
       throw resourceLimit(
         "total metadata bytes",
         this.#maxTotalMetadataBytes,
@@ -405,6 +500,20 @@ export class RegistryClient {
       throw mapFetchError(error, `download tarball for ${options.label}`);
     }
   }
+  #insideAdvisoryBoundary(url: URL): boolean {
+    const registryScope = new URL(this.#registry);
+    return (
+      url.origin === registryScope.origin &&
+      url.pathname.startsWith(registryScope.pathname) &&
+      !/%(?:2f|5c|2e)/i.test(url.pathname) &&
+      !this.#routeBoundaries.some(
+        (boundary) =>
+          boundary.origin === url.origin &&
+          boundary.pathname.length > registryScope.pathname.length &&
+          url.pathname.startsWith(boundary.pathname),
+      )
+    );
+  }
   async #withRequest<T>(
     url: string,
     accept: string,
@@ -432,6 +541,15 @@ export class RegistryClient {
     if (signals.some((source) => source.aborted)) cancel();
     try {
       let current = parseTarballUrl(url, "registry request");
+      if (request.method === "POST" && !this.#insideAdvisoryBoundary(current))
+        throw new ZyrkError(
+          "ZYRK_FETCH_REFUSED",
+          "Registry advisory endpoint overlaps another configured registry or has an ambiguous path.",
+          {
+            remedy:
+              "Use a distinct advisory endpoint within the selected registry's own route.",
+          },
+        );
       let crossedBoundary = false;
       for (let hop = 0; hop <= 10; hop++) {
         if (controller.signal.aborted)
@@ -527,11 +645,9 @@ export class RegistryClient {
               { remedy: "Use HTTPS for every registry redirect." },
             );
           if (request.method === "POST") {
-            const registryScope = new URL(this.#registry);
             if (
               ![307, 308].includes(active.status) ||
-              next.origin !== registryScope.origin ||
-              !next.pathname.startsWith(registryScope.pathname)
+              !this.#insideAdvisoryBoundary(next)
             )
               throw new ZyrkError(
                 "ZYRK_FETCH_REFUSED",
@@ -672,8 +788,8 @@ export function validateRegistryPackageName(name: string): void {
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0020\u007f]/.test(name))
     bad("control or whitespace character");
-  if (!/^(?:@[^/@]+\/)?[^/@]+$/.test(name))
-    bad("shape is not `name` or `@scope/name`");
+  if (!/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name))
+    bad("name must use supported lowercase npm package characters");
   for (const segment of name.split("/")) {
     if (segment === "." || segment === "..") bad("path-like segment");
   }

@@ -131,7 +131,8 @@ export interface FetchedSource extends CommittedSource {
 export async function fetchAndCommitSource(
   options: FetchSourceOptions,
 ): Promise<FetchedSource> {
-  const { store, registry, txn, name, version } = options;
+  const { store, txn, name, version } = options;
+  const registry = options.registry.forPackage(name);
   const label = `${name}@${version}`;
 
   // ---- 1. Metadata: exact version entry for the resolved identity ----

@@ -262,7 +262,9 @@ export async function resolveWorkspaceGraph(
       if (ancestor) return ancestor.key;
       const key = `${requirement.realName}@${version}#${sha512Hex(parent.key + "\0" + name).slice(0, 16)}`;
       if (byKey.has(key)) return key;
-      if (!cleanUrl(provider.origin) || !cleanUrl(entry.dist.tarball))
+      const origin =
+        provider.originFor?.(requirement.realName) ?? provider.origin;
+      if (!cleanUrl(origin) || !cleanUrl(entry.dist.tarball))
         fail("unsafe registry source metadata");
       const bin: Record<string, string> =
         typeof entry.bin === "string"
@@ -277,10 +279,10 @@ export async function resolveWorkspaceGraph(
           sourceType: "registry",
           name: requirement.realName,
           version,
-          origin: provider.origin,
+          origin,
           integrity,
         }),
-        origin: provider.origin,
+        origin,
         integrity,
         tarballUrl: entry.dist.tarball,
         bin,

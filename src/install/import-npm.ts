@@ -14,7 +14,7 @@ import { cleanUrl, lockMismatch, packageName } from "./lock.ts";
 export function importNpmLock(
   doc: NpmLockDoc,
   requirements: Record<string, string>,
-  origin: string,
+  origin: string | ((name: string) => string),
 ): FinalizedGraph {
   validateLockDoc(doc, "package-lock.json");
   const packages = doc.packages;
@@ -46,6 +46,8 @@ export function importNpmLock(
         "npm lock contains an unsupported linked or bundled selection",
       );
     const request = parseRequirement(edgeName, spec);
+    const selectedOrigin =
+      typeof origin === "string" ? origin : origin(request.realName);
     const name = typeof entry.name === "string" ? entry.name : request.realName;
     const integrity =
       typeof entry.integrity === "string"
@@ -75,13 +77,13 @@ export function importNpmLock(
       key: `${name}@${entry.version}#${sha512Hex(location).slice(0, 16)}`,
       name,
       version: entry.version,
-      origin,
+      origin: selectedOrigin,
       integrity,
       sourceId: sourceIdOf({
         sourceType: "registry",
         name,
         version: entry.version,
-        origin,
+        origin: selectedOrigin,
         integrity,
       }),
       tarballUrl: entry.resolved,

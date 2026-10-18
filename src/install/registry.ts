@@ -17,6 +17,7 @@ export async function installRegistry(options: {
 }): Promise<RegistryClient> {
   let registry = DEFAULT_REGISTRY;
   const auth: Record<string, string> = {};
+  const scopedRegistries: Record<string, string> = {};
   const home = options.env.HOME ?? os.homedir();
   const project =
     (await findWorkspaceRoot(options.cwd)) ??
@@ -89,14 +90,7 @@ export async function installRegistry(options: {
         );
       if (key === "registry") registry = value;
       if (/^@.+:registry$/.test(key))
-        throw new ZyrkError(
-          "ZYRK_POLICY_DENIED",
-          "Scoped registry routing is not supported by native commands yet.",
-          {
-            remedy:
-              "Use npm for mixed-registry projects; zyrk will not silently fetch a private scope from a public registry.",
-          },
-        );
+        scopedRegistries[key.slice(0, -9)] = value;
       if (key === "strict-ssl" && value === "false")
         throw new ZyrkError(
           "ZYRK_POLICY_DENIED",
@@ -123,30 +117,35 @@ export async function installRegistry(options: {
     options.env.npm_config_registry ??
     options.env.NPM_CONFIG_REGISTRY ??
     registry;
-  if (!cleanUrl(registry))
-    throw new ZyrkError(
-      "ZYRK_POLICY_DENIED",
-      "Registry URL must be HTTP(S) without credentials, query parameters, or fragments.",
-      {
-        remedy:
-          "Use a credential-free registry URL and configure URL-scoped credentials separately in .npmrc.",
-      },
-    );
-  const url = new URL(registry);
-  if (
-    url.protocol !== "https:" &&
-    !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-  )
-    throw new ZyrkError(
-      "ZYRK_POLICY_DENIED",
-      "Remote registries require HTTPS.",
-      {
-        remedy:
-          "Select an HTTPS registry; HTTP is limited to loopback development registries.",
-      },
-    );
+  const validate = (registry: string): void => {
+    if (!cleanUrl(registry))
+      throw new ZyrkError(
+        "ZYRK_POLICY_DENIED",
+        "Registry URL must be HTTP(S) without credentials, query parameters, or fragments.",
+        {
+          remedy:
+            "Use a credential-free registry URL and configure URL-scoped credentials separately in .npmrc.",
+        },
+      );
+    const url = new URL(registry);
+    if (
+      url.protocol !== "https:" &&
+      !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+    )
+      throw new ZyrkError(
+        "ZYRK_POLICY_DENIED",
+        "Remote registries require HTTPS.",
+        {
+          remedy:
+            "Select an HTTPS registry; HTTP is limited to loopback development registries.",
+        },
+      );
+  };
+  validate(registry);
+  for (const selected of Object.values(scopedRegistries)) validate(selected);
   return new RegistryClient({
     registry,
+    scopedRegistries,
     userAgent: `zyrk/${options.version}`,
     fetchOptions: auth,
   });

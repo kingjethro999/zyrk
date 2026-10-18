@@ -169,6 +169,7 @@ export async function runMaintenanceCommand(options: {
     ),
     config: configFingerprint({
       registry: options.registry.origin,
+      registries: options.registry.scopedRegistries,
       linker: "shared",
       platform: currentPlatform(),
       ...(object(manifest.zyrk) && Array.isArray(manifest.zyrk.mutablePackages)
@@ -199,7 +200,7 @@ export async function runMaintenanceCommand(options: {
     string[]
   >;
   for (const node of graphNodes) {
-    if (node.origin !== options.registry.origin)
+    if (node.origin !== options.registry.originFor(node.name))
       throw new ZyrkError(
         "ZYRK_POLICY_DENIED",
         "Cannot audit a graph from a different registry origin.",
@@ -215,7 +216,30 @@ export async function runMaintenanceCommand(options: {
   if (!graphNodes.length) return base;
   let response: unknown;
   try {
-    response = await options.registry.auditAdvisories(packages);
+    const groups = new Map<RegistryClient, Record<string, string[]>>();
+    for (const [name, versions] of Object.entries(packages)) {
+      const client = options.registry.forPackage(name);
+      let selected = groups.get(client);
+      if (!selected) {
+        selected = Object.create(null) as Record<string, string[]>;
+        groups.set(client, selected);
+      }
+      selected[name] = versions;
+    }
+    const replies = await Promise.all(
+      [...groups].map(async ([client, selected]) => {
+        const reply = await client.auditAdvisories(selected);
+        if (
+          !object(reply) ||
+          Object.keys(reply).some((name) => !Object.hasOwn(selected, name))
+        )
+          return null;
+        return reply;
+      }),
+    );
+    response = replies.some((reply) => reply === null)
+      ? null
+      : Object.assign({}, ...replies);
   } catch {
     return {
       ...base,

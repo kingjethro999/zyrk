@@ -68,6 +68,7 @@ export function scriptPolicyFingerprint(policy: unknown): string {
 export type ResolutionConfig = {
   /** Credential-free registry origin. */
   registry: string;
+  registries?: Readonly<Record<string, string>>;
   linker: "shared" | "local";
   patches?: string;
   mutablePackages?: readonly string[];
@@ -77,6 +78,9 @@ export type ResolutionConfig = {
 export function configFingerprint(config: ResolutionConfig): string {
   return fingerprintOf({
     registry: config.registry,
+    ...(config.registries && Object.keys(config.registries).length
+      ? { registries: config.registries }
+      : {}),
     linker: config.linker,
     ...(config.patches === undefined ? {} : { patches: config.patches }),
     ...(config.platform === undefined ? {} : { platform: config.platform }),

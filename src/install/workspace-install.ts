@@ -115,10 +115,8 @@ async function readNpmWorkspaceImport(
       "npm workspace adoption needs an existing readable JSON lock",
     );
   }
-  const graph = importNpmWorkspaceLock(
-    npmDoc,
-    project,
-    options.registry.origin,
+  const graph = importNpmWorkspaceLock(npmDoc, project, (name) =>
+    options.registry.originFor(name),
   );
   // Prove the complete graph and ordinary npm projection are representable
   // before any project state is created. Actual policy fingerprints are added
@@ -128,6 +126,7 @@ async function readNpmWorkspaceImport(
     scripts: scriptPolicyFingerprint(undefined),
     config: configFingerprint({
       registry: options.registry.origin,
+      registries: options.registry.scopedRegistries,
       linker: "shared",
     }),
   });
@@ -235,6 +234,7 @@ export async function installWorkspaceProject(
       scripts: scriptPolicyFingerprint(policy),
       config: configFingerprint({
         registry: options.registry.origin,
+        registries: options.registry.scopedRegistries,
         linker: "shared",
         platform: currentPlatform(),
         ...(mutable !== undefined
@@ -248,8 +248,11 @@ export async function installWorkspaceProject(
       : undefined;
     let existing = options.importNpm
         ? null
-        : await readWorkspaceLock(root, project, options.registry.origin),
+        : await readWorkspaceLock(root, project, (name) =>
+            options.registry.originFor(name),
+          ),
       graph: WorkspaceGraph | undefined = imported;
+
     if (existing) {
       const ext = existing.doc.zyrk!;
       if (
@@ -271,6 +274,7 @@ export async function installWorkspaceProject(
         project,
         {
           origin: options.registry.origin,
+          originFor: (name: string) => options.registry.originFor(name),
           packument: (name) =>
             options.registry.packument(name, {
               signal: operation.operation.signal,
@@ -425,14 +429,16 @@ export async function installWorkspaceProject(
             },
           );
         const archive = path.join(txn.dir, `${node.sourceId}.tgz`),
-          download = await options.registry.downloadTarball({
-            url: node.tarballUrl,
-            expectedIntegrity: node.integrity,
-            destPath: archive,
-            label: `${node.name}@${node.version}`,
-            signal: operation.operation.signal,
-            onBytes: operation.operation.consumeArchiveBytes,
-          });
+          download = await options.registry
+            .forPackage(node.name)
+            .downloadTarball({
+              url: node.tarballUrl,
+              expectedIntegrity: node.integrity,
+              destPath: archive,
+              label: `${node.name}@${node.version}`,
+              signal: operation.operation.signal,
+              onBytes: operation.operation.consumeArchiveBytes,
+            });
         const extraction = await extractTarball({
           tarballPath: archive,
           destDir: path.join(txn.dir, node.sourceId),
@@ -732,6 +738,10 @@ export async function installWorkspaceProject(
             instances: registration.instances,
             activeContexts: registration.contexts,
             lockDigest: sha512Hex(canonicalJson(doc)),
+            registryConfig: {
+              registry: options.registry.origin,
+              registries: options.registry.scopedRegistries,
+            },
             graphDigest: graphHash(sourceGraph),
             platform: process.platform,
             arch: process.arch,

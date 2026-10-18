@@ -199,9 +199,9 @@ test("config applies user, project, environment and CLI precedence without publi
     path.join(cwd, ".npmrc"),
     "@internal:registry=https://private.invalid/\n",
   );
-  await expect(installRegistry(base)).rejects.toMatchObject({
-    code: "ZYRK_POLICY_DENIED",
-  });
+  expect(
+    (await installRegistry(base)).forPackage("@internal/tool").origin,
+  ).toBe("https://private.invalid");
 });
 
 test("private config loads scoped credentials with environment expansion and never falls back after auth errors", async () => {
@@ -579,16 +579,17 @@ test("nested tool working directories retain the project registry boundary", asy
   );
   const nested = path.join(project, "nested");
   await mkdir(nested);
-  await expect(
-    installRegistry({
-      cwd: nested,
-      env: {
-        HOME: project,
-        npm_config_userconfig: path.join(project, "missing-user-config"),
-      },
-      version: "test",
-    }),
-  ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
+  const routed = await installRegistry({
+    cwd: nested,
+    env: {
+      HOME: project,
+      npm_config_userconfig: path.join(project, "missing-user-config"),
+    },
+    version: "test",
+  });
+  expect(routed.forPackage("@internal/tool").origin).toBe(
+    "https://private.invalid",
+  );
 });
 
 test("free text redacts long npm tokens and cookie headers", () => {
@@ -614,14 +615,194 @@ test("workspace child commands retain the authoritative root registry policy", a
     path.join(root, ".npmrc"),
     "@private:registry=https://private.invalid/\n",
   );
-  await expect(
-    installRegistry({
-      cwd: path.join(root, "packages/child"),
-      env: {
-        HOME: root,
-        npm_config_userconfig: path.join(root, "missing-user-config"),
+  const routed = await installRegistry({
+    cwd: path.join(root, "packages/child"),
+    env: {
+      HOME: root,
+      npm_config_userconfig: path.join(root, "missing-user-config"),
+    },
+    version: "test",
+  });
+  expect(routed.forPackage("@private/tool").origin).toBe(
+    "https://private.invalid",
+  );
+});
+test("mixed routes never send private metadata or credentials to the default registry", async () => {
+  const publicNames: string[] = [];
+  const tokens: Array<string | undefined> = [];
+  const pub = await server((req, res) => {
+    publicNames.push(req.url!);
+    res.end(doc);
+  });
+  const priv = await server((req, res) => {
+    tokens.push(req.headers.authorization);
+    res.writeHead(401);
+    res.end("{}");
+  });
+  const cwd = await dir();
+  await writeFile(
+    path.join(cwd, ".npmrc"),
+    `registry=${pub}/\n@internal:registry=${priv}/private/\n//${new URL(priv).host}/private/:_authToken=FAKE_PRIVATE_TOKEN\n`,
+  );
+  const client = await installRegistry({
+    cwd,
+    env: { HOME: cwd },
+    version: "test",
+  });
+  await expect(client.packument("@internal/secret")).rejects.toMatchObject({
+    code: "ZYRK_REGISTRY_AUTH",
+  });
+  expect(publicNames).toEqual([]);
+  expect(tokens).toEqual(["Bearer FAKE_PRIVATE_TOKEN"]);
+  await client.packument("fixture");
+  expect(publicNames).toEqual(["/fixture"]);
+});
+test("all scoped clients consume a single aggregate metadata budget", async () => {
+  const base = await server((req, res) =>
+    res.end(
+      JSON.stringify({
+        name: decodeURIComponent(req.url!.slice(1)),
+        versions: {},
+        "dist-tags": {},
+      }),
+    ),
+  );
+  const client = new RegistryClient({
+    registry: base,
+    userAgent: "test",
+    maxTotalMetadataBytes: 75,
+    scopedRegistries: { "@internal": base },
+  });
+  await client.packument("fixture");
+  await expect(client.packument("@internal/fixture")).rejects.toMatchObject({
+    code: "ZYRK_FETCH_REFUSED",
+    detail: { setting: "maxTotalMetadataBytes" },
+  });
+});
+test("a public route cannot borrow a narrower scoped registry token on the same host", async () => {
+  const seen: Array<string | undefined> = [];
+  const base = await server((req, res) => {
+    seen.push(req.headers.authorization);
+    res.end("tarball fixture");
+  });
+  const root = await dir(),
+    client = new RegistryClient({
+      registry: base,
+      userAgent: "test",
+      scopedRegistries: { "@internal": base + "/private/" },
+      fetchOptions: {
+        [`//${new URL(base).host}/private/:_authToken`]: "FAKE_PRIVATE_TOKEN",
       },
-      version: "test",
+    });
+  const request = {
+    url: base + "/private/archive",
+    label: "fixture",
+    expectedIntegrity: undefined,
+    allowMissingIntegrity: true,
+  };
+  await client.downloadTarball({
+    ...request,
+    destPath: path.join(root, "public"),
+  });
+  await client
+    .forPackage("@internal/tool")
+    .downloadTarball({ ...request, destPath: path.join(root, "private") });
+  expect(seen).toEqual([undefined, "Bearer FAKE_PRIVATE_TOKEN"]);
+});
+test("explicit default Authorization headers retain their original registry scope", async () => {
+  const seen: Array<string | undefined> = [];
+  const base = await server((req, res) => {
+    seen.push(req.headers.authorization);
+    res.end(
+      JSON.stringify({
+        name: "@private/fixture",
+        versions: {},
+        "dist-tags": {},
+      }),
+    );
+  });
+  const client = new RegistryClient({
+    registry: base + "/public/",
+    userAgent: "test",
+    scopedRegistries: { "@private": base + "/private/" },
+    fetchOptions: { headers: { authorization: "Bearer FAKE_PUBLIC_ONLY" } },
+  });
+  await client.packument("@private/fixture");
+  expect(seen).toEqual([undefined]);
+});
+test("private advisory redirects cannot enter a narrower configured public registry", async () => {
+  let leaked = false;
+  const base = await server((req, res) => {
+    if (req.url === "/public/leak") {
+      leaked = true;
+      res.end("{}");
+    } else {
+      res.writeHead(307, { location: "/public/leak" });
+      res.end();
+    }
+  });
+  const client = new RegistryClient({
+    registry: base + "/public/",
+    userAgent: "test",
+    scopedRegistries: { "@private": base + "/" },
+  });
+  await expect(
+    client.auditAdvisories({ "@private/secret": ["1.0.0"] }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  expect(leaked).toBe(false);
+});
+test("invalid uppercase alias scopes fail before contacting the public registry", async () => {
+  let requests = 0;
+  const base = await server((_req, res) => {
+    requests++;
+    res.end("{}");
+  });
+  const client = new RegistryClient({
+    registry: base,
+    userAgent: "test",
+    scopedRegistries: { "@private": base + "/private/" },
+  });
+  const { resolveRequirements } = await import("../src/resolve/resolver.ts");
+  await expect(
+    resolveRequirements({
+      provider: client,
+      requirements: [{ name: "alias", spec: "npm:@PRIVATE/secret@1.0.0" }],
     }),
-  ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
+  ).rejects.toMatchObject({ code: "ZYRK_RESOLUTION_FAILED" });
+  expect(requests).toBe(0);
+});
+test("advisory initial endpoints cannot overlap a different configured registry", async () => {
+  let requests = 0;
+  const base = await server((_req, res) => {
+    requests++;
+    res.end("{}");
+  });
+  const client = new RegistryClient({
+    registry: base + "/-/",
+    userAgent: "test",
+    scopedRegistries: { "@private": base + "/" },
+  });
+  await expect(
+    client.auditAdvisories({ "@private/secret": ["1.0.0"] }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  expect(requests).toBe(0);
+});
+test("advisory redirects reject encoded path separators before resending private bodies", async () => {
+  let requests = 0;
+  const base = await server((_req, res) => {
+    requests++;
+    if (requests === 1) {
+      res.writeHead(307, { location: "/public%2fleak" });
+      res.end();
+    } else res.end("{}");
+  });
+  const client = new RegistryClient({
+    registry: base + "/public/",
+    userAgent: "test",
+    scopedRegistries: { "@private": base + "/" },
+  });
+  await expect(
+    client.auditAdvisories({ "@private/secret": ["1.0.0"] }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  expect(requests).toBe(1);
 });

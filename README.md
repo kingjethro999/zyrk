@@ -116,8 +116,10 @@ Default registry and authentication settings are loaded from user/project
 token placeholders are supported. Credentials are restricted to their configured
 scheme, host, port, and path; redirects cannot expand that scope. Use
 `--registry=https://your-registry.example/` on install for an explicit registry.
-Mixed scoped routing and disabled TLS verification are rejected before public
-lookup. Git sources, non-workspace local sources, and overrides remain unsupported;
+Scoped registries route metadata, exact sources, imports and tool commands by
+the real package name, including aliases. Advisory requests are partitioned by
+registry; private names never fall back to a public endpoint. Disabled TLS
+verification is rejected before lookup. Git sources, non-workspace local sources, and overrides remain unsupported;
 they fail explicitly. Optional dependencies incompatible with the selected platform
 are omitted; missing packages, integrity failures, and other optional failures
 remain errors. Platform selection is recorded in the lock. macOS, Windows, and
