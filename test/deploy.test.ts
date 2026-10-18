@@ -221,7 +221,7 @@ it("generates pinned Docker inputs with isolated fetch/build and refuses overwri
     "Relocatable JavaScript output from ready private generations is supported",
   );
   expect(guide).toContain(
-    "Native outputs, embedded host paths, live workspace exports",
+    "Live workspace runtime closures and a restricted Linux ELF64 N-API",
   );
   await expect(run("docker", args)).rejects.toMatchObject({
     code: "ZYRK_USAGE",
@@ -253,4 +253,9 @@ it("reports a missing Docker executable and propagates an explicit local Docker 
     }),
   ).toBe(19);
   expect(stdout).toContain("8080:3000");
+});
+it("rejects writing portable output into the managed store", async () => {
+  await expect(
+    run("deploy", ["--out", path.join(store.root, "runtime")]),
+  ).rejects.toMatchObject({ code: "ZYRK_DEPLOY_ESCAPE" });
 });

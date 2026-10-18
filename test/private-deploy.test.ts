@@ -260,7 +260,7 @@ test("refuses policy changes after the selected private build", async () => {
   });
 });
 
-test("rejects workspace lock export with an explicit adapter diagnostic", async () => {
+test("rejects a forged workspace lock extension before export", async () => {
   const file = path.join(project, "package-lock.json");
   const lock = JSON.parse(await readFile(file, "utf8"));
   lock.zyrk.version = 2;
@@ -268,7 +268,6 @@ test("rejects workspace lock export with an explicit adapter diagnostic", async 
   await expect(
     deploy(path.join(root, "workspace-export")),
   ).rejects.toMatchObject({
-    code: "ZYRK_DEPLOY_NONRELOCATABLE",
-    message: expect.stringContaining("live-importer deployment adapter"),
+    code: "ZYRK_LOCK_MISMATCH",
   });
 });

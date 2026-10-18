@@ -144,8 +144,7 @@ and repair have workspace fixtures. Builds that reach live workspace sources are
 blocked before execution. Existing npm v2/v3 workspace `package-lock.json` selections can be adopted with
 `zyrk import --from npm`, preserving exact versions, aliases and live members.
 Adoption validates the complete graph before project changes; npm shrinkwrap
-precedence and unsupported bundled/external links fail explicitly. Portable
-workspace export still needs its adapter. Recursive execution supports
+precedence and unsupported bundled/external links fail explicitly. Workspace-root production exports include live member closures and assets. Recursive execution supports
 member scripts; filters are exact names or paths, not arbitrary glob expressions.
 
 ### Run a one-off tool
@@ -233,9 +232,12 @@ node ./dist-runtime/dist/server.js
 
 The exporter validates that links stay inside the output and excludes the host
 store. Generic export supports shared production graphs and relocatable private
-JavaScript outputs, including selected patches and generated files. Native binaries,
-host-path-dependent outputs, workspace export, and arbitrary shell startup adapters
-remain unsupported. Exports validate active generation/profile metadata and reject
+JavaScript outputs, including selected patches and generated files. Workspace-root exports include live production members, peer contexts, cycles
+and assets. A restricted Linux x64 ELF64 N-API copy recipe supports dependency-free
+addons using `napi_create_int32` and `napi_set_named_property` with matching
+Node/ABI/build profiles. Native bytes are copied unchanged after loader validation.
+Other native formats/API imports, external libraries, loader paths, host-path-dependent
+outputs and arbitrary shell startup adapters remain unsupported. Exports validate active generation/profile metadata and reject
 credentials or escaping links. Structural validation does not prove application health. Run an
 application smoke test from the exported directory with host-store access removed.
 

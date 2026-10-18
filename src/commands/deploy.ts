@@ -1,4 +1,4 @@
-/** Self-contained pure-package deployment and explicit local Docker commands. */
+/** Self-contained runtime deployment and explicit local Docker commands. */
 import { constants } from "node:fs";
 import {
   open,
@@ -17,6 +17,16 @@ import {
   writeFile,
 } from "node:fs/promises";
 import * as path from "node:path";
+import {
+  discoverWorkspaces,
+  findWorkspaceRoot,
+} from "../install/workspaces.ts";
+import { readWorkspaceLock } from "../install/workspace-lock.ts";
+import { validateNativeExport } from "./native-export.ts";
+import {
+  workspaceRegistryOccurrences,
+  workspaceContextId,
+} from "../install/workspace-graph.ts";
 import { findProjectBoundary, resolveStoreRoot } from "../config/paths.ts";
 import { ZyrkError, type ErrorCode } from "../errors.ts";
 import { lockedGraph } from "../install/lock.ts";
@@ -138,7 +148,9 @@ function output(options: DeployCommandOptions, result: Obj, human: string) {
 export async function runDeployCommand(
   options: DeployCommandOptions,
 ): Promise<number> {
-  const boundary = await findProjectBoundary(options.cwd);
+  const boundary =
+    (await findWorkspaceRoot(options.cwd)) ??
+    (await findProjectBoundary(options.cwd));
   if (!boundary)
     throw error("ZYRK_MANIFEST_INVALID", "Cannot find a project to deploy.");
   const project = await realpath(boundary);
@@ -207,9 +219,15 @@ export async function runDeployCommand(
       manifest.workspaces !== undefined ||
       (object(rawLock.zyrk) && rawLock.zyrk.version === 2)
     )
-      throw error(
-        "ZYRK_DEPLOY_NONRELOCATABLE",
-        "Workspace runtime exports require a validated live-importer deployment adapter.",
+      return await exportWorkspace(
+        options,
+        project,
+        manifest,
+        state,
+        out,
+        parent,
+        files,
+        entry,
       );
     const doc = validateLockDoc(rawLock, "project package-lock.json");
     const resolved = lockedGraph(doc);
@@ -271,6 +289,11 @@ export async function runDeployCommand(
       root: resolveStoreRoot({ env: options.env }).root,
     });
     store.requireInitialized();
+    if (within(store.root, out))
+      throw error(
+        "ZYRK_DEPLOY_ESCAPE",
+        "Deployment output must be outside the managed store.",
+      );
     const barrier = await acquireLock(
       path.join(store.paths.locksDir, "liveness.lock"),
       { name: "portable deployment retention" },
@@ -410,12 +433,12 @@ export async function runDeployCommand(
                 );
               await symlink(e.target, target);
             } else {
-              if (e.path.endsWith(".node"))
-                throw error(
-                  "ZYRK_DEPLOY_NONRELOCATABLE",
-                  "Native addon runtime compatibility requires a validated deployment adapter.",
-                );
-              await copyFile(path.join(sourceDir, e.path), target);
+              await scanOrCopyPrivateFile(
+                path.join(sourceDir, e.path),
+                target,
+                [project, store.root],
+                privateBudget,
+              );
               await chmod(target, e.mode === "exec" ? 0o755 : 0o644);
             }
           }
@@ -494,8 +517,7 @@ export async function runDeployCommand(
             "ZYRK_DEPLOY_NONRELOCATABLE",
             "The selected runtime Node entry is missing.",
           );
-        if (privateGraph)
-          await scanPrivateExport(stage, [project, store.root], privateBudget);
+        await scanPrivateExport(stage, [project, store.root], privateBudget);
         await validateLinks(stage, stage);
         await writeFile(
           path.join(stage, "zyrk-deploy.json"),
@@ -738,7 +760,7 @@ async function docker(
           null,
           2,
         ) + "\n",
-      "ZYRK_DOCKER.md": `Review Dockerfile and .dockerignore before building. Runtime files: ${files.join(", ")}. Runtime entry: node ${entry}. Build script: ${build ?? "none"}. Container port: ${portText}.\n\nThe pinned CLI tarball must remain at its declared path. Dependencies are fetched with an optional BuildKit npmrc secret, then installed, built, and exported without networking or registry secrets. No host node_modules or store enters the runtime image. Adapt build inputs and credential exclusions to your project; generated files do not prove application health. Relocatable JavaScript output from ready private generations is supported, including patches and approved build output. Native outputs, embedded host paths, live workspace exports, and arbitrary shell start commands require a validated adapter and are rejected by this generic exporter.\n\nBuild: zyrk docker build --tag your-app:local\nRun: zyrk docker run --tag your-app:local --port ${portText}\nSupply private registry credentials to Docker BuildKit directly with docker build --secret id=npmrc,src=<credential-file> when required; zyrk never embeds them.\n`,
+      "ZYRK_DOCKER.md": `Review Dockerfile and .dockerignore before building. Runtime files: ${files.join(", ")}. Runtime entry: node ${entry}. Build script: ${build ?? "none"}. Container port: ${portText}.\n\nThe pinned CLI tarball must remain at its declared path. Dependencies are fetched with an optional BuildKit npmrc secret, then installed, built, and exported without networking or registry secrets. No host node_modules or store enters the runtime image. Adapt build inputs and credential exclusions to your project; generated files do not prove application health. Relocatable JavaScript output from ready private generations is supported, including patches and approved build output. Live workspace runtime closures and a restricted Linux ELF64 N-API native copy recipe are supported. The native v1 recipe is limited to Linux x64 ELF64 addons importing napi_create_int32 and napi_set_named_property (plus validated weak toolchain hooks), with exact installed Node/ABI/profile checks. It copies bytes unchanged and runs no package code during export. Native addons with external libraries, loader search paths, unknown formats or API imports, embedded absolute paths, and arbitrary shell start commands require another validated adapter and are rejected by this exporter. Workspace member payloads include their live files and assets except node_modules; credential filenames and links outside each source root are rejected.\n\nBuild: zyrk docker build --tag your-app:local\nRun: zyrk docker run --tag your-app:local --port ${portText}\nSupply private registry credentials to Docker BuildKit directly with docker build --secret id=npmrc,src=<credential-file> when required; zyrk never embeds them.\n`,
     };
     for (const name of Object.keys(contents))
       if (await lstat(path.join(project, name)).catch(() => null))
@@ -1060,11 +1082,34 @@ async function scanOrCopyPrivateFile(
         "ZYRK_DEPLOY_ESCAPE",
         "Private payload contains a special filesystem entry.",
       );
-    if (/\.node$/i.test(source))
-      throw error(
-        "ZYRK_DEPLOY_NONRELOCATABLE",
-        "Native dependency outputs require a validated export adapter.",
-      );
+    let nativeSnapshot: Buffer | undefined;
+    if (/\.node$/i.test(source)) {
+      if (metadata.size > 64 * 1024 * 1024)
+        throw error(
+          "ZYRK_DEPLOY_NONRELOCATABLE",
+          "Native addon exceeds the validated export size budget.",
+        );
+      const bytes = Buffer.alloc(metadata.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const read = await input.read(
+          bytes,
+          offset,
+          bytes.length - offset,
+          offset,
+        );
+        if (!read.bytesRead)
+          throw error(
+            "ZYRK_DEPLOY_NONRELOCATABLE",
+            "Native addon changed during export validation.",
+          );
+        offset += read.bytesRead;
+      }
+      validateNativeExport(bytes);
+      // Scan and copy these exact validated bytes. Private source files remain
+      // mutable; reopening or rereading them would discard the validation.
+      nativeSnapshot = bytes;
+    }
     if (target !== undefined)
       output = await open(target, "wx", metadata.mode & 0o111 ? 0o755 : 0o644);
     const needles = [
@@ -1082,9 +1127,15 @@ async function scanOrCopyPrivateFile(
     let fileBytes = 0;
     const chunk = Buffer.allocUnsafe(1024 * 1024);
     for (;;) {
-      const { bytesRead } = await input.read(chunk, 0, chunk.length, null);
+      let bytes: Buffer;
+      if (nativeSnapshot) {
+        bytes = nativeSnapshot.subarray(fileBytes, fileBytes + chunk.length);
+      } else {
+        const read = await input.read(chunk, 0, chunk.length, null);
+        bytes = chunk.subarray(0, read.bytesRead);
+      }
+      const bytesRead = bytes.length;
       if (!bytesRead) break;
-      const bytes = chunk.subarray(0, bytesRead);
       fileBytes += bytesRead;
       budget.bytes += bytesRead;
       checkPrivateBudget(budget);
@@ -1093,7 +1144,7 @@ async function scanOrCopyPrivateFile(
           "ZYRK_DEPLOY_NONRELOCATABLE",
           "A private generated file exceeds the deployment byte budget.",
         );
-      if (first && nativeMagic(bytes))
+      if (first && nativeMagic(bytes) && !/\.node$/i.test(source))
         throw error(
           "ZYRK_DEPLOY_NONRELOCATABLE",
           "Native dependency outputs require a validated export adapter.",
@@ -1206,5 +1257,531 @@ async function scanPrivateExport(
       await scanPrivateExport(file, forbidden, budget);
     else if (metadata.isFile())
       await scanOrCopyPrivateFile(file, undefined, forbidden, budget);
+  }
+}
+
+/** Export the selected importer closure; live files are copied, never entered into CAS. */
+async function exportWorkspace(
+  options: DeployCommandOptions,
+  project: string,
+  manifest: Obj,
+  state: Obj,
+  out: string,
+  parent: string,
+  files: string[],
+  entry: string,
+): Promise<number> {
+  const workspace = await discoverWorkspaces(project);
+  const locked = await readWorkspaceLock(project, workspace);
+  if (
+    !locked ||
+    locked.doc.zyrk?.manifest !== workspace.manifestFingerprint ||
+    state.lockDigest !== sha512Hex(canonicalJson(locked.doc))
+  )
+    throw error(
+      "ZYRK_LOCK_MISMATCH",
+      "Workspace deployment manifests, lock and installed generation disagree.",
+    );
+  if (state.readiness !== "ready")
+    throw error(
+      "ZYRK_SCRIPT_BLOCKED",
+      "Cannot export an unready workspace generation.",
+    );
+  if (state.platform !== process.platform || state.arch !== process.arch)
+    throw error(
+      "ZYRK_PLATFORM_UNSUPPORTED",
+      "Workspace export requires the recorded target platform and architecture.",
+    );
+  const policy = object(manifest.zyrk) ? manifest.zyrk : {};
+  if (locked.doc.zyrk.scripts !== scriptPolicyFingerprint(policy.scripts))
+    throw error(
+      "ZYRK_LOCK_MISMATCH",
+      "Workspace deployment build policy changed after installation.",
+    );
+  const origins = new Set(
+    locked.graph.nodes
+      .filter((n) => n.kind === "registry")
+      .map((n) => n.origin),
+  );
+  if (origins.size > 1)
+    throw error(
+      "ZYRK_DEPLOY_NONRELOCATABLE",
+      "Mixed-origin workspace export requires a validated registry adapter.",
+    );
+  if (origins.size === 1) {
+    const patches = await loadProjectPatches(project);
+    const expected = configFingerprint({
+      registry: [...origins][0]!,
+      linker: "shared",
+      platform: currentPlatform(),
+      ...(Array.isArray(policy.mutablePackages)
+        ? { mutablePackages: policy.mutablePackages as string[] }
+        : {}),
+      ...(patches.length
+        ? {
+            patches: sha512Hex(
+              canonicalJson(
+                patches.map((p) => ({
+                  sourceId: p.sourceId,
+                  digest: p.digest,
+                })),
+              ),
+            ),
+          }
+        : {}),
+    });
+    if (locked.doc.zyrk.config !== expected)
+      throw error(
+        "ZYRK_LOCK_MISMATCH",
+        "Workspace deployment configuration or patches changed after installation.",
+      );
+  }
+  const store = await Store.open({
+    root: resolveStoreRoot({ env: options.env }).root,
+  });
+  store.requireInitialized();
+  if (within(store.root, out))
+    throw error(
+      "ZYRK_DEPLOY_ESCAPE",
+      "Deployment output must be outside the managed store.",
+    );
+  const barrier = await acquireLock(
+    path.join(store.paths.locksDir, "liveness.lock"),
+    { name: "workspace deployment retention" },
+  );
+  try {
+    const graph = locked.graph,
+      byKey = new Map(graph.nodes.map((n) => [n.key, n]));
+    const selected = new Set<string>();
+    const visit = (key: string): void => {
+      if (selected.has(key)) return;
+      const n = byKey.get(key);
+      if (!n)
+        throw error(
+          "ZYRK_OFFLINE_MISSING",
+          "Workspace runtime edge is missing.",
+        );
+      selected.add(key);
+      for (const e of n.edges)
+        if (!(n.kind === "local" && e.kind === "dev")) visit(e.target);
+    };
+    const rootKey = graph.importers["."];
+    if (!rootKey)
+      throw error("ZYRK_LOCK_MISMATCH", "Workspace root importer is missing.");
+    visit(rootKey);
+    const directories = new Map<string, string>();
+    for (const key of selected) {
+      const n = byKey.get(key)!;
+      if (n.kind === "local")
+        directories.set(
+          key,
+          workspace.importers.find((i) => i.id === n.importer)!.directory,
+        );
+    }
+    // Resolve recorded projection edges rather than enumerating arbitrary node_modules entries.
+    const queue = [...directories.keys()],
+      checked = new Set<string>();
+    while (queue.length) {
+      const key = queue.shift()!;
+      if (checked.has(key)) continue;
+      checked.add(key);
+      const n = byKey.get(key)!,
+        directory = directories.get(key)!;
+      for (const e of n.edges) {
+        if (!selected.has(e.target) || (n.kind === "local" && e.kind === "dev"))
+          continue;
+        const slot =
+          n.kind === "local" || e.name === n.name
+            ? path.join(directory, "node_modules", e.name)
+            : path.join(
+                directory,
+                n.name.startsWith("@") ? "../.." : "..",
+                e.name,
+              );
+        const actual = await realpath(slot).catch(() => null),
+          meta = await lstat(slot).catch(() => null);
+        if (
+          !actual ||
+          !meta?.isSymbolicLink() ||
+          (directories.has(e.target) && directories.get(e.target) !== actual)
+        )
+          throw error(
+            "ZYRK_DEPLOY_ESCAPE",
+            "Workspace dependency projection disagrees with its recorded context.",
+          );
+        directories.set(e.target, actual);
+        queue.push(e.target);
+      }
+    }
+    for (const [key, source] of directories)
+      if (key !== rootKey && (within(source, out) || within(out, source)))
+        throw error(
+          "ZYRK_DEPLOY_ESCAPE",
+          "Deployment output overlaps a selected workspace runtime source.",
+        );
+    const registryNodes = workspaceRegistryOccurrences(graph);
+    const registryKeys = new Set(registryNodes.map((n) => n.key));
+    const privateKeys = new Set<string>();
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const n of registryNodes)
+        if (
+          !privateKeys.has(n.key) &&
+          n.edges.some(
+            (e) => !registryKeys.has(e.target) || privateKeys.has(e.target),
+          )
+        ) {
+          privateKeys.add(n.key);
+          changed = true;
+        }
+    }
+    const sourceGraph = createGraphDoc(
+      registryNodes.map((n) => ({
+        ...n,
+        deps: n.edges.filter((e) => registryKeys.has(e.target)),
+      })),
+    );
+    const pureGraph = createGraphDoc(
+      registryNodes
+        .filter((n) => !privateKeys.has(n.key))
+        .map((n) => ({ ...n, deps: n.edges })),
+    );
+    const sharedDirectories = selectRealizationDirs(store, pureGraph);
+    const productionGraph = {
+      ...graph,
+      nodes: graph.nodes.map((n) => ({
+        ...n,
+        edges: n.edges.filter((e) => !(n.kind === "local" && e.kind === "dev")),
+      })),
+    };
+    const db = openStoreDb(store.paths.dbFile);
+    const registered = new Set<string>();
+    try {
+      if (
+        typeof state.generationId !== "string" ||
+        !/^gen1_[a-z2-7]+$/.test(state.generationId) ||
+        state.projectId !== `project1_${sha512Hex(project).slice(0, 32)}` ||
+        state.storeRoot !== store.root ||
+        state.workspaceRoot !== project
+      )
+        throw error(
+          "ZYRK_STORE_CORRUPT",
+          "Workspace generation identity is invalid.",
+        );
+      const generation = db
+        .prepare(
+          "SELECT readiness,state,graph_digest FROM generations WHERE generation_id=? AND project_id=?",
+        )
+        .get(state.generationId, state.projectId) as
+        { readiness: string; state: string; graph_digest: string } | undefined;
+      if (
+        generation?.readiness !== "ready" ||
+        generation.state !== "active" ||
+        generation.graph_digest !== state.graphDigest
+      )
+        throw error(
+          "ZYRK_STORE_CORRUPT",
+          "Workspace deployment requires its active ready generation.",
+        );
+      const rows = db
+        .prepare(
+          "SELECT ri.path,ri.instance_id FROM generation_instances gi JOIN realization_instances ri ON gi.instance_id=ri.instance_id WHERE gi.generation_id=? AND ri.verification_state='verified'",
+        )
+        .all(state.generationId) as Array<{
+        path: string;
+        instance_id: string;
+      }>;
+      if (
+        !Array.isArray(state.instances) ||
+        rows.length !== state.instances.length ||
+        rows.some(
+          (row) => !(state.instances as unknown[]).includes(row.instance_id),
+        )
+      )
+        throw error(
+          "ZYRK_STORE_CORRUPT",
+          "Workspace instance metadata disagrees with its selected generation.",
+        );
+      rows.forEach((row) => registered.add(row.path));
+    } finally {
+      db.close();
+    }
+    if (state.linker === "private" && !object(state.buildProfile))
+      throw error(
+        "ZYRK_DEPLOY_NONRELOCATABLE",
+        "Workspace private generation has no supported build profile.",
+      );
+    const nativeProfile = state.buildProfile;
+    if (
+      object(nativeProfile) &&
+      (typeof nativeProfile.candidate !== "string" ||
+        !/^[0-9a-f]{128}$/.test(nativeProfile.candidate) ||
+        state.privateDir !==
+          path.join(
+            project,
+            ".zyrk-local/generations",
+            String(state.generationId),
+          ))
+    )
+      throw error(
+        "ZYRK_STORE_CORRUPT",
+        "Workspace private generation profile or stable directory is invalid.",
+      );
+    if (
+      object(nativeProfile) &&
+      (nativeProfile.node !== process.version ||
+        nativeProfile.abi !== process.versions.modules ||
+        nativeProfile.platform !== process.platform ||
+        nativeProfile.arch !== process.arch)
+    )
+      throw error(
+        "ZYRK_PLATFORM_UNSUPPORTED",
+        "Workspace private artifacts require their exact recorded Node ABI and profile.",
+      );
+    for (const key of selected) {
+      const n = byKey.get(key)!,
+        directory = directories.get(key);
+      if (!directory)
+        throw error(
+          "ZYRK_OFFLINE_MISSING",
+          "A required workspace runtime package is not installed.",
+        );
+      if (n.kind === "registry") {
+        const context = n.name.startsWith("@")
+          ? path.resolve(directory, "../../..")
+          : path.resolve(directory, "../..");
+        if (
+          !registered.has(context) ||
+          (!within(store.paths.realizationsDir, context) &&
+            !within(
+              path.join(
+                project,
+                ".zyrk-local/generations",
+                String(state.generationId),
+              ),
+              context,
+            ))
+        )
+          throw error(
+            "ZYRK_DEPLOY_ESCAPE",
+            "Workspace registry dependency is outside its registered realization.",
+          );
+        if (within(store.paths.realizationsDir, context)) {
+          if (
+            privateKeys.has(key) ||
+            packageDirIn(sharedDirectories.get(key)!, n.name) !== directory
+          )
+            throw error(
+              "ZYRK_DEPLOY_ESCAPE",
+              "Shared workspace registry dependency selects an unexpected context.",
+            );
+          await verifyRealization({
+            store,
+            graph: pureGraph,
+            rootKey: key,
+            contextId: contextIdFor(pureGraph, key),
+            realizationDirs: sharedDirectories,
+          });
+        } else {
+          const expectedContexts = privateKeys.has(key)
+            ? [
+                workspaceContextId(graph, key, String(state.projectId)),
+                workspaceContextId(
+                  productionGraph,
+                  key,
+                  String(state.projectId),
+                ),
+              ]
+            : [contextIdFor(sourceGraph, key)];
+          if (
+            !expectedContexts.some(
+              (id) =>
+                path.join(
+                  project,
+                  ".zyrk-local/generations",
+                  String(state.generationId),
+                  id,
+                ) === context,
+            )
+          )
+            throw error(
+              "ZYRK_DEPLOY_ESCAPE",
+              "Private workspace dependency selects an unexpected live context.",
+            );
+        }
+        const m = await readJson(path.join(directory, "package.json"));
+        if (m.name !== n.name || m.version !== n.version)
+          throw error(
+            "ZYRK_STORE_CORRUPT",
+            "Workspace runtime package identity disagrees with its lock.",
+          );
+      }
+    }
+    const stage = await mkdtemp(path.join(parent, ".zyrk-deploy-"));
+    try {
+      const budget = { entries: 0, bytes: 0, started: Date.now() },
+        targets = new Map<string, string>([[rootKey, stage]]);
+      for (const key of selected)
+        if (key !== rootKey)
+          targets.set(
+            key,
+            packageDirIn(
+              path.join(
+                stage,
+                "node_modules/.zyrk/portable",
+                sha512Hex(key).slice(0, 40),
+              ),
+              byKey.get(key)!.name,
+            ),
+          );
+      for (const file of files)
+        await copyApplication(
+          path.join(project, file),
+          path.join(stage, file),
+          project,
+        );
+      for (const key of selected) {
+        const n = byKey.get(key)!,
+          target = targets.get(key)!,
+          source = directories.get(key)!;
+        if (key !== rootKey) {
+          const skip = new Set<string>();
+          if (n.kind === "local") skip.add("node_modules");
+          else
+            for (const e of n.edges)
+              if (e.name === n.name)
+                skip.add(path.join("node_modules", ...e.name.split("/")));
+          await copyPrivatePayload(
+            source,
+            target,
+            source,
+            target,
+            skip,
+            [project, store.root],
+            budget,
+          );
+        }
+        const sourceManifest =
+          n.kind === "local"
+            ? workspace.importers.find((i) => i.id === n.importer)!.manifest
+            : await readJson(path.join(source, "package.json"));
+        const exported = { ...sourceManifest };
+        delete exported.devDependencies;
+        delete exported.zyrk;
+        delete exported.packageManager;
+        delete exported.workspaces;
+        await writeFile(
+          path.join(target, "package.json"),
+          JSON.stringify(exported, null, 2) + "\n",
+        );
+      }
+      for (const key of selected) {
+        const n = byKey.get(key)!;
+        for (const e of n.edges)
+          if (
+            selected.has(e.target) &&
+            !(n.kind === "local" && e.kind === "dev")
+          ) {
+            await relativeLink(
+              path.join(targets.get(key)!, "node_modules", e.name),
+              targets.get(e.target)!,
+            );
+            const child = byKey.get(e.target)!;
+            const rawBin =
+              child.kind === "registry"
+                ? child.bin
+                : workspace.importers.find((i) => i.id === child.importer)!
+                    .manifest.bin;
+            const bins =
+              typeof rawBin === "string"
+                ? { [child.name.split("/").at(-1)!]: rawBin }
+                : object(rawBin)
+                  ? rawBin
+                  : {};
+            for (const [name, relative] of Object.entries(bins)) {
+              if (
+                !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name) ||
+                typeof relative !== "string"
+              )
+                throw error(
+                  "ZYRK_DEPLOY_ESCAPE",
+                  "Workspace executable declaration is unsafe.",
+                );
+              const pkg = targets.get(e.target)!,
+                file = path.resolve(pkg, relative);
+              if (!within(pkg, file))
+                throw error(
+                  "ZYRK_DEPLOY_ESCAPE",
+                  "Workspace executable escapes its runtime package.",
+                );
+              const metadata = await lstat(file).catch(() => null);
+              if (!metadata?.isFile())
+                throw error(
+                  "ZYRK_DEPLOY_NONRELOCATABLE",
+                  "A required workspace executable is missing.",
+                );
+              const binDir = path.join(targets.get(key)!, "node_modules/.bin");
+              await mkdir(binDir, { recursive: true });
+              if (await lstat(path.join(binDir, name)).catch(() => null))
+                throw error(
+                  "ZYRK_DEPLOY_NONRELOCATABLE",
+                  "Workspace runtime executable names conflict.",
+                );
+              if (metadata.mode & 0o111)
+                await relativeLink(path.join(binDir, name), file);
+              else
+                await writeFile(
+                  path.join(binDir, name),
+                  '#!/bin/sh\nexec node "$(dirname "$0")"/' +
+                    shellQuote(
+                      path.relative(binDir, file).split(path.sep).join("/"),
+                    ) +
+                    ' "$@"\n',
+                  { mode: 0o755 },
+                );
+            }
+          }
+      }
+      if (!(await lstat(path.join(stage, entry)).catch(() => null))?.isFile())
+        throw error(
+          "ZYRK_DEPLOY_NONRELOCATABLE",
+          "The selected runtime Node entry is missing.",
+        );
+      await scanPrivateExport(stage, [project, store.root], budget);
+      await validateLinks(stage, stage);
+      await writeFile(
+        path.join(stage, "zyrk-deploy.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            platform: process.platform,
+            arch: process.arch,
+            node: process.version,
+            entry: ["node", entry],
+            requirements: ["Node.js " + process.versions.node.split(".")[0]],
+            packages: selected.size - 1,
+            files,
+            validation: "structural; application smoke test not run",
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      await rename(stage, out);
+      output(
+        options,
+        {
+          packages: selected.size - 1,
+          entry: ["node", entry],
+          validation: "structural",
+        },
+        `Exported ${selected.size - 1} workspace runtime packages. Start with: node ${entry}. Structural validation passed; no application smoke test ran.`,
+      );
+      return 0;
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
+  } finally {
+    await barrier.release();
   }
 }
