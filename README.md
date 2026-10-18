@@ -367,3 +367,8 @@ recorded in the manifest fingerprint; frozen installs reject policy drift.
 preparation, resolution, verified source counts, realization, approved builds,
 and project linking on stderr. Interactive terminals show an activity spinner;
 redirected output contains plain phase messages. `--json` disables progress.
+
+Install resolution has a five-minute deadline; each archive extraction has a
+two-minute deadline. Set `ZYRK_RESOLVE_TIMEOUT_MS` or `ZYRK_EXTRACT_TIMEOUT_MS`
+to an integer from `1` to `900000` milliseconds to adjust these timeouts.
+Graph, archive-entry, and byte limits still apply.

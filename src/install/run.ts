@@ -23,6 +23,9 @@ import npa from "npm-package-arg";
 import { satisfies } from "semver";
 import { ZyrkError } from "../errors.ts";
 import { RegistryClient } from "../fetch/registry.ts";
+import { installBudgets } from "./budgets.ts";
+import type { ResolverLimits } from "../resolve/resolver.ts";
+import type { ExtractionLimits } from "../extract/tarball.ts";
 import { extractTarball } from "../extract/tarball.ts";
 import { commitExtractedSource } from "../store/source.ts";
 import { Store } from "../store/layout.ts";
@@ -94,6 +97,8 @@ export type InstallOptions = {
   approveBuilds?: readonly string[];
   rebuild?: boolean;
   repair?: boolean;
+  resolveBudget?: Partial<ResolverLimits>;
+  extractBudget?: Partial<ExtractionLimits>;
   fetchBudget?: {
     maxArchiveBytes?: number;
     maxExpandedBytes?: number;
@@ -225,6 +230,12 @@ export async function installProject(
   options: InstallOptions,
 ): Promise<InstallResult> {
   options.onProgress?.({ phase: "planning" });
+  const budgets = installBudgets(options.env ?? process.env);
+  options = {
+    ...options,
+    resolveBudget: { ...budgets.resolveBudget, ...options.resolveBudget },
+    extractBudget: { ...budgets.extractBudget, ...options.extractBudget },
+  };
   if (await findWorkspaceRoot(options.projectDir)) {
     const { installWorkspaceProject } = await import("./workspace-install.ts");
     return installWorkspaceProject(options);
@@ -433,6 +444,7 @@ export async function installProject(
       options.onProgress?.({ phase: "resolving" });
       resolved = await resolveRequirements({
         overrides,
+        limits: options.resolveBudget!,
         provider: {
           origin: options.registry.origin,
           originFor: (name: string) => options.registry.originFor(name),
@@ -742,6 +754,7 @@ export async function installProject(
           label: `${node.name}@${node.version}`,
         });
       const extracted = await extractTarball({
+        limits: options.extractBudget!,
         signal: operation.operation.signal,
         onExpandedBytes: operation.operation.consumeExpandedBytes,
         tarballPath: tarball,

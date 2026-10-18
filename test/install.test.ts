@@ -377,3 +377,41 @@ it("reports real install phases and verified source counts", async () => {
   const fetched = events.filter((e) => e.phase === "fetching");
   expect(fetched.at(-1)).toMatchObject({ completed: 2, total: 2 });
 });
+it("forwards explicit resolver limits before publishing a lock or projection", async () => {
+  await expect(
+    installProject({
+      projectDir: project,
+      store,
+      registry,
+      resolveBudget: { maxNodes: 1 },
+    }),
+  ).rejects.toMatchObject({
+    code: "ZYRK_RESOLUTION_FAILED",
+    message: expect.stringContaining("node limit"),
+  });
+  expect(await pathExists(path.join(project, "package-lock.json"))).toBe(false);
+  expect(await pathExists(path.join(project, "node_modules"))).toBe(false);
+});
+it("forwards explicit extraction limits before publishing a lock or projection", async () => {
+  await expect(
+    installProject({
+      projectDir: project,
+      store,
+      registry,
+      extractBudget: { maxEntries: 1 },
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_EXTRACTION_UNSAFE" });
+  expect(await pathExists(path.join(project, "package-lock.json"))).toBe(false);
+  expect(await pathExists(path.join(project, "node_modules"))).toBe(false);
+});
+it("rejects invalid public install timeouts before creating project control state", async () => {
+  await expect(
+    installProject({
+      projectDir: project,
+      store,
+      registry,
+      env: { ZYRK_RESOLVE_TIMEOUT_MS: "secret-invalid" },
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
+  expect(await pathExists(path.join(project, ".zyrk"))).toBe(false);
+});

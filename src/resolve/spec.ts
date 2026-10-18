@@ -8,6 +8,7 @@
  */
 
 import npa from "npm-package-arg";
+import { SemVer } from "semver";
 import { ZyrkError } from "../errors.ts";
 
 export type RequirementKind = "exact" | "range" | "tag" | "alias";
@@ -82,7 +83,15 @@ export function parseRequirement(
         edgeName,
         realName: parsed.name,
         kind: "exact",
-        targetSpec: parsed.fetchSpec,
+        // npm accepts = and v prefixes for exact versions. SemVer.format()
+        // omits build metadata, so append it explicitly for registry lookup.
+        targetSpec: (() => {
+          const version = new SemVer(parsed.fetchSpec.replace(/^[=v\s]+/, ""));
+          return (
+            version.version +
+            (version.build.length ? `+${version.build.join(".")}` : "")
+          );
+        })(),
         targetKind: "exact",
       };
     }

@@ -283,6 +283,7 @@ export async function installWorkspaceProject(
         {
           ...(existing ? { previous: existing.graph } : {}),
           fresh: mutation.fresh,
+          ...options.resolveBudget,
         },
       );
     }
@@ -447,6 +448,7 @@ export async function installWorkspaceProject(
               onBytes: operation.operation.consumeArchiveBytes,
             });
         const extraction = await extractTarball({
+          limits: options.extractBudget!,
           tarballPath: archive,
           destDir: path.join(txn.dir, node.sourceId),
           signal: operation.operation.signal,

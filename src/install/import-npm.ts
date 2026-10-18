@@ -6,7 +6,7 @@ import {
 } from "../resolve/overrides.ts";
 import { validateLockDoc } from "../lockfile/read.ts";
 import { canonicalStrongSri } from "../util/integrity.ts";
-import { valid, satisfies } from "semver";
+import { valid, validRange, satisfies } from "semver";
 import type { NpmLockDoc } from "../lockfile/types.ts";
 import type {
   FinalizedGraph,
@@ -103,14 +103,34 @@ export function importNpmLock(
       peerBindings: [],
     };
     if (entry.engines !== undefined) {
-      if (
-        typeof entry.engines !== "object" ||
-        entry.engines === null ||
-        Array.isArray(entry.engines) ||
-        Object.values(entry.engines).some((value) => typeof value !== "string")
-      )
-        throw lockMismatch("invalid npm engine constraint");
-      node.engines = entry.engines as Record<string, string>;
+      if (Array.isArray(entry.engines)) {
+        // Old npm manifests used ["node >= 0.2.0"] instead of an engine map.
+        const engines: Record<string, string> = {};
+        for (const value of entry.engines) {
+          const match =
+            typeof value === "string"
+              ? /^([a-z][a-z0-9._-]*)\s+(.+)$/.exec(value)
+              : null;
+          if (
+            !match ||
+            Object.hasOwn(engines, match[1]!) ||
+            validRange(match[2]!) === null
+          )
+            throw lockMismatch("invalid npm engine constraint");
+          engines[match[1]!] = match[2]!;
+        }
+        node.engines = engines;
+      } else {
+        if (
+          typeof entry.engines !== "object" ||
+          entry.engines === null ||
+          Object.values(entry.engines).some(
+            (value) => typeof value !== "string",
+          )
+        )
+          throw lockMismatch("invalid npm engine constraint");
+        node.engines = entry.engines as Record<string, string>;
+      }
     }
     if (
       typeof entry.bin === "object" &&

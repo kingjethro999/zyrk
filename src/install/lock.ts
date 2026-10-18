@@ -256,17 +256,45 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
   return { nodes, roots };
 }
 
+// npm publishes this canonical GitHub sponsorship link in funding metadata.
+// Keep source/archive URL validation query-free, and allow no other query here.
+function githubFundingUrl(value: string): boolean {
+  return /^https:\/\/github\.com\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\?sponsor=1$/.test(
+    value,
+  );
+}
+
 /** Preserved metadata is subject to the same portability boundary as new data. */
 export function assertPortableLockMetadata(value: unknown, field = ""): void {
+  visitPortableLockMetadata(
+    value,
+    field,
+    field === "funding" ? "entry" : undefined,
+  );
+}
+function visitPortableLockMetadata(
+  value: unknown,
+  field: string,
+  funding: "entry" | "url" | undefined,
+): void {
   if (typeof value === "string") {
-    if (/^(?:https?:|file:|git\+|ssh:)/i.test(value) && !cleanUrl(value))
+    if (
+      /^(?:https?:|file:|git\+|ssh:)/i.test(value) &&
+      !cleanUrl(value) &&
+      !(funding && githubFundingUrl(value))
+    )
       throw lockMismatch("portable metadata contains an unsafe URL");
     if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value))
       throw lockMismatch("portable metadata contains a local path");
     return;
   }
   if (Array.isArray(value)) {
-    for (const item of value) assertPortableLockMetadata(item, field);
+    for (const item of value)
+      visitPortableLockMetadata(
+        item,
+        field,
+        funding === "entry" ? "entry" : undefined,
+      );
     return;
   }
   if (value && typeof value === "object")
@@ -290,6 +318,14 @@ export function assertPortableLockMetadata(value: unknown, field = ""): void {
         ].includes(field)
       )
         throw lockMismatch("portable metadata contains a credential field");
-      assertPortableLockMetadata(item, key);
+      visitPortableLockMetadata(
+        item,
+        key,
+        key === "funding"
+          ? "entry"
+          : funding === "entry" && key === "url"
+            ? "url"
+            : undefined,
+      );
     }
 }
