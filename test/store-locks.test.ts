@@ -47,28 +47,31 @@ function recordWith(
  * alive, then reap it. Using the child's real startId makes the liveness
  * verdict deterministic even in the unlikely event of PID reuse.
  */
-async function reapedProcess(): Promise<{
+async function reapedProcess(
+  readStartId: typeof readProcessStartId = readProcessStartId,
+): Promise<{
   pid: number;
   startId: string | null;
 }> {
-  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300)"], {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
     stdio: "ignore",
   });
-  const pid = child.pid;
-  if (pid === undefined) throw new Error("spawn returned no pid");
-
-  let startId: string | null = null;
-  for (let attempt = 0; attempt < 100 && startId === null; attempt += 1) {
-    startId = await readProcessStartId(pid);
-    if (startId === null) await sleep(5);
+  // Observe shutdown before any asynchronous identity lookup. A platform may
+  // have no process start discriminator; that must not outlive the child and
+  // cause us to subscribe to an exit event that has already happened.
+  const exited = new Promise<void>((resolve) => {
+    child.once("exit", () => resolve());
+    child.once("error", () => resolve());
+  });
+  try {
+    const pid = child.pid;
+    if (pid === undefined) throw new Error("spawn returned no pid");
+    const startId = await readStartId(pid);
+    return { pid, startId };
+  } finally {
+    child.kill("SIGKILL");
+    await exited;
   }
-
-  const exited = new Promise<void>((resolve) =>
-    child.once("exit", () => resolve()),
-  );
-  child.kill("SIGKILL");
-  await exited;
-  return { pid, startId };
 }
 
 describe("acquireLock", () => {
@@ -113,6 +116,22 @@ describe("acquireLock", () => {
       { mode: 0o600 },
     );
 
+    const handle = await acquireLock(lockPath, {
+      name: "project mutation",
+      timeoutMs: 500,
+    });
+    expect(handle.record.pid).toBe(process.pid);
+    await handle.release();
+  });
+
+  it("reclaims a reaped child with its start-time discriminator unavailable", async () => {
+    const dead = await reapedProcess(async () => null);
+    expect(dead.startId).toBeNull();
+    expect(() => process.kill(dead.pid, 0)).toThrow();
+    await mkdir(path.dirname(lockPath), { recursive: true });
+    await writeFile(lockPath, JSON.stringify(recordWith(dead)), {
+      mode: 0o600,
+    });
     const handle = await acquireLock(lockPath, {
       name: "project mutation",
       timeoutMs: 500,

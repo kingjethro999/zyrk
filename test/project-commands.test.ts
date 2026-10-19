@@ -1,3 +1,4 @@
+import { isolateUserConfig } from "./helpers/user-config.ts";
 import {
   mkdtemp,
   mkdir,
@@ -8,7 +9,7 @@ import {
 } from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { beforeEach, afterEach, it, expect } from "vitest";
+import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { runProjectCommand } from "../src/commands/project.ts";
 import { installProject } from "../src/install/run.ts";
 import { RegistryClient } from "../src/fetch/registry.ts";
@@ -19,10 +20,12 @@ import {
   startStubRegistry,
   type StubRegistry,
 } from "./helpers/registry-stub.ts";
+let configFile: string;
 let root: string, project: string, store: Store, server: StubRegistry;
 let stdout: string, stderr: string;
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "zyrk-project-"));
+  configFile = await isolateUserConfig(root);
   project = path.join(root, "project");
   await mkdir(project);
   store = await Store.open({ root: path.join(root, "store"), create: true });
@@ -86,6 +89,7 @@ beforeEach(async () => {
   stderr = "";
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await server.close();
   await rmrfNoFollow(root);
 });
@@ -104,7 +108,6 @@ async function run(
     env: {
       ...process.env,
       ZYRK_STORE_DIR: store.root,
-      XDG_CONFIG_HOME: path.join(root, "config"),
       ...extraEnv,
     },
     stdout: {
@@ -207,19 +210,16 @@ it("doctor detects dropped zyrk lock metadata, broken links and ambient resoluti
   expect(stdout).not.toContain(root);
 });
 it("fails closed for configured user execution policy and missing script names", async () => {
-  await mkdir(path.join(root, "config/zyrk"), { recursive: true });
-  await writeFile(
-    path.join(root, "config/zyrk/config.json"),
-    JSON.stringify({ scripts: { deny: ["check"] } }),
-  );
+  await mkdir(path.dirname(configFile), { recursive: true });
+  await writeFile(configFile, JSON.stringify({ scripts: { deny: ["check"] } }));
   await expect(run("run", ["check"])).rejects.toMatchObject({
     code: "ZYRK_POLICY_DENIED",
   });
 });
 
 it("honors explicit project script denies while allowing unrelated dependency restrictions", async () => {
-  await mkdir(path.join(root, "config/zyrk"), { recursive: true });
-  const file = path.join(root, "config/zyrk/config.json");
+  await mkdir(path.dirname(configFile), { recursive: true });
+  const file = configFile;
   await writeFile(
     file,
     JSON.stringify({

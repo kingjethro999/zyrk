@@ -1,3 +1,4 @@
+import { isolateUserConfig } from "./helpers/user-config.ts";
 import {
   mkdtemp,
   mkdir,
@@ -10,7 +11,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { beforeEach, afterEach, it, expect } from "vitest";
+import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { installProject } from "../src/install/run.ts";
 import { Store } from "../src/store/layout.ts";
 import {
@@ -20,6 +21,7 @@ import {
 import { RegistryClient } from "../src/fetch/registry.ts";
 import { rmrfNoFollow, pathExists } from "../src/util/fsx.ts";
 const exec = promisify(execFile);
+let configFile: string;
 let root: string,
   project: string,
   store: Store,
@@ -27,6 +29,7 @@ let root: string,
   registry: RegistryClient;
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "zyrk-private-"));
+  configFile = await isolateUserConfig(root);
   project = path.join(root, "project");
   await mkdir(project);
   store = await Store.open({ root: path.join(root, "store"), create: true });
@@ -72,6 +75,7 @@ beforeEach(async () => {
   await manifest({ dependencies: { builder: "1.0.0", host: "1.0.0" } });
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await server.close();
   await rmrfNoFollow(root);
 });
@@ -164,16 +168,15 @@ it("local mandatory denies beat reviewed approvals without rewriting the lock", 
     path.join(project, "package-lock.json"),
     "utf8",
   );
-  const configHome = path.join(root, "config");
-  await mkdir(path.join(configHome, "zyrk"), { recursive: true });
+  await mkdir(path.dirname(configFile), { recursive: true });
   await writeFile(
-    path.join(configHome, "zyrk/config.json"),
+    configFile,
     JSON.stringify({ scripts: { deny: ["builder"] } }),
   );
   await expect(
     install({
       frozen: true,
-      env: { ...process.env, XDG_CONFIG_HOME: configHome },
+      env: process.env,
     }),
   ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
   expect(await readFile(path.join(project, "package-lock.json"), "utf8")).toBe(

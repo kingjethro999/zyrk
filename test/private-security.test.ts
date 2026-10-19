@@ -1,3 +1,4 @@
+import { isolateUserConfig } from "./helpers/user-config.ts";
 import {
   mkdtemp,
   mkdir,
@@ -9,7 +10,7 @@ import {
 } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { beforeEach, afterEach, expect, it } from "vitest";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { Store } from "../src/store/layout.ts";
 import { createGraphDoc } from "../src/store/graph.ts";
 import {
@@ -26,17 +27,20 @@ import {
   type StubRegistry,
 } from "./helpers/registry-stub.ts";
 import { pathExists, rmrfNoFollow } from "../src/util/fsx.ts";
+let configFile: string;
 let root: string,
   project: string,
   store: Store,
   server: StubRegistry | undefined;
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "zyrk-private-security-"));
+  configFile = await isolateUserConfig(root);
   project = path.join(root, "project");
   await mkdir(project);
   store = await Store.open({ root: path.join(root, "store"), create: true });
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await server?.close();
   server = undefined;
   await rmrfNoFollow(root);
@@ -172,10 +176,9 @@ it("materializes and builds one physical context for duplicate npm-style occurre
 });
 
 it("mandatory denials prevent approval metadata publication", async () => {
-  const config = path.join(root, "config");
-  await mkdir(path.join(config, "zyrk"), { recursive: true });
+  await mkdir(path.dirname(configFile), { recursive: true });
   await writeFile(
-    path.join(config, "zyrk/config.json"),
+    configFile,
     JSON.stringify({ scripts: { deny: ["builder"] } }),
   );
   const builds = [
@@ -193,7 +196,7 @@ it("mandatory denials prevent approval metadata publication", async () => {
       digest: "reviewed",
       builds,
       selected: ["*"],
-      env: { ...process.env, XDG_CONFIG_HOME: config },
+      env: process.env,
     }),
   ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
   expect(
