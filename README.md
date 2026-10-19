@@ -167,9 +167,29 @@ JavaScript, shell, or native executable bin entry with the supplied arguments. I
 removed afterward; verified sources and shared realizations remain in the
 store.
 
-`create` uses the same execution path and maps initializer names to their
-`create-*` packages. For example, `vite` maps to `create-vite`, while a scoped
-initializer stays in its scope. Compatibility depends on the selected tool:
+`create` maps initializer names to their `create-*` packages. For example,
+`vite` maps to `create-vite`, while a scoped initializer stays in its scope.
+Initializers run from an independent writable private closure so copied templates
+can be edited without modifying verified store files. The temporary closure is
+removed afterward; generic `dlx` tools continue to use immutable shared files.
+
+For `create next-app`, the native adapter accepts resolved create-next-app
+15.x and 16.x releases, whose official CLI provides `--skip-install`; the real
+scaffold check covers 16.4.2. Other versions fail before execution. zyrk passes the official `--skip-install` flag to
+create-next-app, validates the generated project manifest, then installs its
+dependencies through zyrk using the same store and registry configuration. An
+explicit `--skip-install` leaves the generated project uninstalled. The official
+flag can select create-next-app's configuration defaults instead of prompting
+for each choice; pass its explicit configuration flags to customize them. Its
+interactive project-name prompt remains available. Supply an explicit target
+for nested or existing empty directories; automatic interactive discovery is
+limited to one newly created direct child directory. If generation exits without
+a valid manifest, zyrk reports failure and retains any generated files for review.
+
+Other initializers control their own dependency-install step and may invoke
+another package manager. Use their skip-install option, when available, then run
+`zyrk install` in the generated project to keep installation native to zyrk.
+Compatibility depends on the selected tool:
 closures declaring install lifecycle scripts, implicit native builds, or bundled
 install hooks are blocked. Dependency executables are available on the tool
 PATH. Parent cancellation terminates the supervised process group with bounded

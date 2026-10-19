@@ -44,6 +44,8 @@ import { currentProcessIdentity, superviseChild } from "../util/proc.ts";
 import { acquireLock } from "../util/locks.ts";
 import { registerGeneration } from "../install/metadata.ts";
 import { openStoreDb } from "../store/db.ts";
+import { installBudgets } from "../install/budgets.ts";
+import { materializePrivate } from "../install/private.ts";
 import { randomId } from "../util/ids.ts";
 
 export type DlxOptions = {
@@ -61,6 +63,8 @@ export type DlxOptions = {
   /** Capture stdio instead of inheriting it (used by tests). */
   capture?: boolean;
   logger?: Logger;
+  /** Adapter contract checked against the exact resolved tool before execution. */
+  validateTool?: (tool: { name: string; version: string }) => void;
 };
 
 export type DlxResult = {
@@ -68,7 +72,7 @@ export type DlxResult = {
   key: string;
   name: string;
   version: string;
-  /** True when every needed realization already existed. */
+  /** True when every needed shared realization already existed. */
   reused: boolean;
   stdout: string;
   stderr: string;
@@ -104,6 +108,19 @@ export function splitDlxSpec(spec: string): {
 }
 
 export async function runDlx(options: DlxOptions): Promise<DlxResult> {
+  return runTemporaryTool(options, false);
+}
+
+/** Initializers copy and rewrite their shipped templates, so their full
+ * closure must use independent writable files (I-001, I-002, F-017). */
+export async function runInitializer(options: DlxOptions): Promise<DlxResult> {
+  return runTemporaryTool(options, true);
+}
+
+async function runTemporaryTool(
+  options: DlxOptions,
+  writable: boolean,
+): Promise<DlxResult> {
   const { store, registry } = options;
   const args = options.args ?? [];
   const cwd = options.cwd ?? process.cwd();
@@ -112,6 +129,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
   const split = splitDlxSpec(options.spec);
   const resolved = await resolveRequirements({
     provider: registry,
+    limits: installBudgets(env).resolveBudget!,
     requirements: [{ name: split.name, spec: split.versionSpec }],
   });
   const root = resolved.roots.find((entry) => entry.name === split.name);
@@ -120,6 +138,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
   const byKey = new Map(resolved.nodes.map((node) => [node.key, node]));
   const tool = byKey.get(root.target);
   if (tool === undefined) throw internal(`resolution lost node ${root.target}`);
+  options.validateTool?.({ name: tool.name, version: tool.version });
 
   // Retain the publication/GC barrier until the child and temporary projection
   // are gone. The durable lease additionally protects recovery after a crash.
@@ -128,6 +147,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
     { name: "temporary tool liveness" },
   );
   let txn: Transaction | undefined;
+  let envDir: string | undefined;
   try {
     txn = await Transaction.begin(store, "dlx");
     await txn.setState("fetching");
@@ -171,19 +191,29 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
         })),
       })),
     );
-    const realized = await realizeGraph({
+    const sharedRealized = await realizeGraph({
       store,
       graph,
       ...(options.logger === undefined ? {} : { logger: options.logger }),
     });
     await txn.setState("realizations-ready");
 
+    await assertNoInstallScripts(sharedRealized.packageDirByKey, byKey);
+    envDir = await mkdtemp(path.join(os.tmpdir(), "zyrk-dlx-"));
+    const generationId = randomId("gen1_");
+    const realized = writable
+      ? await materializePrivate({
+          project: envDir,
+          store,
+          graph,
+          generationId,
+        })
+      : sharedRealized;
     const toolRealization = realized.realizationDirByKey.get(tool.key);
     if (toolRealization === undefined)
       throw internal(`missing realization for ${tool.key}`);
     const toolPkgDir = packageDirIn(toolRealization, tool.name);
 
-    await assertNoInstallScripts(realized.packageDirByKey, byKey);
     const binKey = selectBin(tool, options.binName);
     const binTarget = tool.bin[binKey];
     if (binTarget === undefined)
@@ -208,8 +238,6 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
           );
       }
     }
-    const envDir = await mkdtemp(path.join(os.tmpdir(), "zyrk-dlx-"));
-    const generationId = randomId("gen1_");
     const projectId = randomId("proj1_");
     const leaseId = randomId("lease1_");
     let registered = false;
@@ -221,6 +249,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
         generationId,
         graph,
         realized,
+        sharedRealized,
         roots: [tool.key],
         readiness: "ready",
       });
@@ -274,7 +303,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
         key: tool.key,
         name: tool.name,
         version: tool.version,
-        reused: realized.created.length === 0,
+        reused: sharedRealized.created.length === 0,
         envDir,
       };
     } finally {
@@ -298,6 +327,7 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
     }
   } finally {
     try {
+      if (envDir !== undefined) await rmrfNoFollow(envDir);
       await txn?.finish();
     } finally {
       await barrier.release();

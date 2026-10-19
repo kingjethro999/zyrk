@@ -50,6 +50,29 @@ beforeEach(async () => {
       ],
     },
     {
+      name: "create-next-app",
+      versions: [
+        {
+          version: "16.4.2",
+          bin: { "create-next-app": "cli.js" },
+          files: {
+            "cli.js": {
+              data: `const fs=require('node:fs'),p=require('node:path'),args=process.argv.slice(2); if(!args.includes('--skip-install'))process.exit(99); fs.mkdirSync(args[0]); fs.writeFileSync(p.join(args[0],'package.json'),JSON.stringify({name:'web',version:'1.0.0',dependencies:{next:'1.0.0'}}));`,
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: "next",
+      versions: [
+        {
+          version: "1.0.0",
+          files: { "index.js": { data: "module.exports='next fixture';" } },
+        },
+      ],
+    },
+    {
       name: "quitter",
       versions: [
         {
@@ -200,4 +223,21 @@ describe("runCli with tool commands", () => {
     expect(code).not.toBe(0);
     expect(errOut.join("")).toContain("ZYRK_RESOLUTION_FAILED");
   });
+});
+
+it("explains Next native installation and renders its install progress", async () => {
+  const { stdout, stderr, errOut } = streams();
+  expect(
+    await runCli({
+      argv: ["create", "next-app", "web"],
+      env: toolEnv(),
+      cwd: root,
+      stdout,
+      stderr,
+      tools: async () => tools,
+    }),
+  ).toBe(0);
+  expect(errOut.join("")).toContain("zyrk will install");
+  expect(errOut.join("")).toContain("Resolving dependencies");
+  expect(errOut.join("")).toContain("Linking project dependencies");
 });

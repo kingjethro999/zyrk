@@ -14,7 +14,7 @@ import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCreate } from "../dlx/create.ts";
+import { runCreate, starterSpecFor } from "../dlx/create.ts";
 import { runDlx } from "../dlx/run.ts";
 import {
   runDependencyCommand,
@@ -767,5 +767,24 @@ async function runToolCommand(
   if (command === "dlx") {
     return (await runDlx({ ...base, spec: first })).exitCode;
   }
-  return (await runCreate({ ...base, input: first })).exitCode;
+  const isNext = starterSpecFor(first).startsWith("create-next-app@");
+  options.stderr.write(
+    isNext
+      ? tail.includes("--skip-install")
+        ? "zyrk: Next scaffolding only; dependency installation was explicitly skipped.\n"
+        : "zyrk: Next scaffolder runs with --skip-install; zyrk will install dependencies.\n"
+      : "zyrk: This initializer controls its own dependency installation.\n",
+  );
+  const progress = createInstallProgress(options.stderr, false);
+  try {
+    return (
+      await runCreate({
+        ...base,
+        input: first,
+        onInstallProgress: progress.update,
+      })
+    ).exitCode;
+  } finally {
+    progress.close();
+  }
 }

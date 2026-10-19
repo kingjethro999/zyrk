@@ -5,17 +5,21 @@
  * `init` command): `foo` runs `create-foo`, `@scope/bar` runs
  * `@scope/create-bar`, and a bare `@scope` runs `@scope/create`, each with
  * the requested version or `*` when none was given. An already-prefixed
- * `create-foo` is used as-is. Execution is the dlx flow, so temporary
- * environments, trust policy, and cleanup all behave identically.
+ * `create-foo` is used as-is. Initializers use writable private temporary
+ * closures; trust policy and cleanup match dlx. The Next adapter installs
+ * generated dependencies natively after the initializer's skip-install step.
  */
 
+import { runNextInitializer } from "./next.ts";
 import npa from "npm-package-arg";
+import type { InstallOptions } from "../install/run.ts";
 import { ZyrkError } from "../errors.ts";
-import { runDlx, type DlxOptions, type DlxResult } from "./run.ts";
+import { runInitializer, type DlxOptions, type DlxResult } from "./run.ts";
 
 export type CreateOptions = Omit<DlxOptions, "spec"> & {
   /** Initializer as typed: `next-app`, `vite@^5`, `@scope`, `@scope/kit@beta`. */
   input: string;
+  onInstallProgress?: InstallOptions["onProgress"];
 };
 
 /**
@@ -65,5 +69,8 @@ function usage(input: string, cause?: unknown): ZyrkError {
 
 export async function runCreate(options: CreateOptions): Promise<DlxResult> {
   const { input, ...rest } = options;
-  return runDlx({ ...rest, spec: starterSpecFor(input) });
+  const spec = starterSpecFor(input);
+  return spec.startsWith("create-next-app@")
+    ? runNextInitializer({ ...rest, spec })
+    : runInitializer({ ...rest, spec });
 }
