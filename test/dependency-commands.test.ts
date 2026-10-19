@@ -1,3 +1,4 @@
+import { runCli } from "../src/cli/main.ts";
 import {
   mkdtemp,
   mkdir,
@@ -281,4 +282,24 @@ it("rejects unknown flags, absent roots, and malformed command arguments without
       code: "ZYRK_USAGE",
     });
   expect(await text("package-lock.json")).toBe(before);
+});
+
+it("shows add progress and linked ticks, with JSON output remaining quiet", async () => {
+  const chunks: string[] = [];
+  const cli = (argv: string[]) =>
+    runCli({
+      argv,
+      cwd: project,
+      env: process.env,
+      stdout: { write: (s: string) => chunks.push(s) },
+      stderr: { write: (s: string) => chunks.push(s) },
+      tools: async () => ({ store, registry }),
+    });
+  await manifest({});
+  expect(await cli(["add", "alpha@1.0.0"])).toBe(0);
+  expect(chunks.join("")).toContain("downloaded 1");
+  expect(chunks.join("")).toContain("✓ alpha@1.0.0 linked");
+  chunks.length = 0;
+  expect(await cli(["add", "@scope/child@1.0.0", "--json"])).toBe(0);
+  expect(JSON.parse(chunks.join("")).status).toBe("ok");
 });

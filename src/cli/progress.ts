@@ -7,6 +7,7 @@ const labels: Record<InstallProgress["phase"], string> = {
   realizing: "Preparing shared realizations",
   building: "Preparing approved private builds",
   linking: "Linking project dependencies",
+  complete: "Installation complete",
 };
 
 /** Presentation only: never writes to stdout or exposes package URLs or paths. */
@@ -19,6 +20,7 @@ export function createInstallProgress(
     last = "",
     frame = 0,
     closed = false;
+  let lastDownload = 0;
   const write = (text: string) => {
     try {
       stream.write(text);
@@ -31,11 +33,30 @@ export function createInstallProgress(
   return {
     update(event) {
       if (quiet || closed) return;
+      const pkg = event.package;
+      // Registry names are validated elsewhere; strip control characters here
+      // as presentation defense for direct API callers and hostile metadata.
+      const label = pkg
+        ? `${pkg.name}@${pkg.version}`.replace(/[\x00-\x1f\x7f-\x9f]/g, "")
+        : "";
+      if (pkg?.status === "linked") {
+        if (stream.isTTY) write("\r\u001b[2K");
+        write(`✓ ${label} linked\n`);
+        return;
+      }
+      const downloading = pkg?.status === "downloading";
+      if (downloading && pkg.bytes && Date.now() - lastDownload < 100) return;
+      if (downloading) lastDownload = Date.now();
       current =
-        labels[event.phase] +
+        (downloading
+          ? `Downloading ${label}: ${((pkg.bytes ?? 0) / 1024).toFixed(1)} KiB`
+          : labels[event.phase]) +
         (event.total === undefined
           ? ""
-          : ` (${event.completed ?? 0}/${event.total})`);
+          : ` (${event.completed ?? 0}/${event.total})`) +
+        (event.reused === undefined
+          ? ""
+          : ` — reused ${event.reused}, downloaded ${event.downloaded ?? 0}`);
       if (stream.isTTY) {
         render();
         if (!timer) {

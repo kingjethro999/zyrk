@@ -415,3 +415,23 @@ it("rejects invalid public install timeouts before creating project control stat
   ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
   expect(await pathExists(path.join(project, ".zyrk-local"))).toBe(false);
 });
+
+it("reports cold download and verified warm reuse before ticking committed packages", async () => {
+  const cold: import("../src/install/run.ts").InstallProgress[] = [];
+  await install({ onProgress: (event) => cold.push(event) });
+  expect(cold.filter((e) => e.package?.status === "downloaded")).toHaveLength(
+    2,
+  );
+  expect(cold.filter((e) => e.package?.status === "linked")).toHaveLength(2);
+  expect(cold.find((e) => e.downloaded === 2)?.completed).toBe(2);
+  const warm: import("../src/install/run.ts").InstallProgress[] = [];
+  await install({
+    offline: true,
+    frozen: true,
+    onProgress: (event) => warm.push(event),
+  });
+  expect(warm.filter((e) => e.package?.status === "reused")).toHaveLength(2);
+  expect(warm.some((e) => e.package?.status === "downloading")).toBe(false);
+  expect(warm.find((e) => e.reused === 2)?.completed).toBe(2);
+  expect(warm.filter((e) => e.package?.status === "linked")).toHaveLength(2);
+});

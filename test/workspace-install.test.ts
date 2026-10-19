@@ -795,3 +795,22 @@ it("refuses unrepresentable npm binary metadata before creating workspace state"
     realpath(path.join(project, ".zyrk-local")),
   ).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+it("reports verified source reuse for workspace installs and ticks committed dependencies", async () => {
+  const events: import("../src/install/run.ts").InstallProgress[] = [];
+  await installWorkspaceProject({ projectDir: project, store, registry });
+  await installWorkspaceProject({
+    projectDir: project,
+    store,
+    registry,
+    offline: true,
+    onProgress: (e) => events.push(e),
+  });
+  expect(events.some((e) => e.package?.status === "reused")).toBe(true);
+  expect(events.some((e) => e.package?.status === "downloading")).toBe(false);
+  expect(
+    events.some(
+      (e) => e.package?.status === "linked" && e.package.name === "pure",
+    ),
+  ).toBe(true);
+});

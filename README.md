@@ -394,7 +394,12 @@ recorded in the manifest fingerprint; frozen installs reject policy drift.
 `zyrk help` and `zyrk --help` both show help successfully. Installs report
 preparation, resolution, verified source counts, realization, approved builds,
 and project linking on stderr. Interactive terminals show an activity spinner;
-redirected output contains plain phase messages. `--json` disables progress.
+redirected output contains plain progress messages. Both `zyrk add prettier` and
+`zyrk install prettier` show these details. Source counters distinguish verified
+reuse from newly downloaded sources; downloads show received bytes. A checkmark
+lists each unique package/version linked after the project transaction commits.
+Source counts differ from dependency contexts when peers split a package.
+`--json` disables progress.
 
 Install resolution has a five-minute deadline; each archive extraction has a
 two-minute deadline. Set `ZYRK_RESOLVE_TIMEOUT_MS` or `ZYRK_EXTRACT_TIMEOUT_MS`

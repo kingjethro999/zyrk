@@ -601,6 +601,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       parsed.command === "update" ||
       parsed.command === "import")
   ) {
+    const progress = createInstallProgress(options.stderr, parsed.json);
     try {
       const tools =
         options.tools === undefined
@@ -611,6 +612,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
             )
           : await options.tools();
       const result = await runDependencyCommand({
+        onProgress: progress.update,
         command: parsed.command as DependencyCommand,
         env: options.env,
         args: parsed.commandArgs,
@@ -618,6 +620,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         store: tools.store,
         registry: tools.registry,
       });
+      progress.close();
       if (parsed.json) {
         return emit({
           exitCode: 0,
@@ -627,13 +630,16 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       }
       return emit({
         exitCode: 0,
-        stdout: `Dependency command ${parsed.command} completed.\n`,
-        stderr: "",
+        stdout: `Dependency command ${parsed.command} completed: ${result.packages} packages, ${result.reused} realizations reused; ${result.readiness}.\n`,
+        stderr: result.warnings.map((w) => `zyrk: ${w}\n`).join(""),
       });
     } catch (error) {
+      progress.close();
       return emit(
         fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
       );
+    } finally {
+      progress.close();
     }
   }
 

@@ -1,3 +1,4 @@
+import { sourceProgress, reportLinked } from "./progress.ts";
 import { selectWorkspacePlatform } from "./platform.ts";
 /** Multi-importer live workspace installation with one publication journal. */
 import {
@@ -418,7 +419,7 @@ export async function installWorkspaceProject(
         })
       : undefined;
     const uniqueSources = new Map(nodes.map((n) => [n.sourceId, n]));
-    let completedSources = 0;
+    const progress = sourceProgress(options.onProgress, uniqueSources.size);
     options.onProgress?.({
       phase: "fetching",
       completed: 0,
@@ -426,9 +427,10 @@ export async function installWorkspaceProject(
     });
     for (const node of uniqueSources.values()) {
       operation.operation.checkpoint();
-      if (
-        !(await pathExists(sourceManifestPath(options.store, node.sourceId)))
-      ) {
+      const cached = await pathExists(
+        sourceManifestPath(options.store, node.sourceId),
+      );
+      if (!cached) {
         if (options.offline)
           throw new ZyrkError(
             "ZYRK_OFFLINE_MISSING",
@@ -438,6 +440,7 @@ export async function installWorkspaceProject(
                 "Fetch the exact locked sources online before retrying offline.",
             },
           );
+        const downloadProgress = progress.downloading(node);
         const archive = path.join(txn.dir, `${node.sourceId}.tgz`),
           download = await options.registry
             .forPackage(node.name)
@@ -447,7 +450,10 @@ export async function installWorkspaceProject(
               destPath: archive,
               label: `${node.name}@${node.version}`,
               signal: operation.operation.signal,
-              onBytes: operation.operation.consumeArchiveBytes,
+              onBytes(bytes) {
+                operation.operation.consumeArchiveBytes(bytes);
+                downloadProgress(bytes);
+              },
             });
         const extraction = await extractTarball({
           limits: options.extractBudget!,
@@ -473,11 +479,7 @@ export async function installWorkspaceProject(
         node,
         await readSourceManifest(options.store, node.sourceId),
       );
-      options.onProgress?.({
-        phase: "fetching",
-        completed: ++completedSources,
-        total: uniqueSources.size,
-      });
+      progress.verified(node, cached ? "reused" : "downloaded");
     }
     if (options.fetchOnly)
       return {
@@ -804,6 +806,7 @@ export async function installWorkspaceProject(
       manifestChanges,
     );
     registration.activate();
+    reportLinked(options.onProgress, nodes);
     return {
       readiness,
       packages: nodes.length,

@@ -1,3 +1,4 @@
+import { sourceProgress, reportLinked } from "./progress.ts";
 import { selectPlatformGraph } from "./platform.ts";
 import type { RuntimePlatform } from "../resolve/resolver.ts";
 import { findWorkspaceRoot } from "./workspaces.ts";
@@ -68,9 +69,18 @@ export type InstallProgress = {
     | "fetching"
     | "realizing"
     | "building"
-    | "linking";
+    | "linking"
+    | "complete";
   completed?: number;
   total?: number;
+  reused?: number;
+  downloaded?: number;
+  package?: {
+    name: string;
+    version: string;
+    status: "downloading" | "downloaded" | "reused" | "linked";
+    bytes?: number;
+  };
 };
 export type InstallOptions = {
   onProgress?: (event: InstallProgress) => void;
@@ -689,7 +699,7 @@ export async function installProject(
         })
       : undefined;
     const unique = new Map(activeNodes.map((n) => [n.sourceId, n]));
-    let completedSources = 0;
+    const progress = sourceProgress(options.onProgress, unique.size);
     options.onProgress?.({
       phase: "fetching",
       completed: 0,
@@ -699,11 +709,7 @@ export async function installProject(
       operation.operation.checkpoint();
       if (await pathExists(sourceManifestPath(options.store, node.sourceId))) {
         await readSourceManifest(options.store, node.sourceId);
-        options.onProgress?.({
-          phase: "fetching",
-          completed: ++completedSources,
-          total: unique.size,
-        });
+        progress.verified(node, "reused");
         continue;
       }
       if (options.offline)
@@ -712,11 +718,15 @@ export async function installProject(
           `Verified source for ${node.name}@${node.version} is missing from the store.`,
         );
       const tarball = path.join(txn.dir, `${node.sourceId}.tgz`);
+      const downloadProgress = progress.downloading(node);
       const download = await options.registry
         .forPackage(node.name)
         .downloadTarball({
           signal: operation.operation.signal,
-          onBytes: operation.operation.consumeArchiveBytes,
+          onBytes(bytes) {
+            operation.operation.consumeArchiveBytes(bytes);
+            downloadProgress(bytes);
+          },
           url: node.tarballUrl,
           expectedIntegrity: node.integrity,
           destPath: tarball,
@@ -743,11 +753,7 @@ export async function installProject(
           "download identity disagrees with the locked source",
         );
       await rm(tarball, { force: true });
-      options.onProgress?.({
-        phase: "fetching",
-        completed: ++completedSources,
-        total: unique.size,
-      });
+      progress.verified(node, "downloaded");
     }
     for (const node of unique.values())
       assertSupportedSourcePayload(
@@ -1015,6 +1021,7 @@ export async function installProject(
     });
     registration.activate();
     await txn.setState("committed");
+    reportLinked(options.onProgress, activeNodes);
     return {
       readiness,
       packages: activeNodes.length,
