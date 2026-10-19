@@ -57,7 +57,9 @@ beforeEach(async () => {
           bin: { "create-next-app": "cli.js" },
           files: {
             "cli.js": {
-              data: `const fs=require('node:fs'),p=require('node:path'),args=process.argv.slice(2); if(!args.includes('--skip-install'))process.exit(99); fs.mkdirSync(args[0]); fs.writeFileSync(p.join(args[0],'package.json'),JSON.stringify({name:'web',version:'1.0.0',dependencies:{next:'1.0.0'}}));`,
+              data:
+                'const Pe={green:x=>x,bold:x=>x},T=process.cwd(),i="npm",a="fixture";console.log(`Creating a new Next.js app in ${(0,Pe.green)(T)}.`);console.log();process.chdir(T);console.log((0,Pe.bold)(`Using ${i}.`));console.log("\\nInitializing project with template:",a,"\\n");' +
+                `const fs=require('node:fs'),p=require('node:path'),args=process.argv.slice(2); if(!args.includes('--skip-install'))process.exit(99); fs.mkdirSync(args[0]); fs.writeFileSync(p.join(args[0],'package.json'),JSON.stringify({name:'web',version:'1.0.0',dependencies:{next:'1.0.0'}}));`,
             },
           },
         },
@@ -237,7 +239,7 @@ it("explains Next native installation and renders its install progress", async (
       tools: async () => tools,
     }),
   ).toBe(0);
-  expect(errOut.join("")).toContain("zyrk will install");
+  expect(errOut.join("")).toContain("dependencies will install with zyrk");
   expect(errOut.join("")).toContain("Resolving dependencies");
   expect(errOut.join("")).toContain("Linking project dependencies");
 });

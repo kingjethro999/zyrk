@@ -779,7 +779,7 @@ async function runToolCommand(
     isNext
       ? tail.includes("--skip-install")
         ? "zyrk: Next scaffolding only; dependency installation was explicitly skipped.\n"
-        : "zyrk: Next scaffolder runs with --skip-install; zyrk will install dependencies.\n"
+        : "zyrk: Creating Next.js application; dependencies will install with zyrk.\n"
       : "zyrk: This initializer controls its own dependency installation.\n",
   );
   const progress = createInstallProgress(options.stderr, false);

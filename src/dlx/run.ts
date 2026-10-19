@@ -113,13 +113,25 @@ export async function runDlx(options: DlxOptions): Promise<DlxResult> {
 
 /** Initializers copy and rewrite their shipped templates, so their full
  * closure must use independent writable files (I-001, I-002, F-017). */
-export async function runInitializer(options: DlxOptions): Promise<DlxResult> {
-  return runTemporaryTool(options, true);
+export async function runInitializer(
+  options: DlxOptions,
+  prepare?: (tool: {
+    script: string;
+    name: string;
+    version: string;
+  }) => Promise<void>,
+): Promise<DlxResult> {
+  return runTemporaryTool(options, true, prepare);
 }
 
 async function runTemporaryTool(
   options: DlxOptions,
   writable: boolean,
+  prepare?: (tool: {
+    script: string;
+    name: string;
+    version: string;
+  }) => Promise<void>,
 ): Promise<DlxResult> {
   const { store, registry } = options;
   const args = options.args ?? [];
@@ -219,6 +231,7 @@ async function runTemporaryTool(
     if (binTarget === undefined)
       throw internal(`selected bin ${binKey} vanished`);
     const script = await resolveBinScript(toolPkgDir, tool, binKey, binTarget);
+    await prepare?.({ script, name: tool.name, version: tool.version });
 
     const bins: Record<string, string> = {};
     for (const [name, target] of Object.entries(tool.bin)) {

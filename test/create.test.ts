@@ -20,6 +20,14 @@ import {
   type StubRegistry,
 } from "./helpers/registry-stub.ts";
 
+// Exact display statement shapes in the published create-next-app16.4.2 bundle.
+const nextDisplaySource = [
+  'const Pe={green:x=>x,bold:x=>x}; const T=process.cwd(); const i="npm"; const a="fixture";',
+  "console.log(`Creating a new Next.js app in ${(0,Pe.green)(T)}.`);console.log();process.chdir(T);",
+  'console.log((0,Pe.bold)(`Using ${i}.`));console.log("\\nInitializing project with template:",a,"\\n");',
+  'console.log("npm mention in unrelated project output");',
+].join("");
+
 describe("starterSpecFor", () => {
   it.each([
     ["next-app", "create-next-app@*"],
@@ -66,6 +74,8 @@ if (args.includes('--abort')) process.exit(0);
 if (args.includes('--fail')) process.exit(7);
 if (args.includes('--help')) { console.log('help'); process.exit(0); }
 if (!args.includes('--skip-install')) require('node:child_process').execFileSync('npm', ['install']);
+${nextDisplaySource}
+if (args.includes('--display-only')) process.exit(0);
 const target = path.resolve(args.find(x => !x.startsWith('-')) || 'interactive-app');
 if (args.includes('--replace-target')) { fs.renameSync(target, target + '-original'); fs.mkdirSync(target); }
 fs.mkdirSync(target, { recursive: true });
@@ -355,6 +365,110 @@ console.log(fs.statSync(path.join(__dirname, 'template.ts')).nlink);
     expect((await stat(target)).ino).toBe(original.ino);
   });
 
+  it("shows the native installer without relabelling unrelated npm output or shared dlx", async () => {
+    const created = await runCreate({
+      store,
+      registry: client,
+      input: "next-app",
+      args: ["web"],
+      cwd: root,
+      capture: true,
+    });
+    expect(created.stdout).toContain("Using zyrk.");
+    expect(created.stdout).not.toContain("Using npm.");
+    expect(created.stdout).toContain("npm mention in unrelated project output");
+    const shared = await runDlx({
+      store,
+      registry: client,
+      spec: "create-next-app@16.4.2",
+      args: ["--skip-install", "--display-only"],
+      cwd: root,
+      capture: true,
+    });
+    expect(shared.exitCode).toBe(0);
+    expect(shared.stdout).toContain("Using npm.");
+    expect(shared.stdout).not.toContain("Using zyrk.");
+  });
+
+  it.each(["--use-npm", "--use-pnpm", "--use-yarn", "--use-bun"])(
+    "rejects conflicting installer selection %s before execution",
+    async (flag) => {
+      await expect(
+        runCreate({
+          store,
+          registry: client,
+          input: "next-app",
+          args: ["web", flag],
+          cwd: root,
+          capture: true,
+        }),
+      ).rejects.toMatchObject({ code: "ZYRK_USAGE" });
+      await expect(stat(path.join(root, "web"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
+  it("fails before execution when an accepted version has an unverified display contract", async () => {
+    const incompatible = await startStubRegistry([
+      {
+        name: "create-next-app",
+        versions: [
+          {
+            version: "16.4.2",
+            bin: { "create-next-app": "bin.js" },
+            files: {
+              "bin.js": {
+                data: "require('node:fs').writeFileSync('executed', 'unexpected');",
+              },
+            },
+          },
+        ],
+      },
+    ]);
+    try {
+      await expect(
+        runCreate({
+          store,
+          registry: new RegistryClient({
+            registry: incompatible.url,
+            userAgent: "zyrk-test/0",
+          }),
+          input: "next-app@16.4.2",
+          args: ["web"],
+          cwd: root,
+          capture: true,
+        }),
+      ).rejects.toMatchObject({
+        code: "ZYRK_RESOLUTION_FAILED",
+        detail: { package: "create-next-app", version: "16.4.2" },
+      });
+      await expect(stat(path.join(root, "executed"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await incompatible.close();
+    }
+  });
+
+  it("allows a package-manager template selection when installation is explicitly skipped", async () => {
+    const result = await runCreate({
+      store,
+      registry: client,
+      input: "next-app",
+      args: ["web", "--use-pnpm", "--skip-install"],
+      cwd: root,
+      capture: true,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Scaffolding only; dependency installation skipped.",
+    );
+    await expect(
+      stat(path.join(root, "web", "node_modules")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("honors explicit Next --skip-install", async () => {
     const result = await runCreate({
       store,
@@ -365,6 +479,11 @@ console.log(fs.statSync(path.join(__dirname, 'template.ts')).nlink);
       capture: true,
     });
     expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Scaffolding only; dependency installation skipped.",
+    );
+    expect(result.stdout).not.toContain("Using zyrk.");
+    expect(result.stdout).not.toContain("Using npm.");
     await expect(
       stat(path.join(root, "web", "node_modules")),
     ).rejects.toMatchObject({ code: "ENOENT" });

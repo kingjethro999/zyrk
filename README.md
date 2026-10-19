@@ -178,7 +178,14 @@ For `create next-app`, the native adapter accepts resolved create-next-app
 scaffold check covers 16.4.2. Other versions fail before execution. zyrk passes the official `--skip-install` flag to
 create-next-app, validates the generated project manifest, then installs its
 dependencies through zyrk using the same store and registry configuration. An
-explicit `--skip-install` leaves the generated project uninstalled. The official
+explicit `--skip-install` leaves the generated project uninstalled.
+The private initializer displays `Using zyrk.` for native installation, or
+`Scaffolding only; dependency installation skipped.` for an explicit skip. This
+adapts verified upstream display statements without changing shared source
+files, installer execution, generated metadata, or unrelated npm text. An
+unrecognized display contract fails before the initializer runs. Conflicting
+`--use-npm`, `--use-pnpm`, `--use-yarn`, and `--use-bun` selections require an
+explicit `--skip-install`; remove them to install with zyrk. The official
 flag can select create-next-app's configuration defaults instead of prompting
 for each choice; pass its explicit configuration flags to customize them. Its
 interactive project-name prompt remains available. Supply an explicit target

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-19T19:08:23.072450+00:00",
+  "scope": "Verified display adaptation in an independent private create-next-app script; native zyrk installation remains unchanged.",
+  "environment": {
+    "node": "24.18.0",
+    "platform": "linux",
+    "arch": "x64",
+    "CI": "1",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "store": "<retained-verified-store>",
+    "npmTrap": "An executable named npm exists first on the test PATH, records every invocation, and exits99. Production does not install an npm shim or alter PATH."
+  },
+  "upstream": {
+    "package": "create-next-app",
+    "version": "16.4.2",
+    "bundleBytes": 609404,
+    "bundleSha256BeforeAndAfter": "b8a1ca72e06f34f2b21b83d176ec3478a352117363faa1631c331c03095cee51",
+    "sharedBundleReadOnlyAfter": true,
+    "sources": [
+      "https://github.com/vercel/next.js/blob/v16.4.2/packages/create-next-app/create-app.ts",
+      "https://github.com/vercel/next.js/blob/v16.4.2/packages/create-next-app/templates/index.ts"
+    ]
+  },
+  "commands": {
+    "native": [
+      "zyrk",
+      "create",
+      "next-app@16.4.2",
+      "web",
+      "--yes",
+      "--typescript",
+      "--app",
+      "--no-tailwind",
+      "--no-eslint",
+      "--no-react-compiler",
+      "--no-agent-feedback",
+      "--no-agents-md",
+      "--disable-git"
+    ],
+    "explicitSkip": [
+      "zyrk",
+      "create",
+      "next-app@16.4.2",
+      "web-skip",
+      "--yes",
+      "--typescript",
+      "--app",
+      "--no-tailwind",
+      "--no-eslint",
+      "--no-react-compiler",
+      "--no-agent-feedback",
+      "--no-agents-md",
+      "--disable-git",
+      "--skip-install"
+    ]
+  },
+  "results": {
+    "native": {
+      "exitCode": 0,
+      "banner": "Using zyrk.",
+      "readiness": "ready",
+      "linker": "shared",
+      "nativeLock": true,
+      "installedNext": "16.4.2",
+      "installedPackageContexts": 31
+    },
+    "explicitSkip": {
+      "exitCode": 0,
+      "banner": "Scaffolding only; dependency installation skipped.",
+      "nodeModulesCreated": false
+    },
+    "npmTrapExecutablePresent": true,
+    "npmInvocationCount": 0,
+    "genericDlxOutputAndUnrelatedNpmTextPreserved": "Hermetic regression test passed.",
+    "unsupportedOrAmbiguousDisplayContract": "Rejected before child execution; initializer bytes unchanged.",
+    "sharedInodeEdit": "Rejected before writing."
+  },
+  "verification": {
+    "targetedTests": 57,
+    "typecheck": "passed",
+    "redRegression": "Six expected failures before implementation.",
+    "sourceBase": "0c787ea",
+    "adapterSha256": "a8295072e7b28ad6c4394a7e5f5937dfcdeaa5888f45099e8fcba03466c78c07"
+  },
+  "limits": [
+    "Candidate stable15.x/16.x versions must match both unique verified statement shapes; unexpected source contracts fail closed.",
+    "Upstream generated metadata, README examples, and other command hints are not relabelled.",
+    "No new framework runtime compatibility claim beyond the separate pinned Next Linux evidence."
+  ]
+}

@@ -25,9 +25,18 @@ zyrk run start -- --port 3000
 
 `create next-app` supplies the official `--skip-install` option, then installs the
 generated project through zyrk. An explicit user `--skip-install` leaves the
-project uninstalled. Upstream may still print “Using npm”; that label describes
-its selected package-manager mode, while installation is skipped. The native
-adapter accepts resolved stable 15.x and 16.x initializer versions, whose
+project uninstalled. The writable private initializer displays `Using zyrk.`
+when zyrk will install dependencies, or `Scaffolding only; dependency installation
+skipped.` for an explicit skip. The adapter verifies unique upstream display
+statements before editing them and fails before execution if they differ. Shared
+verified source files and generic `dlx` output remain unchanged. The edit changes
+neither upstream installer selection nor executable logic: upstream installation
+is skipped and zyrk's native installer runs afterward. Generated metadata,
+README examples, and other upstream command hints can still mention npm.
+
+Conflicting `--use-npm`, `--use-pnpm`, `--use-yarn`, and `--use-bun` flags are
+rejected for native installation; remove them or pass `--skip-install` to scaffold
+only. Candidate versions are stable 15.x and 16.x initializer releases, whose
 [official CLI source](https://github.com/vercel/next.js/blob/v15.0.0/packages/create-next-app/index.ts)
 and [16.x source](https://github.com/vercel/next.js/blob/v16.0.0/packages/create-next-app/index.ts)
 provide the flag. End-to-end framework evidence here covers 16.4.2 only. Supplying
@@ -57,3 +66,16 @@ source fingerprint. Initial cold attempts encountered a resolver deadline before
 the timeout correction and transient registry download timeouts; verified source
 commits were retained and later attempts completed. Large logs and the local
 store are not part of this evidence artifact.
+
+The display adaptation follows the
+[verified template banner](https://github.com/vercel/next.js/blob/v16.4.2/packages/create-next-app/templates/index.ts)
+and [project header](https://github.com/vercel/next.js/blob/v16.4.2/packages/create-next-app/create-app.ts)
+from create-next-app16.4.2. Minified variable names may vary; both complete
+neighboring statement shapes must match exactly once. This avoids rewriting
+arbitrary child output and preserves interactive stdio.
+
+[Display-adapter evidence](evidence/next-display.json) records real 16.4.2 native
+and explicit-skip runs, the unchanged shared bundle digest, and the captured
+banners. The native run reached `ready` with 31 package contexts and a zyrk lock;
+the skip run created no `node_modules`. A test-only npm trap recorded zero
+invocations; production does not replace npm or change the user's PATH.

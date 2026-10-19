@@ -5,6 +5,7 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import * as path from "node:path";
 import { satisfies } from "semver";
+import { adaptNextDisplay } from "./next-display.ts";
 import { ZyrkError } from "../errors.ts";
 import { installProject, type InstallOptions } from "../install/run.ts";
 import { isErrno } from "../util/fsx.ts";
@@ -125,6 +126,20 @@ export async function runNextInitializer(
   const entries =
     explicit === undefined ? new Set(await readdir(cwd)) : undefined;
   const skipInstall = flags.has("--skip-install");
+  if (
+    !skipInstall &&
+    [...flags].some((flag) =>
+      ["--use-npm", "--use-pnpm", "--use-yarn", "--use-bun"].includes(flag),
+    )
+  )
+    throw new ZyrkError(
+      "ZYRK_USAGE",
+      "Cannot select another dependency installer for zyrk create next-app.",
+      {
+        remedy:
+          "Remove --use-npm/--use-pnpm/--use-yarn/--use-bun to install with zyrk, or pass --skip-install to scaffold only.",
+      },
+    );
   // Insert before -- so it remains an option when the user supplies a literal target.
   const forwarded = [...args];
   if (!skipInstall) {
@@ -135,23 +150,27 @@ export async function runNextInitializer(
       "--skip-install",
     );
   }
-  const result = await runInitializer({
-    ...options,
-    args: forwarded,
-    validateTool(tool) {
-      options.validateTool?.(tool);
-      if (!satisfies(tool.version, ">=15.0.0 <17.0.0"))
-        throw new ZyrkError(
-          "ZYRK_RESOLUTION_FAILED",
-          "The resolved Next initializer version has no verified skip-install adapter.",
-          {
-            detail: { name: tool.name, version: tool.version },
-            remedy:
-              "Select create-next-app 15.x or 16.x; the native create adapter requires the verified --skip-install contract.",
-          },
-        );
+  const result = await runInitializer(
+    {
+      ...options,
+      args: forwarded,
+      validateTool(tool) {
+        options.validateTool?.(tool);
+        if (!satisfies(tool.version, ">=15.0.0 <17.0.0"))
+          throw new ZyrkError(
+            "ZYRK_RESOLUTION_FAILED",
+            "The resolved Next initializer version has no verified skip-install adapter.",
+            {
+              detail: { name: tool.name, version: tool.version },
+              remedy:
+                "Select create-next-app 15.x or 16.x; the native create adapter requires the verified --skip-install contract.",
+            },
+          );
+      },
     },
-  });
+    async ({ script, version }) =>
+      adaptNextDisplay(script, version, skipInstall),
+  );
   if (result.exitCode !== 0) return result;
   let directory = explicit;
   if (directory === undefined) {
