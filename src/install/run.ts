@@ -1,3 +1,5 @@
+import { selectPlatformGraph } from "./platform.ts";
+import type { RuntimePlatform } from "../resolve/resolver.ts";
 import { findWorkspaceRoot } from "./workspaces.ts";
 import { assertSupportedSourcePayload } from "./source-policy.ts";
 import { prepareRepair } from "./repair.ts";
@@ -35,7 +37,6 @@ import { realizeGraph, selectRealizationDirs } from "../store/realize.ts";
 import { createGraphDoc, graphHash } from "../store/graph.ts";
 import {
   resolveRequirements,
-  currentPlatform,
   type FinalizedGraph,
 } from "../resolve/resolver.ts";
 import { parseRequirement } from "../resolve/spec.ts";
@@ -74,6 +75,8 @@ export type InstallProgress = {
 export type InstallOptions = {
   onProgress?: (event: InstallProgress) => void;
   projectDir: string;
+  /** Target selection only; Store.open still checks the actual host. */
+  platform?: RuntimePlatform;
   store: Store;
   registry: RegistryClient;
   specs?: readonly string[];
@@ -390,7 +393,6 @@ export async function installProject(
         registry: options.registry.origin,
         registries: options.registry.scopedRegistries,
         linker: "shared",
-        platform: currentPlatform(),
         ...(object(manifest.zyrk) &&
         Array.isArray(manifest.zyrk.mutablePackages)
           ? { mutablePackages: manifest.zyrk.mutablePackages as string[] }
@@ -399,7 +401,9 @@ export async function installProject(
       }),
     });
     const lockPath = path.join(project, "package-lock.json");
-    const existing = (await readLockfile(lockPath))?.doc;
+    const existing = (
+      await readLockfile(lockPath, !options.frozen && !options.offline)
+    )?.doc;
     let resolved: FinalizedGraph | undefined;
     if (options.importNpm && (!existing || existing.zyrk))
       throw lockMismatch(
@@ -426,6 +430,10 @@ export async function installProject(
       let compatible = true;
       try {
         assertFrozenCompatible(existing, fingerprints());
+        if (existing.zyrk?.platformPolicy !== "portable-optional/1")
+          throw lockMismatch(
+            "lock predates portable platform selections; refresh intentionally",
+          );
       } catch (cause) {
         if (options.frozen) throw cause;
         compatible = false;
@@ -439,12 +447,16 @@ export async function installProject(
           "ZYRK_OFFLINE_MISSING",
           "Offline installation requires an existing compatible zyrk lockfile.",
         );
-      const prior = existing?.zyrk ? lockedGraph(existing) : undefined;
+      const prior =
+        existing?.zyrk?.platformPolicy === "portable-optional/1"
+          ? lockedGraph(existing)
+          : undefined;
       const fresh = new Set(specs.map((spec) => npa(spec).name));
       options.onProgress?.({ phase: "resolving" });
       resolved = await resolveRequirements({
         overrides,
         limits: options.resolveBudget!,
+        preservePlatformVariants: true,
         provider: {
           origin: options.registry.origin,
           originFor: (name: string) => options.registry.originFor(name),
@@ -577,65 +589,22 @@ export async function installProject(
           "Selected source has an unsupported or credential-bearing registry origin or archive URL.",
         );
     }
-    const selectedRoots = resolved.roots.filter(
-      (r) =>
-        !options.omitDev ||
-        manifest.dependencies?.[r.name] !== undefined ||
-        manifest.optionalDependencies?.[r.name] !== undefined,
+    const activeResolution = selectPlatformGraph(
+      {
+        ...resolved,
+        roots: resolved.roots.filter(
+          (r) =>
+            !options.omitDev ||
+            manifest.dependencies?.[r.name] !== undefined ||
+            manifest.optionalDependencies?.[r.name] !== undefined,
+        ),
+      },
+      new Set(Object.keys(manifest.optionalDependencies ?? {})),
+      options.platform,
     );
-    const byKey = new Map(resolved.nodes.map((n) => [n.key, n]));
-    const activeKeys = new Set<string>();
-    const visit = (key: string): void => {
-      if (activeKeys.has(key)) return;
-      activeKeys.add(key);
-      const n = byKey.get(key);
-      if (!n) throw lockMismatch("missing selected node");
-      for (const e of n.edges) visit(e.target);
-    };
-    for (const r of selectedRoots) visit(r.target);
-    const activeNodes = resolved.nodes.filter((n) => activeKeys.has(n.key));
-    for (const n of activeNodes) {
-      for (const [list, current] of [
-        [n.platform.os, process.platform],
-        [n.platform.cpu, process.arch],
-      ] as const) {
-        if (
-          list &&
-          (list.includes(`!${current}`) ||
-            (list.some((x) => !x.startsWith("!")) &&
-              !list.includes(current) &&
-              !list.includes("any")))
-        )
-          throw new ZyrkError(
-            "ZYRK_PLATFORM_UNSUPPORTED",
-            `Cannot install ${n.name}@${n.version} on the selected platform.`,
-            { remedy: "Select a package version supporting this OS and CPU." },
-          );
-      }
-      if (n.platform.libc?.length) {
-        const libc = currentPlatform().libc;
-        if (
-          !libc ||
-          n.platform.libc.includes(`!${libc}`) ||
-          (n.platform.libc.some((v) => !v.startsWith("!")) &&
-            !n.platform.libc.includes(libc))
-        )
-          throw new ZyrkError(
-            "ZYRK_PLATFORM_UNSUPPORTED",
-            `Cannot install ${n.name}@${n.version} with this libc.`,
-            { remedy: "Select a compatible platform or package version." },
-          );
-      }
-      if (n.engines?.node && !satisfies(process.versions.node, n.engines.node))
-        throw new ZyrkError(
-          "ZYRK_PLATFORM_UNSUPPORTED",
-          `Cannot install ${n.name}@${n.version} on this Node.js version.`,
-          {
-            remedy:
-              "Use a Node.js version satisfying the package's engines.node range.",
-          },
-        );
-    }
+    const selectedRoots = activeResolution.roots;
+    const activeNodes = activeResolution.nodes;
+    const byKey = new Map(activeNodes.map((n) => [n.key, n]));
     barrier = await acquireLock(
       path.join(options.store.paths.locksDir, "liveness.lock"),
       { name: "store liveness" },
@@ -684,7 +653,7 @@ export async function installProject(
         name: "package.json",
         contents: `${JSON.stringify(manifest, null, 2)}\n`,
       });
-    const warnings: string[] = (resolved.omissions ?? []).map(
+    const warnings: string[] = (activeResolution.omissions ?? []).map(
       (item) =>
         `${item.name}: omitted optional dependency incompatible with the selected platform.`,
     );

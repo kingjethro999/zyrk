@@ -59,6 +59,7 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
         ![
           "version",
           "resolver",
+          "platformPolicy",
           "contextCanonicalization",
           "manifest",
           "scripts",
@@ -72,6 +73,7 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
         typeof value === "string" && /^sha512-[A-Za-z0-9+/]{86}==$/.test(value),
     ) ||
     ext.resolver !== ZYRK_RESOLVER_POLICY ||
+    ext.platformPolicy !== "portable-optional/1" ||
     ext.contextCanonicalization !== CONTEXT_CANONICALIZATION_VERSION ||
     !record(ext.nodes) ||
     !record(ext.roots) ||
@@ -233,7 +235,7 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
       sourceId: raw.source as string,
       tarballUrl: raw.tarball,
       bin,
-      engines,
+      ...(raw.engines === undefined ? {} : { engines }),
       platform,
       edges,
       peerBindings: peers,
@@ -259,8 +261,10 @@ export function lockedGraph(doc: NpmLockDoc): FinalizedGraph {
 // npm publishes this canonical GitHub sponsorship link in funding metadata.
 // Keep source/archive URL validation query-free, and allow no other query here.
 function githubFundingUrl(value: string): boolean {
-  return /^https:\/\/github\.com\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\?sponsor=1$/.test(
-    value,
+  return (
+    /^https:\/\/github\.com\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\?sponsor=1$/.test(
+      value,
+    ) && new URL(value).href === value
   );
 }
 
@@ -269,13 +273,13 @@ export function assertPortableLockMetadata(value: unknown, field = ""): void {
   visitPortableLockMetadata(
     value,
     field,
-    field === "funding" ? "entry" : undefined,
+    field === "funding" ? "funding" : undefined,
   );
 }
 function visitPortableLockMetadata(
   value: unknown,
   field: string,
-  funding: "entry" | "url" | undefined,
+  funding: "funding" | "entry" | "url" | undefined,
 ): void {
   if (typeof value === "string") {
     if (
@@ -293,7 +297,7 @@ function visitPortableLockMetadata(
       visitPortableLockMetadata(
         item,
         field,
-        funding === "entry" ? "entry" : undefined,
+        funding === "funding" ? "entry" : undefined,
       );
     return;
   }
@@ -322,8 +326,8 @@ function visitPortableLockMetadata(
         item,
         key,
         key === "funding"
-          ? "entry"
-          : funding === "entry" && key === "url"
+          ? "funding"
+          : (funding === "funding" || funding === "entry") && key === "url"
             ? "url"
             : undefined,
       );

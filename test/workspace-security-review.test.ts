@@ -34,6 +34,7 @@ function validLock() {
     lockfileVersion: 3,
     zyrk: {
       version: 2,
+      platformPolicy: "portable-optional/1",
       resolver: ZYRK_RESOLVER_POLICY,
       contextCanonicalization: CONTEXT_CANONICALIZATION_VERSION,
       manifest: "a".repeat(128),

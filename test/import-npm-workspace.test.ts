@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { selectWorkspacePlatform } from "../src/install/platform.ts";
 import { importNpmWorkspaceLock } from "../src/install/import-npm-workspace.ts";
 import type { WorkspaceProject } from "../src/install/workspaces.ts";
 const origin = "https://registry.npmjs.org/";
@@ -39,11 +40,14 @@ function fixture() {
   };
   return { project, doc };
 }
-it("omits incompatible optional npm selections while retaining the locked condition", () => {
+it("retains incompatible optional npm selections for portable local projection", () => {
   const { project, doc } = fixture();
   const graph = importNpmWorkspaceLock(doc, project, origin);
-  expect(graph.nodes.map((n) => n.name)).toEqual(["root"]);
-  expect(graph.omissions).toEqual([
+  expect(graph.nodes.map((n) => n.name)).toEqual(["unavailable", "root"]);
+  expect(graph.omissions).toEqual([]);
+  const active = selectWorkspacePlatform(graph);
+  expect(active.nodes.map((n) => n.name)).toEqual(["root"]);
+  expect(active.omissions).toEqual([
     { name: "unavailable", parent: "workspace:.", reason: "platform" },
   ]);
 });

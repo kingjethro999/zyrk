@@ -16,6 +16,7 @@
  */
 
 export const ZYRK_LOCK_EXTENSION_VERSION = 1;
+export const ZYRK_PLATFORM_POLICY = "portable-optional/1";
 
 /** npm package metadata, interpreted during exact-selection import. */
 export type NpmPackageEntry = Record<string, unknown>;

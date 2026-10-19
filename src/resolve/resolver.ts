@@ -1,3 +1,4 @@
+import { normalizeEngineConstraints } from "../util/engines.ts";
 /**
  * Registry-backed dependency resolver (SPEC 9).
  *
@@ -81,6 +82,7 @@ export type ResolveOptions = {
   overrides?: OverridePolicy;
   limits?: Partial<ResolverLimits>;
   platform?: RuntimePlatform;
+  preservePlatformVariants?: boolean;
 };
 
 export type RuntimePlatform = { os: string; cpu: string; libc?: string };
@@ -208,6 +210,7 @@ class ResolverState {
 
   readonly limits: ResolverLimits;
   readonly platform: RuntimePlatform;
+  readonly preservePlatformVariants: boolean;
   readonly omissions: ResolutionOmission[] = [];
   readonly expires: number;
   private peerExpansions = 0;
@@ -226,6 +229,7 @@ class ResolverState {
       if (!Number.isSafeInteger(value) || value <= 0)
         throw budgetError("invalid resolver limits");
     this.platform = options.platform ?? currentPlatform();
+    this.preservePlatformVariants = options.preservePlatformVariants === true;
     this.expires = Date.now() + this.limits.deadlineMs;
   }
   checkBudget(depth = 0, adding = false): void {
@@ -237,6 +241,7 @@ class ResolverState {
       throw budgetError("resolved node limit exceeded");
   }
   private checkPlatform(name: string, entry: PackumentVersion): void {
+    if (this.preservePlatformVariants) return;
     for (const [constraints, actual] of [
       [entry.os, this.platform.os],
       [entry.cpu, this.platform.cpu],
@@ -868,6 +873,19 @@ function toResolved(
   keys: Map<Occurrence, string>,
   origin: string,
 ): ResolvedOccurrence {
+  const engines =
+    occ.entry.engines === undefined
+      ? undefined
+      : normalizeEngineConstraints(occ.entry.engines, () => {
+          throw new ZyrkError(
+            "ZYRK_RESOLUTION_FAILED",
+            `Cannot resolve ${occ.name}: invalid engine constraints.`,
+            {
+              remedy:
+                "Select a package version with valid npm engine metadata.",
+            },
+          );
+        });
   const edgesByName = new Map<string, ResolvedEdge>();
   for (const link of occ.children) {
     const target = keys.get(link.child);
@@ -918,7 +936,7 @@ function toResolved(
       ...(occ.entry.cpu === undefined ? {} : { cpu: occ.entry.cpu }),
       ...(occ.entry.libc === undefined ? {} : { libc: occ.entry.libc }),
     },
-    ...(occ.entry.engines === undefined ? {} : { engines: occ.entry.engines }),
+    ...(engines === undefined ? {} : { engines }),
   };
 }
 

@@ -122,7 +122,10 @@ registry; private names never fall back to a public endpoint. Disabled TLS
 verification is rejected before lookup. Git sources and non-workspace local sources remain unsupported;
 they fail explicitly. Optional dependencies incompatible with the selected platform
 are omitted; missing packages, integrity failures, and other optional failures
-remain errors. Platform selection is recorded in the lock. macOS, Windows, and
+remain errors. Locks retain exact platform-qualified optional variants; each machine
+selects its compatible local closure without rewriting the lock or recording store
+paths. Older platform-pruned locks need an intentional non-frozen refresh; incomplete
+npm locks must be freshly resolved before portable adoption. macOS, Windows, and
 broad framework compatibility have not passed their release gates.
 
 ### Workspaces

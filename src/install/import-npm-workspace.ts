@@ -14,7 +14,6 @@ import { canonicalJson } from "../util/json.ts";
 import { importNpmLock } from "./import-npm.ts";
 import { lockMismatch, cleanUrl } from "./lock.ts";
 import { ZyrkError } from "../errors.ts";
-import { assertWorkspacePlatform } from "./workspace-graph.ts";
 import type { WorkspaceProject } from "./workspaces.ts";
 import type {
   WorkspaceGraph,
@@ -238,7 +237,7 @@ function importNpmWorkspaceLockPass(
         peers: {},
         optionalPeers: [],
       };
-      assertWorkspacePlatform({ nodes: [node], importers: {}, omissions: [] });
+
       graph.nodes.push(node);
       locations.set(contextKey, node);
       contexts.set(node.key, selectedOverride.context);
@@ -294,7 +293,10 @@ function importNpmWorkspaceLockPass(
           node.peers[name] = null;
           continue;
         }
-        if (requirement.kind === "optional") continue;
+        if (requirement.kind === "optional")
+          throw lockMismatch(
+            "npm workspace lock lacks an exact optional selection; restore a complete npm lock or intentionally resolve fresh without the pruned lock",
+          );
         throw lockMismatch(
           "npm workspace lock is missing a required selection",
         );

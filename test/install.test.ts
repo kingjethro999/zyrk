@@ -413,5 +413,5 @@ it("rejects invalid public install timeouts before creating project control stat
       env: { ZYRK_RESOLVE_TIMEOUT_MS: "secret-invalid" },
     }),
   ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
-  expect(await pathExists(path.join(project, ".zyrk"))).toBe(false);
+  expect(await pathExists(path.join(project, ".zyrk-local"))).toBe(false);
 });

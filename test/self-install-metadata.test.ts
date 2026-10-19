@@ -79,6 +79,7 @@ describe("npm self-install metadata", () => {
     "https://user@github.com/prettier/prettier?sponsor=1",
     "http://github.com/prettier/prettier?sponsor=1",
     sponsor.replace("sponsor=1", "sponsor=2"),
+    "https://github.com/prettier/..?sponsor=1",
     "https://github.com/prettier/prettier?sponsor=1&other=1",
     "https://github.com/prettier/prettier?%73ponsor=1",
   ])("rejects unsafe funding URL %s", (url) => {
@@ -102,6 +103,14 @@ describe("npm self-install metadata", () => {
     expect(() =>
       validateLockDoc(
         { packages: { "": { funding: { url: { url: sponsor } } } } },
+        "fixture",
+      ),
+    ).toThrow(/unsafe URL/);
+  });
+  it("does not extend the exception through nested funding arrays", () => {
+    expect(() =>
+      validateLockDoc(
+        { packages: { "": { funding: [[sponsor]] } } },
         "fixture",
       ),
     ).toThrow(/unsafe URL/);

@@ -24,6 +24,7 @@ export type ReadLockResult = {
 
 export async function readLockfile(
   lockPath: string,
+  allowPlatformRefresh = false,
 ): Promise<ReadLockResult | null> {
   if (!(await pathExists(lockPath))) return null;
   let raw: string;
@@ -47,6 +48,16 @@ export async function readLockfile(
         cause: error,
       },
     );
+  }
+  if (allowPlatformRefresh && typeof parsed === "object" && parsed !== null) {
+    const extension = (parsed as NpmLockDoc).zyrk;
+    if (extension?.version === 1 && extension.platformPolicy === undefined) {
+      // Validate old metadata without treating a platform-pruned graph as portable.
+      const checked = structuredClone(parsed) as NpmLockDoc;
+      checked.zyrk!.platformPolicy = "portable-optional/1";
+      validateLockDoc(checked, lockPath);
+      return { path: lockPath, doc: parsed as NpmLockDoc };
+    }
   }
   return { path: lockPath, doc: validateLockDoc(parsed, lockPath) };
 }

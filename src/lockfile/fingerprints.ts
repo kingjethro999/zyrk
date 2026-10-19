@@ -95,7 +95,7 @@ export function configFingerprint(config: ResolutionConfig): string {
       : {}),
     linker: config.linker,
     ...(config.patches === undefined ? {} : { patches: config.patches }),
-    ...(config.platform === undefined ? {} : { platform: config.platform }),
+
     ...(config.mutablePackages === undefined
       ? {}
       : { mutablePackages: [...config.mutablePackages].sort() }),

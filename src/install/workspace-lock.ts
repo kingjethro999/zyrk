@@ -80,6 +80,7 @@ export function workspaceLockDoc(
     zyrk: {
       version: 2,
       resolver: ZYRK_RESOLVER_POLICY,
+      platformPolicy: "portable-optional/1",
       contextCanonicalization: CONTEXT_CANONICALIZATION_VERSION,
       ...fp,
       nodes: {},
@@ -100,6 +101,7 @@ export function validateWorkspaceLockDoc(doc: unknown): WorkspaceGraph {
         ![
           "version",
           "resolver",
+          "platformPolicy",
           "contextCanonicalization",
           "manifest",
           "scripts",
@@ -115,6 +117,7 @@ export function validateWorkspaceLockDoc(doc: unknown): WorkspaceGraph {
     Object.keys(e.roots).length !== 0 ||
     e.version !== 2 ||
     e.resolver !== ZYRK_RESOLVER_POLICY ||
+    e.platformPolicy !== "portable-optional/1" ||
     e.contextCanonicalization !== CONTEXT_CANONICALIZATION_VERSION ||
     typeof e.manifest !== "string" ||
     !/^[a-f0-9]{128}$/.test(e.manifest) ||
@@ -323,6 +326,7 @@ export function validateWorkspaceLockDoc(doc: unknown): WorkspaceGraph {
     zyrk: {
       version: 1,
       resolver: ZYRK_RESOLVER_POLICY,
+      platformPolicy: "portable-optional/1",
       contextCanonicalization: CONTEXT_CANONICALIZATION_VERSION,
       manifest: "sha512-" + "A".repeat(86) + "==",
       scripts: "sha512-" + "A".repeat(86) + "==",
@@ -399,6 +403,7 @@ export async function readWorkspaceLock(
   root: string,
   project?: WorkspaceProject,
   registryOrigin?: string | ((name: string) => string),
+  allowPlatformRefresh = false,
 ): Promise<{ doc: NpmLockDoc; graph: WorkspaceGraph } | null> {
   let text: string;
   try {
@@ -413,6 +418,14 @@ export async function readWorkspaceLock(
   } catch {
     throw lockMismatch("workspace lock is not valid JSON");
   }
+  if (
+    allowPlatformRefresh &&
+    object(doc) &&
+    object(doc.zyrk) &&
+    doc.zyrk.version === 2 &&
+    doc.zyrk.platformPolicy === undefined
+  )
+    return null;
   const graph = validateWorkspaceLockDoc(doc);
   if (project) {
     const expected = new Map(project.importers.map((i) => [i.id, i]));

@@ -1,3 +1,4 @@
+import { selectWorkspacePlatform } from "./platform.ts";
 /** Multi-importer live workspace installation with one publication journal. */
 import {
   chmod,
@@ -23,7 +24,6 @@ import {
   resolveWorkspaceGraph,
   workspaceRegistryOccurrences,
   workspaceContextId,
-  assertWorkspacePlatform,
   type WorkspaceGraph,
 } from "./workspace-graph.ts";
 import { workspaceOverrides } from "./workspace-overrides.ts";
@@ -62,7 +62,6 @@ import {
   configFingerprint,
   scriptPolicyFingerprint,
 } from "../lockfile/fingerprints.ts";
-import { currentPlatform } from "../resolve/resolver.ts";
 import { installProjection, installMetadata } from "../project/projection.ts";
 import { prepareWorkspaceMutation } from "./workspace-mutation.ts";
 import { loadProjectPatches, applyProjectPatches } from "../commands/patch.ts";
@@ -235,7 +234,6 @@ export async function installWorkspaceProject(
         registry: options.registry.origin,
         registries: options.registry.scopedRegistries,
         linker: "shared",
-        platform: currentPlatform(),
         ...(mutable !== undefined
           ? { mutablePackages: mutable as string[] }
           : {}),
@@ -247,8 +245,11 @@ export async function installWorkspaceProject(
       : undefined;
     let existing = options.importNpm
         ? null
-        : await readWorkspaceLock(root, project, (name) =>
-            options.registry.originFor(name),
+        : await readWorkspaceLock(
+            root,
+            project,
+            (name) => options.registry.originFor(name),
+            !options.frozen && !options.offline,
           ),
       graph: WorkspaceGraph | undefined = imported;
 
@@ -284,10 +285,10 @@ export async function installWorkspaceProject(
           ...(existing ? { previous: existing.graph } : {}),
           fresh: mutation.fresh,
           ...options.resolveBudget,
+          preservePlatformVariants: true,
         },
       );
     }
-    assertWorkspacePlatform(graph);
     mutation.finish(graph);
     fp.manifest = project.manifestFingerprint;
     const manifestChanges = project.importers
@@ -308,6 +309,7 @@ export async function installWorkspaceProject(
       lockText = options.frozen
         ? await readFile(path.join(root, "package-lock.json"), "utf8")
         : JSON.stringify(doc, null, 2) + "\n";
+    graph = selectWorkspacePlatform(graph, options.platform);
     const warnings = graph.omissions.map(
       (o) => `${o.name}: omitted incompatible optional workspace dependency.`,
     );

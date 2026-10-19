@@ -1,3 +1,4 @@
+import { normalizeEngineConstraints } from "../util/engines.ts";
 /** Adopt npm v2/v3 exact selections without asking the registry to pick versions. */
 import {
   createRootOverrides,
@@ -6,7 +7,7 @@ import {
 } from "../resolve/overrides.ts";
 import { validateLockDoc } from "../lockfile/read.ts";
 import { canonicalStrongSri } from "../util/integrity.ts";
-import { valid, validRange, satisfies } from "semver";
+import { valid, satisfies } from "semver";
 import type { NpmLockDoc } from "../lockfile/types.ts";
 import type {
   FinalizedGraph,
@@ -102,36 +103,10 @@ export function importNpmLock(
       edges: [],
       peerBindings: [],
     };
-    if (entry.engines !== undefined) {
-      if (Array.isArray(entry.engines)) {
-        // Old npm manifests used ["node >= 0.2.0"] instead of an engine map.
-        const engines: Record<string, string> = {};
-        for (const value of entry.engines) {
-          const match =
-            typeof value === "string"
-              ? /^([a-z][a-z0-9._-]*)\s+(.+)$/.exec(value)
-              : null;
-          if (
-            !match ||
-            Object.hasOwn(engines, match[1]!) ||
-            validRange(match[2]!) === null
-          )
-            throw lockMismatch("invalid npm engine constraint");
-          engines[match[1]!] = match[2]!;
-        }
-        node.engines = engines;
-      } else {
-        if (
-          typeof entry.engines !== "object" ||
-          entry.engines === null ||
-          Object.values(entry.engines).some(
-            (value) => typeof value !== "string",
-          )
-        )
-          throw lockMismatch("invalid npm engine constraint");
-        node.engines = entry.engines as Record<string, string>;
-      }
-    }
+    if (entry.engines !== undefined)
+      node.engines = normalizeEngineConstraints(entry.engines, () => {
+        throw lockMismatch("invalid npm engine constraint");
+      });
     if (
       typeof entry.bin === "object" &&
       entry.bin !== null &&
@@ -185,11 +160,14 @@ export function importNpmLock(
       const optionalPeer =
         requirement.kind === "peer" && meta?.[dep]?.optional === true;
       if (!targetLocation) {
-        if (requirement.kind === "optional" || optionalPeer) {
-          if (optionalPeer)
-            node.peerBindings.push({ name: dep, target: null, optional: true });
+        if (optionalPeer) {
+          node.peerBindings.push({ name: dep, target: null, optional: true });
           continue;
         }
+        if (requirement.kind === "optional")
+          throw lockMismatch(
+            "npm lock lacks an exact optional selection; restore a complete npm lock or intentionally resolve fresh without the pruned lock",
+          );
         throw lockMismatch("npm lock is missing a required dependency");
       }
       const target = load(

@@ -231,6 +231,7 @@ export async function writeLockfile(
   const extension: ZyrkLockExtension = {
     version: ZYRK_LOCK_EXTENSION_VERSION,
     resolver: ZYRK_RESOLVER_POLICY,
+    platformPolicy: "portable-optional/1",
     contextCanonicalization: CONTEXT_CANONICALIZATION_VERSION,
     manifest: options.fingerprints.manifest,
     scripts: options.fingerprints.scripts,

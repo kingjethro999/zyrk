@@ -1,3 +1,4 @@
+import { normalizeEngineConstraints } from "../util/engines.ts";
 /** Multi-importer resolution. Live nodes are never registry sources or CAS inputs. */
 import { maxSatisfying, satisfies, valid } from "semver";
 import {
@@ -82,6 +83,7 @@ async function resolveWorkspaceGraphPass(
     previous?: WorkspaceGraph;
     fresh?: ReadonlySet<string>;
     platform?: RuntimePlatform;
+    preservePlatformVariants?: boolean;
     maxNodes?: number;
     maxDepth?: number;
     deadlineMs?: number;
@@ -155,6 +157,13 @@ async function resolveWorkspaceGraphPass(
     ]).finally(() => clearTimeout(timer));
   };
   const compatible = (entry: PackumentVersion) => {
+    const engines =
+      entry.engines === undefined
+        ? undefined
+        : normalizeEngineConstraints(entry.engines, () =>
+            fail("invalid npm engine constraint"),
+          );
+    if (options.preservePlatformVariants) return;
     for (const [list, actual] of [
       [entry.os, platform.os],
       [entry.cpu, platform.cpu],
@@ -169,10 +178,7 @@ async function resolveWorkspaceGraphPass(
             !list.includes("any")))
       )
         throw new PlatformMismatch();
-    if (
-      entry.engines?.node &&
-      !satisfies(process.versions.node, entry.engines.node)
-    )
+    if (engines?.node && !satisfies(process.versions.node, engines.node))
       throw new PlatformMismatch();
   };
   const build = async (
@@ -315,7 +321,13 @@ async function resolveWorkspaceGraphPass(
           ...(entry.cpu ? { cpu: entry.cpu } : {}),
           ...(entry.libc ? { libc: entry.libc } : {}),
         },
-        ...(entry.engines ? { engines: entry.engines } : {}),
+        ...(entry.engines === undefined
+          ? {}
+          : {
+              engines: normalizeEngineConstraints(entry.engines, () =>
+                fail("invalid npm engine constraint"),
+              ),
+            }),
         edges: [],
         peers: {},
         optionalPeers: [],
