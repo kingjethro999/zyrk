@@ -1027,7 +1027,7 @@ function budgetError(reason: string): ZyrkError {
     `Cannot resolve dependencies (${reason}).`,
     {
       remedy:
-        "Review the dependency graph or explicitly increase the resolver limits for this operation.",
+        "Review the dependency graph. For a slow registry, set ZYRK_RESOLVE_TIMEOUT_MS to at most 900000 milliseconds before retrying; graph limits remain enforced.",
     },
   );
 }

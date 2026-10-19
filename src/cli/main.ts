@@ -116,6 +116,7 @@ export function helpText(version: string): string {
   lines.push(...delegatedHelpLines());
   lines.push(
     "",
+    "Install timeouts: ZYRK_RESOLVE_TIMEOUT_MS and ZYRK_EXTRACT_TIMEOUT_MS (1..900000 ms).",
     "zyrk never installs packages globally and never runs npm to do it.",
     "Need a global package? Run npm directly: npm install --global <package-spec>",
   );

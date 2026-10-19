@@ -395,3 +395,9 @@ Install resolution has a five-minute deadline; each archive extraction has a
 two-minute deadline. Set `ZYRK_RESOLVE_TIMEOUT_MS` or `ZYRK_EXTRACT_TIMEOUT_MS`
 to an integer from `1` to `900000` milliseconds to adjust these timeouts.
 Graph, archive-entry, and byte limits still apply.
+
+Platform gates run the complete check on Ubuntu and macOS/Node 24 and a
+Windows CLI/artifact contract suite, including paths with spaces and Unicode.
+Windows shared-store installation remains blocked until ACL isolation is
+implemented and verified. See [compatibility gates](docs/compatibility-gates.md)
+for the exact scope; passing portable-lock fixtures is separate from OS support.
