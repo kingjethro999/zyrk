@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-19T19:11:58.863230+00:00",
+  "scope": "One pinned Linux Next.js 16.4.2 application using explicit experimental additional roots while preserving a strict project root.",
+  "source": {
+    "worktreeBase": "0c787ea",
+    "execution": "Emitted JavaScript CLI after npm run build",
+    "fingerprintAlgorithm": "SHA-256 of sorted src/**/*.ts and bin/zyrk.js: relative path, NUL, file bytes, NUL",
+    "sourceTreeSha256": "4afa658adbb0e0f6f9502e03d3e280f242a51818e66a2a761feb09bea61f268c",
+    "adapterSourceSha256": "a0e929f34ef34121a5de986983146a90f4e85955c6d4bad4c382572974bd2712"
+  },
+  "platform": {
+    "os": "linux",
+    "arch": "x86_64",
+    "node": "v24.18.0",
+    "glibc": "2.39",
+    "filesystemReportedByStat": "ext2/ext3"
+  },
+  "pins": {
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "typescript": "5.9.3"
+  },
+  "fixture": {
+    "manifest": {
+      "name": "web",
+      "version": "0.1.0",
+      "private": true,
+      "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start"
+      },
+      "dependencies": {
+        "next": "16.4.2",
+        "react": "19.3.0",
+        "react-dom": "19.3.0"
+      },
+      "devDependencies": {
+        "@types/node": "^20",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "typescript": "^5"
+      }
+    },
+    "nextConfigOriginal": "import type { NextConfig } from \"next\";\n\nconst nextConfig: NextConfig = {\n  // Isolate this fixture from the parent checkout lockfile.\n  turbopack: { root: process.cwd() },\n  cacheComponents: true,\n  partialPrefetching: true,\n};\n\nexport default nextConfig;\n",
+    "nextConfigWrapper": "// Managed by explicit zyrk next --turbopack; original configuration is preserved.\nimport original from \"./next.config.zyrk-original\";\nimport withZyrkTurbopack from \"./next.config.zyrk-turbopack.cjs\";\n\nexport default withZyrkTurbopack(original, __dirname);\n",
+    "packageLockSha256": "c34f645e134bec23a49cc289abeb369529bd9abf06292b8b86536c450c3aca64",
+    "installedLockDigest": "b350727d40242054e62baedc679ed24581f1b8244cf7d9e97274a0e43d03c1003f59f751ac27b5424b28f2b982e63d20080edca76f569a4d50c02b401e9e5059",
+    "activePackages": 31,
+    "storeOutsideProjectRoot": true,
+    "projectAndStoreSameDevice": true,
+    "nextPackageOutsideProjectRoot": true,
+    "generatedConfigContainsLocalRootPath": false,
+    "marker": "zyrk Next 16.4.2 production smoke",
+    "changesFromGeneratedStarter": [
+      "Local React layout instead of Google Fonts downloads.",
+      "Deterministic static page marker; original generated global CSS retained.",
+      "Strict project Turbopack root retained by the explicit adapter."
+    ]
+  },
+  "commands": {
+    "compileCli": "npm run build",
+    "configure": "zyrk next --turbopack --json",
+    "productionBuild": "zyrk run build",
+    "productionServer": "zyrk run start -- --port <free-port>",
+    "developmentServer": "zyrk run dev -- --port <free-port>"
+  },
+  "results": {
+    "nativeInstallReady": true,
+    "configure": {
+      "schemaVersion": 1,
+      "command": "next",
+      "changed": true,
+      "config": "next.config.ts",
+      "backup": "next.config.zyrk-original.ts"
+    },
+    "emittedConfigureRepeat": {
+      "schemaVersion": 1,
+      "command": "next",
+      "changed": false,
+      "config": "next.config.ts",
+      "backup": "next.config.zyrk-original.ts"
+    },
+    "turbopackBuild": {
+      "exitCode": 0,
+      "compiled": true,
+      "typescriptFinished": true,
+      "staticGenerationFinished": true,
+      "additionalRootsExperimentEnabled": true
+    },
+    "http": {
+      "start": {
+        "status": 200,
+        "marker": "zyrk Next 16.4.2 production smoke",
+        "matched": true,
+        "shutdownCode": 130
+      },
+      "dev": {
+        "status": 200,
+        "marker": "zyrk Next 16.4.2 production smoke",
+        "matched": true,
+        "shutdownCode": 130
+      }
+    },
+    "npmInvocationCount": 0,
+    "focusedTests": 8,
+    "typecheckPassed": true
+  },
+  "priorCorrections": [
+    "Explicit .ts original import initially failed Next TypeScript checking (TS5097); extensionless import passed the actual Next loader and complete build."
+  ],
+  "claimsExcluded": [
+    "Universal Next.js compatibility",
+    "macOS compatibility",
+    "Windows support",
+    "Standalone deploy/export support",
+    "Default Google Fonts network build",
+    "Disk-saving or speed measurements"
+  ],
+  "upstreamSources": [
+    "https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#additional-roots-experimental",
+    "https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/config-shared.ts"
+  ]
+}

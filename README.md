@@ -194,9 +194,13 @@ limited to one newly created direct child directory. If generation exits without
 a valid manifest, zyrk reports failure and retains any generated files for review.
 
 For Next.js 16.4.2 with dependencies in the external shared store, use
-`zyrk run dev -- --webpack` and `zyrk run build -- --webpack`. Strict-root
-Turbopack rejects that layout. The [Next compatibility report](docs/next-compatibility.md)
-records the tested scaffold, native install, build and HTTP runtime.
+`zyrk run dev -- --webpack` and `zyrk run build -- --webpack`, or explicitly opt
+into Turbopack with `zyrk next --turbopack` before normal `zyrk run dev` / build.
+The [Turbopack guide](docs/next-turbopack.md) explains the experimental additional
+roots, preserved configuration, portable local-state lookup, and deployment
+boundary. The [Next compatibility report](docs/next-compatibility.md) records
+the tested scaffold, native install, build and HTTP runtime. These checks cover
+Linux x64; they do not establish universal framework or device support.
 
 Other initializers control their own dependency-install step and may invoke
 another package manager. Use their skip-install option, when available, then run

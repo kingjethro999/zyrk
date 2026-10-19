@@ -43,14 +43,18 @@ provide the flag. End-to-end framework evidence here covers 16.4.2 only. Supplyi
 that flag also selects configuration defaults in 16.4.2; use explicit initializer
 options to customize them. The project-name prompt remains available.
 
-Turbopack is not supported by this recorded external-store layout. With the
+The original unadapted strict-root Turbopack check failed. An explicit
+[`zyrk next --turbopack` adapter](next-turbopack.md) now has separate successful
+Next.js16.4.2 Linux production-build, TypeScript and development/production HTTP
+checks. The following describes the earlier failure without that opt-in.
+With the
 fixture's `turbopack.root` set to its project directory, the default build exited
 1 because it could not resolve `next/package.json` outside that root. Next.js
 states that files outside the workspace root are not compiled. See its
 [root-directory documentation](https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory).
 An earlier build accidentally inferred the enclosing checkout as its root and
 therefore included the test store; that pass is excluded from the compatibility
-gate. zyrk does not silently change the generated application's bundler.
+gate. zyrk changes Next configuration only through the explicit opt-in command.
 
 The deterministic smoke replaced the generated Google Fonts layout and starter
 page with local React components, retained the generated CSS and configuration

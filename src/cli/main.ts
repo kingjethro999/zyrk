@@ -1,3 +1,4 @@
+import { runNextCommand } from "../commands/next.ts";
 import { createInstallProgress } from "./progress.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
 import { runDeployCommand } from "../commands/deploy.ts";
@@ -50,6 +51,7 @@ const NATIVE_COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["exec", "Run an installed executable (never fetches)."],
   ["dlx", "Explicitly fetch and run a temporary tool environment."],
   ["create", "Scaffold from a create-* starter package."],
+  ["next", "Explicitly configure Next Turbopack: next --turbopack."],
   ["list, why", "Show the installed graph / why a dependency is selected."],
   ["doctor", "Diagnose filesystem, links, policy, install-state issues."],
   ["approve-builds, rebuild", "Review script permissions / rebuild."],
@@ -72,6 +74,7 @@ for (const [names] of NATIVE_COMMANDS) {
 const IMPLEMENTED_COMMANDS = new Set([
   "dlx",
   "create",
+  "next",
   "install",
   "i",
   "add",
@@ -484,6 +487,34 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     } catch (error) {
       return emit(
         fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
+      );
+    }
+  }
+  if (!parsed.help && !parsed.version && parsed.command === "next") {
+    try {
+      const result = await runNextCommand({
+        args: parsed.commandArgs,
+        cwd: options.cwd ?? process.cwd(),
+        env: options.env,
+      });
+      return emit({
+        exitCode: 0,
+        stdout: parsed.json
+          ? JSON.stringify({
+              schemaVersion: CLI_JSON_SCHEMA_VERSION,
+              command: "next",
+              status: "ok",
+              ...result,
+            }) + "\n"
+          : `${result.changed ? "Configured" : "Already configured"} Next Turbopack with the project's strict root and the installed external shared realizations. Experimental additional roots require Next.js 16.4+. Backup: ${result.backup}.\n`,
+        stderr: "",
+      });
+    } catch (error) {
+      return emit(
+        fail(
+          toZyrkError(error, "Next Turbopack configuration failed."),
+          parsed,
+        ),
       );
     }
   }

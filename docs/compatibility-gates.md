@@ -8,6 +8,7 @@ Native export currently supports only the documented Linux x64 ELF/N-API recipe.
 
 The pinned [React/Vite/Vitest/Tailwind gate](framework-smoke.md) and
 [Next.js 16.4.2 Webpack gate](next-compatibility.md) have recorded Linux results.
-Next's strict-root Turbopack mode rejects external shared dependencies; use the
-documented explicit Webpack commands. Browser interaction and other framework
+The unadapted strict-root Turbopack layout rejects external shared dependencies.
+Use explicit Webpack commands, or the separately verified opt-in
+[Turbopack additional-roots adapter](next-turbopack.md). Browser interaction and other framework
 versions remain outside these checks.
