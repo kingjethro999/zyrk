@@ -309,7 +309,7 @@ export async function installWorkspaceProject(
       lockText = options.frozen
         ? await readFile(path.join(root, "package-lock.json"), "utf8")
         : JSON.stringify(doc, null, 2) + "\n";
-    graph = selectWorkspacePlatform(graph, options.platform);
+    graph = selectWorkspacePlatform(graph, options.platform, options.omitDev);
     const warnings = graph.omissions.map(
       (o) => `${o.name}: omitted incompatible optional workspace dependency.`,
     );
@@ -753,6 +753,7 @@ export async function installWorkspaceProject(
             linker: contexts.size ? "private" : "shared",
             workspaceRoot: root,
             importer: importer.id,
+            omitDev: options.omitDev === true,
             storeRoot: options.store.paths.root,
             instances: registration.instances,
             activeContexts: registration.contexts,

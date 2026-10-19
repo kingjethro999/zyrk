@@ -424,8 +424,13 @@ export async function readWorkspaceLock(
     object(doc.zyrk) &&
     doc.zyrk.version === 2 &&
     doc.zyrk.platformPolicy === undefined
-  )
+  ) {
+    const checked = structuredClone(doc);
+    (checked.zyrk as Record<string, unknown>).platformPolicy =
+      "portable-optional/1";
+    validateWorkspaceLockDoc(checked);
     return null;
+  }
   const graph = validateWorkspaceLockDoc(doc);
   if (project) {
     const expected = new Map(project.importers.map((i) => [i.id, i]));

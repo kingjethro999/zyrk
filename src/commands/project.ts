@@ -1,4 +1,8 @@
 import {
+  selectPlatformGraph,
+  selectWorkspacePlatform,
+} from "../install/platform.ts";
+import {
   discoverWorkspaces,
   findWorkspaceRoot,
   planWorkspaceDependencies,
@@ -72,6 +76,7 @@ type State = {
   lockDigest: string;
   readiness: string;
   linker?: "private" | "shared";
+  omitDev?: boolean;
   direct: { name: string; target: string }[];
 };
 function validateState(raw: unknown): State {
@@ -87,6 +92,7 @@ function validateState(raw: unknown): State {
     (raw.linker !== undefined &&
       raw.linker !== "private" &&
       raw.linker !== "shared") ||
+    (raw.omitDev !== undefined && typeof raw.omitDev !== "boolean") ||
     !Array.isArray(raw.direct) ||
     raw.direct.some(
       (e) =>
@@ -133,7 +139,12 @@ async function load(project: string): Promise<{
     const importer = workspace.importers.find(
       (item) => item.directory === project,
     );
-    const own = locked.graph.nodes.find(
+    const activeGraph = selectWorkspacePlatform(
+      locked.graph,
+      undefined,
+      state.omitDev,
+    );
+    const own = activeGraph.nodes.find(
       (node) => node.kind === "local" && node.importer === importer?.id,
     );
     if (!own)
@@ -151,7 +162,7 @@ async function load(project: string): Promise<{
           ),
         },
         nodes: Object.fromEntries(
-          locked.graph.nodes.map((node) => [
+          activeGraph.nodes.map((node) => [
             node.key,
             {
               name: node.name,
@@ -191,7 +202,46 @@ async function load(project: string): Promise<{
       "ZYRK_LOCK_MISMATCH",
       "The installed generation and package-lock.json disagree.",
     );
-  return { state, extension: doc.zyrk };
+  const graph = selectPlatformGraph(
+    {
+      ...lockedGraph(doc),
+      roots: lockedGraph(doc).roots.filter((root) =>
+        state.direct.some((entry) => entry.name === root.name),
+      ),
+    },
+    new Set(
+      Object.keys(
+        object(doc.packages?.[""]?.optionalDependencies)
+          ? doc.packages[""]!.optionalDependencies
+          : {},
+      ),
+    ),
+  );
+  return {
+    state,
+    extension: {
+      ...doc.zyrk,
+      roots: {
+        ".": Object.fromEntries(
+          graph.roots.map((root) => [root.name, root.target]),
+        ),
+      },
+      nodes: Object.fromEntries(
+        graph.nodes.map((node) => [
+          node.key,
+          {
+            ...doc.zyrk!.nodes[node.key]!,
+            edges: Object.fromEntries(
+              node.edges.map((edge) => [edge.name, edge.target]),
+            ),
+            peers: Object.fromEntries(
+              node.peerBindings.map((peer) => [peer.name, peer.target]),
+            ),
+          },
+        ]),
+      ),
+    },
+  };
 }
 function emit(
   options: ProjectCommandOptions,

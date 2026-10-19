@@ -1,3 +1,7 @@
+import {
+  selectPlatformGraph,
+  selectWorkspacePlatform,
+} from "../install/platform.ts";
 import { installedRegistryConfig } from "../install/registry-policy.ts";
 /** Self-contained runtime deployment and explicit local Docker commands. */
 import { constants } from "node:fs";
@@ -300,7 +304,22 @@ export async function runDeployCommand(
           ? state.contexts.filter((v): v is string => typeof v === "string")
           : [],
       );
-      const installedNodes = resolved.nodes.filter((n) =>
+      const activeResolved = selectPlatformGraph(
+        {
+          ...resolved,
+          roots: resolved.roots.filter((root) =>
+            installedKeys.has(root.target),
+          ),
+        },
+        new Set(
+          Object.keys(
+            object(manifest.optionalDependencies)
+              ? manifest.optionalDependencies
+              : {},
+          ),
+        ),
+      );
+      const installedNodes = activeResolved.nodes.filter((n) =>
         installedKeys.has(n.key),
       );
       const graph = createGraphDoc(
@@ -1343,7 +1362,7 @@ async function exportWorkspace(
     { name: "workspace deployment retention" },
   );
   try {
-    const graph = locked.graph,
+    const graph = selectWorkspacePlatform(locked.graph, undefined, true),
       byKey = new Map(graph.nodes.map((n) => [n.key, n]));
     const selected = new Set<string>();
     const visit = (key: string): void => {

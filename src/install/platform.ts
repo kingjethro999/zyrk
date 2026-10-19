@@ -138,7 +138,17 @@ export function selectPlatformGraph(
 export function selectWorkspacePlatform(
   graph: WorkspaceGraph,
   platform = currentPlatform(),
+  omitDev = false,
 ): WorkspaceGraph {
+  if (omitDev)
+    graph = {
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.kind === "local"
+          ? { ...node, edges: node.edges.filter((edge) => edge.kind !== "dev") }
+          : node,
+      ),
+    };
   const { active, viable, omissions } = select(
     graph.nodes,
     Object.entries(graph.importers).map(([name, target]) => ({ name, target })),
