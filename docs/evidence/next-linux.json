@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-19T14:17:55.573825+00:00",
+  "scope": "One pinned Next.js application with explicit Webpack and shared dependencies outside its project root.",
+  "platform": {
+    "os": "linux",
+    "arch": "x64",
+    "node": "24.18.0",
+    "glibc": "2.39",
+    "filesystemReportedByStat": "ext2/ext3",
+    "projectAndStoreSameDevice": true
+  },
+  "source": {
+    "worktreeBase": "f594ce5",
+    "execution": "bin/zyrk.js source-first TypeScript; parent native install budget/progress source snapshot combined with create correction",
+    "fingerprintAlgorithm": "SHA-256 of sorted src/**/*.ts and bin/zyrk.js: relative path, NUL, file bytes, NUL",
+    "sourceTreeSha256": "946325b6ef599661e278d1662850a7d16745e3bb6071e6f2d73f5fcde18d2606",
+    "entryPointSha256": "d54ebabf0681936eeaba81baf7c8992a3f5c8777da1ad5334d4a44f1e9aad3bd",
+    "createPatchSha256": "a161704e79e1043259db5a2a6275c90a355bb25b6d36494dced3587ec56bd0db"
+  },
+  "environment": {
+    "CI": "1",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "ZYRK_STORE_DIR": "<store>",
+    "XDG_CONFIG_HOME": "<isolated-config>",
+    "PATH": "<blocked-npm-bin>:<original-PATH>"
+  },
+  "commands": {
+    "create": [
+      "node",
+      "<checkout>/bin/zyrk.js",
+      "create",
+      "next-app@16.4.2",
+      "web-warm",
+      "--yes",
+      "--typescript",
+      "--app",
+      "--no-tailwind",
+      "--no-eslint",
+      "--no-react-compiler",
+      "--no-agent-feedback",
+      "--no-agents-md",
+      "--disable-git"
+    ],
+    "strictRootTurbopackBuild": [
+      "node",
+      "<checkout>/bin/zyrk.js",
+      "run",
+      "build"
+    ],
+    "webpackBuild": [
+      "node",
+      "<checkout>/bin/zyrk.js",
+      "run",
+      "build",
+      "--",
+      "--webpack"
+    ],
+    "productionServer": [
+      "node",
+      "<checkout>/bin/zyrk.js",
+      "run",
+      "start",
+      "--",
+      "--port",
+      "34567"
+    ],
+    "developmentServer": [
+      "node",
+      "<checkout>/bin/zyrk.js",
+      "run",
+      "dev",
+      "--",
+      "--webpack",
+      "--port",
+      "34568"
+    ]
+  },
+  "pins": {
+    "initializer": "create-next-app@16.4.2",
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "typescript": "5.9.3",
+    "selectedPackages": {
+      "@img/colour": "1.1.0",
+      "@img/sharp-libvips-linux-x64": "1.3.4",
+      "@img/sharp-libvips-linuxmusl-x64": "1.3.4",
+      "@img/sharp-linux-x64": "0.35.5",
+      "@img/sharp-linuxmusl-x64": "0.35.5",
+      "@next/env": "16.4.2",
+      "@next/swc-linux-x64-gnu": "16.4.2",
+      "@next/swc-linux-x64-musl": "16.4.2",
+      "@swc/helpers": "0.5.23",
+      "@types/node": "20.19.43",
+      "@types/react": "19.3.0",
+      "@types/react-dom": "19.3.0",
+      "baseline-browser-mapping": "2.11.29",
+      "caniuse-lite": "1.0.30001816",
+      "client-only": "0.0.1",
+      "csstype": "3.2.3",
+      "detect-libc": "2.1.2",
+      "nanoid": "3.3.20",
+      "next": "16.4.2",
+      "picocolors": "1.1.1",
+      "postcss": "8.5.23",
+      "react": "19.3.0",
+      "react-dom": "19.3.0",
+      "scheduler": "0.28.0",
+      "semver": "7.8.5",
+      "sharp": "0.35.5",
+      "source-map-js": "1.2.2",
+      "styled-jsx": "5.1.6",
+      "tslib": "2.8.1",
+      "typescript": "5.9.3",
+      "undici-types": "6.21.0"
+    }
+  },
+  "fixture": {
+    "manifest": {
+      "name": "web",
+      "version": "0.1.0",
+      "private": true,
+      "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start"
+      },
+      "dependencies": {
+        "next": "16.4.2",
+        "react": "19.3.0",
+        "react-dom": "19.3.0"
+      },
+      "devDependencies": {
+        "@types/node": "^20",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "typescript": "^5"
+      }
+    },
+    "packageLockVersion": 3,
+    "packageLockSha256": "9de57cbb47d815c5b61c7a16b9b500a0735c133417eb6020ac530f49edfbfc53",
+    "layout": "import type { ReactNode } from \"react\";\nimport \"./globals.css\";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n",
+    "page": "export default function Home() {\n  return <main>zyrk Next 16.4.2 production smoke</main>;\n}\n",
+    "nextConfig": "import type { NextConfig } from \"next\";\n\nconst nextConfig: NextConfig = {\n  // Isolate this fixture from the parent checkout lockfile.\n  turbopack: { root: process.cwd() },\n  cacheComponents: true,\n  partialPrefetching: true,\n};\n\nexport default nextConfig;\n",
+    "changesFromGeneratedStarter": [
+      "Replaced Google Fonts layout with local React layout, retaining generated global CSS.",
+      "Replaced starter page with deterministic static React marker.",
+      "Set turbopack.root to process.cwd() to exclude the enclosing checkout and its store from the project root."
+    ],
+    "externalSharedDependencyLinkVerified": true
+  },
+  "results": {
+    "fullCreateExitCode": 0,
+    "fullCreateNativeLockAndLinkedNextVerified": true,
+    "nativeInstall": {
+      "readiness": "ready",
+      "packages": 31,
+      "ignoredScripts": false,
+      "approvedBuilds": []
+    },
+    "strictRootTurbopackBuild": {
+      "exitCode": 1,
+      "error": "Could not find the Next.js package (next/package.json)",
+      "limitation": "Next.js excludes files outside its workspace root from compilation."
+    },
+    "enclosingRootTurbopackPassExcluded": true,
+    "webpackBuildExitCode": 0,
+    "productionHttp": {
+      "status": 200,
+      "marker": "zyrk Next 16.4.2 production smoke",
+      "matched": true
+    },
+    "developmentHttp": {
+      "status": 200,
+      "marker": "zyrk Next 16.4.2 production smoke",
+      "matched": true
+    },
+    "serverShutdown": "SIGINT; supervised CLI exited 130 for both servers.",
+    "npmInvocationCount": 0
+  },
+  "priorFailures": [
+    "Initial pre-correction native resolution reached the previous 30-second deadline.",
+    "Registry body reads transiently timed out while fetching sharp libvips and musl SWC; retries reused already verified source commits."
+  ],
+  "claimsExcluded": [
+    "Universal Next.js support",
+    "Turbopack with the store outside the project root",
+    "Default Google Fonts network build",
+    "Portable deploy/export support",
+    "Disk-saving or speed measurements"
+  ],
+  "upstreamSources": [
+    "https://nextjs.org/docs/app/api-reference/cli/create-next-app",
+    "https://github.com/vercel/next.js/blob/v15.0.0/packages/create-next-app/index.ts",
+    "https://github.com/vercel/next.js/blob/v16.0.0/packages/create-next-app/index.ts",
+    "https://github.com/vercel/next.js/blob/v16.4.2/packages/create-next-app/index.ts",
+    "https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory"
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "gate": "framework-smoke",
+  "registryOrigin": "https://registry.npmjs.org/",
+  "previewOrigin": "http://127.0.0.1:<ephemeral>",
+  "status": "passed",
+  "pins": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
+    "tailwindcss": "4.3.3",
+    "@tailwindcss/vite": "4.3.3"
+  },
+  "sources": [
+    "https://react.dev/reference/react-dom/server/renderToStaticMarkup",
+    "https://vite.dev/guide/",
+    "https://vite.dev/guide/static-deploy",
+    "https://vitest.dev/guide/",
+    "https://tailwindcss.com/docs/installation/using-vite"
+  ],
+  "node": "v24.18.0",
+  "platform": "linux",
+  "arch": "x64",
+  "kernel": "7.0.0-38-generic",
+  "filesystemType": "0xef53",
+  "scriptSha256": "96028d118c27d370466bd2ce7de29e4d3ae308aebd36f6e25b234e75456f5e4a",
+  "cliRevision": "20dd25b565dcb02ef9971bf9eaa7877a9d0e56bf",
+  "storeMode": "existing store; warm verification",
+  "lifecyclePolicy": "default deny; no package lifecycle scripts automatically approved",
+  "lockInput": "recorded lock; frozen install",
+  "installBudgets": "defaults; no overrides",
+  "steps": [
+    {
+      "label": "install",
+      "elapsedMs": 2167,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "label": "react-render",
+      "elapsedMs": 106,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "label": "vitest",
+      "elapsedMs": 950,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "label": "vite-build",
+      "elapsedMs": 755,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "limitations": [
+    "Pinned fixture on this recorded platform only; no universal compatibility claim.",
+    "HTTP preview and React server rendering do not exercise browser hydration or interactions.",
+    "HTTP request counts and physical storage savings are not measured."
+  ],
+  "install": {
+    "schemaVersion": 1,
+    "status": "ok",
+    "readiness": "ready",
+    "packages": 56,
+    "reused": 56,
+    "warnings": [
+      "lightningcss-android-arm64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-darwin-arm64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-darwin-x64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-freebsd-x64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-linux-arm-gnueabihf: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-linux-arm64-gnu: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-linux-arm64-musl: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-win32-arm64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-win32-x64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-android-arm64: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-darwin-arm64: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-darwin-x64: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-freebsd-x64: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-linux-arm-gnueabihf: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-linux-arm64-gnu: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-linux-arm64-musl: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-wasm32-wasi: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-win32-arm64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "@tailwindcss/oxide-win32-x64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "fsevents: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-android-arm64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-darwin-arm64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-darwin-x64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-freebsd-x64: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-linux-arm-gnueabihf: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-linux-arm64-gnu: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-linux-arm64-musl: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-win32-arm64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "lightningcss-win32-x64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-android-arm-eabi: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-android-arm64: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-darwin-arm64: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-darwin-x64: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-freebsd-x64: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-linux-arm-gnueabihf: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-linux-arm64-gnu: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-linux-arm64-musl: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-linux-ppc64-gnu: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-linux-s390x-gnu: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-openharmony-arm64: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-win32-arm64-msvc: omitted optional dependency incompatible with the selected platform.",
+      "@rolldown/binding-win32-x64-msvc: omitted optional dependency incompatible with the selected platform."
+    ],
+    "generationId": "gen1_5flm4ebocrme47w2xdlq"
+  },
+  "lockSha256": "a655abd8743bdc22fb65a95e56ed1c0035f5a418fb1ffe5bd293fca6f2e3c85c",
+  "http": [
+    {
+      "asset": "/",
+      "status": 200,
+      "contentType": "text/html",
+      "bytes": 278,
+      "sha256": "9feb526bf0abb9efd4843d96002f307ce63591f94bbc2a71ae111962a495e7d6"
+    },
+    {
+      "asset": "/assets/index-D98aWmPd.js",
+      "status": 200,
+      "contentType": "text/javascript",
+      "bytes": 219778,
+      "sha256": "2c3be26440258ca8c3713f249321d48277fd5a9d02e0a9e72413f9263e852927"
+    },
+    {
+      "asset": "/assets/index-DqPXTuJK.css",
+      "status": 200,
+      "contentType": "text/css",
+      "bytes": 4775,
+      "sha256": "e933785f16bce27694bd41101f3b8940f7efefe2e05b7ec20d9c95abc7192242"
+    }
+  ]
+}

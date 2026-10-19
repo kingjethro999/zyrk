@@ -186,6 +186,11 @@ for nested or existing empty directories; automatic interactive discovery is
 limited to one newly created direct child directory. If generation exits without
 a valid manifest, zyrk reports failure and retains any generated files for review.
 
+For Next.js 16.4.2 with dependencies in the external shared store, use
+`zyrk run dev -- --webpack` and `zyrk run build -- --webpack`. Strict-root
+Turbopack rejects that layout. The [Next compatibility report](docs/next-compatibility.md)
+records the tested scaffold, native install, build and HTTP runtime.
+
 Other initializers control their own dependency-install step and may invoke
 another package manager. Use their skip-install option, when available, then run
 `zyrk install` in the generated project to keep installation native to zyrk.
@@ -401,3 +406,9 @@ Windows CLI/artifact contract suite, including paths with spaces and Unicode.
 Windows shared-store installation remains blocked until ACL isolation is
 implemented and verified. See [compatibility gates](docs/compatibility-gates.md)
 for the exact scope; passing portable-lock fixtures is separate from OS support.
+
+The opt-in [framework smoke gate](docs/framework-smoke.md) has a recorded lock
+and runs real pinned React, Vite, Vitest, and Tailwind builds and HTTP asset
+checks. It uses native zyrk installation with default deny policy. Recorded
+results describe the exact tested versions and platform, without a universal
+framework or cold-install performance claim.
