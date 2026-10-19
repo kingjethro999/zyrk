@@ -20,16 +20,26 @@ export function sourceProgress(
   return {
     downloading(pkg: Package) {
       let bytes = 0;
-      emit({ ...pkg, status: "downloading", bytes });
+      emit({
+        name: pkg.name,
+        version: pkg.version,
+        status: "downloading",
+        bytes,
+      });
       return (chunk: number) => {
         bytes += chunk;
-        emit({ ...pkg, status: "downloading", bytes });
+        emit({
+          name: pkg.name,
+          version: pkg.version,
+          status: "downloading",
+          bytes,
+        });
       };
     },
     verified(pkg: Package, status: "reused" | "downloaded") {
       if (status === "reused") reused++;
       else downloaded++;
-      emit({ ...pkg, status });
+      emit({ name: pkg.name, version: pkg.version, status });
     },
   };
 }
