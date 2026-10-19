@@ -9,13 +9,7 @@ import {
 import * as path from "node:path";
 import { ZyrkError } from "../errors.ts";
 import type { Logger } from "../log.ts";
-import {
-  fsyncDir,
-  isErrno,
-  mkdirp,
-  pathExists,
-  rmrfNoFollow,
-} from "../util/fsx.ts";
+import { fsyncDir, mkdirp, pathExists, rmrfNoFollow } from "../util/fsx.ts";
 import {
   contextIdFor,
   graphHash,
@@ -147,15 +141,13 @@ export async function realizeGraph(options: {
       if (!published) {
         // A concurrent publisher won the race; their tree is verified
         // before it is trusted, exactly like any other reuse.
-        if (verify) {
-          await verifyRealization({
-            store,
-            graph,
-            rootKey: node.key,
-            contextId,
-            realizationDirs: directoryByKey,
-          });
-        }
+        await verifyRealization({
+          store,
+          graph,
+          rootKey: node.key,
+          contextId,
+          realizationDirs: directoryByKey,
+        });
         result.reused.push(contextId);
         continue;
       }
@@ -327,13 +319,11 @@ async function publishRealization(
   try {
     await rename(stagingContext, contextDir);
   } catch (error) {
-    if (
-      (isErrno(error, "ENOTEMPTY") || isErrno(error, "EEXIST")) &&
-      (await pathExists(contextDir))
-    ) {
-      // Another process published the same context first. Identical inputs
-      // produce identical content, so reuse theirs and discard ours. The
-      // caller verifies the winner before trusting it (S01).
+    if (await pathExists(contextDir).catch(() => false)) {
+      // Filesystems can report different rename errors when a concurrent
+      // publisher installs a read-only destination. Existence only selects
+      // the race path: the caller must fully verify this tree before reuse,
+      // even when the optional payload-verification measurement is disabled.
       await rmrfNoFollow(stagingContext);
       await fsyncDir(path.dirname(contextDir));
       return false;

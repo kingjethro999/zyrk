@@ -352,7 +352,8 @@ describe("realization reuse verification (S01)", () => {
       ),
     );
     for (const attempt of attempts) {
-      expect(attempt.ok).toBe(true);
+      // Preserve the actual filesystem/verification failure on each platform.
+      if (!attempt.ok) throw attempt.error;
     }
     const again = await realizeGraph({ store, graph });
     expect(again.created).toEqual([]);
