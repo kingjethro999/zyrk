@@ -1362,6 +1362,11 @@ async function exportWorkspace(
     { name: "workspace deployment retention" },
   );
   try {
+    const installedGraph = selectWorkspacePlatform(
+      locked.graph,
+      undefined,
+      state.omitDev === true,
+    );
     const graph = selectWorkspacePlatform(locked.graph, undefined, true),
       byKey = new Map(graph.nodes.map((n) => [n.key, n]));
     const selected = new Set<string>();
@@ -1597,7 +1602,11 @@ async function exportWorkspace(
         } else {
           const expectedContexts = privateKeys.has(key)
             ? [
-                workspaceContextId(graph, key, String(state.projectId)),
+                workspaceContextId(
+                  installedGraph,
+                  key,
+                  String(state.projectId),
+                ),
                 workspaceContextId(
                   productionGraph,
                   key,

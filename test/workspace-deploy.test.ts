@@ -19,7 +19,7 @@ import { RegistryClient } from "../src/fetch/registry.ts";
 import { startStubRegistry } from "./helpers/registry-stub.ts";
 import { rmrfNoFollow } from "../src/util/fsx.ts";
 const exec = promisify(execFile);
-async function fixture() {
+async function fixture(withMemberDev = false) {
   const root = await mkdtemp(path.join(tmpdir(), "zyrk-workspace-deploy-"));
   const project = path.join(root, "project");
   for (const p of ["packages/a", "packages/b", "packages/dev"])
@@ -43,6 +43,7 @@ async function fixture() {
     name: "b",
     version: "1.0.0",
     dependencies: { a: "workspace:*" },
+    ...(withMemberDev ? { devDependencies: { dev: "workspace:*" } } : {}),
   });
   await json("packages/dev/package.json", { name: "dev", version: "1.0.0" });
   await writeFile(
@@ -262,3 +263,27 @@ it.each(["graphDigest", "candidate", "privateDir"])(
     }
   },
 );
+
+it("exports a fully installed peer context while omitting live member dev closures", async () => {
+  const f = await fixture(true);
+  try {
+    const out = path.join(f.root, "runtime");
+    await f.deploy(out);
+    await rmrfNoFollow(f.project);
+    await rmrfNoFollow(f.store.root);
+    expect(
+      (
+        await exec(process.execPath, ["app.cjs"], {
+          cwd: out,
+          env: { PATH: process.env.PATH },
+        })
+      ).stdout.trim(),
+    ).toBe("a b-asset true true");
+    await expect(
+      readFile(path.join(out, "node_modules/dev/package.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await f.server.close();
+    await rmrfNoFollow(f.root);
+  }
+});
