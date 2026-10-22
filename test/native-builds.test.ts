@@ -69,9 +69,7 @@ it.skipIf(!compiler)(
       const install = (
         extra: Partial<Parameters<typeof installProject>[0]> = {},
       ) => installProject({ projectDir: project, store, registry, ...extra });
-      await expect(install()).rejects.toMatchObject({
-        code: "ZYRK_SCRIPT_BLOCKED",
-      });
+      expect((await install()).readiness).toBe("intentionally-unbuilt");
       await install({ reviewBuilds: true, approveBuilds: ["native-fixture"] });
       await install();
       const first = await realpath(

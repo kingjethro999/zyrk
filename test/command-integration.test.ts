@@ -126,6 +126,13 @@ it("approves reviewed build candidates and rebuilds at a new private path", asyn
   expect(review.result.readiness).toBe("build-review");
   expect(await pathExists(path.join(project, "node_modules"))).toBe(false);
   expect((await cli("approve-builds", "built")).code).toBe(0);
+  const workspacePolicy = JSON.parse(
+    await readFile(path.join(project, "zyrk-workspace.json"), "utf8"),
+  ) as { schemaVersion: number; approvedBuilds: Array<{ name: string }> };
+  expect(workspacePolicy).toMatchObject({
+    schemaVersion: 1,
+    approvedBuilds: [expect.objectContaining({ name: "built" })],
+  });
   expect((await cli("install")).code).toBe(0);
   const listed = await json("list");
   expect(listed.result.nodes).toEqual(

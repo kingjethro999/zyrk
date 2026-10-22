@@ -178,16 +178,14 @@ it("rejects frozen drift and missing offline inputs before changing the active g
     "alpha:one",
   );
 });
-it("rejects dependency scripts without changing the prior lock or projection", async () => {
+it("installs packages with unapproved dependency scripts as intentionally unbuilt", async () => {
   await install();
-  const before = await lockText();
   await manifest({ dependencies: { built: "1.0.0" } });
-  await expect(install()).rejects.toMatchObject({
-    code: "ZYRK_SCRIPT_BLOCKED",
-  });
-  expect(await lockText()).toBe(before);
-  expect(await evaluate(project, 'console.log(require("alpha"))')).toBe(
-    "alpha:one",
+  const result = await install();
+  expect(result.readiness).toBe("intentionally-unbuilt");
+  expect(result.warnings.join(" ")).toContain("approval was not granted");
+  expect(await pathExists(path.join(project, "node_modules/built/ran"))).toBe(
+    false,
   );
 });
 it("marks explicit script skipping as intentionally unbuilt and never runs root hooks", async () => {
@@ -226,11 +224,13 @@ it("adds requested packages transactionally and exposes declared binaries", asyn
     ).stdout.trim(),
   ).toBe("beta-cli");
   const before = await readFile(path.join(project, "package.json"), "utf8");
-  await expect(install({ specs: ["built@1.0.0"] })).rejects.toMatchObject({
-    code: "ZYRK_SCRIPT_BLOCKED",
-  });
-  expect(await readFile(path.join(project, "package.json"), "utf8")).toBe(
+  const added = await install({ specs: ["built@1.0.0"] });
+  expect(added.readiness).toBe("intentionally-unbuilt");
+  expect(await readFile(path.join(project, "package.json"), "utf8")).not.toBe(
     before,
+  );
+  expect(await pathExists(path.join(project, "node_modules/built/ran"))).toBe(
+    false,
   );
 });
 it("installs aliases, scoped names, and dev dependencies without hoisting transitives", async () => {

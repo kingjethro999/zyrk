@@ -115,6 +115,36 @@ it("reviews without code execution and approves exact candidate builds before fi
     ).stdout.trim(),
   ).toBe("true private");
 });
+it("builds only interactively approved sources and records exact approvals in the workspace file", async () => {
+  await manifest({
+    dependencies: { builder: "1.0.0", failing: "1.0.0" },
+  });
+  const result = await install({
+    requestBuildApproval: async (builds) => [
+      builds.find((build) => build.name === "builder")!.sourceId,
+    ],
+  });
+  expect(result.readiness).toBe("intentionally-unbuilt");
+  expect(result.warnings.join(" ")).toContain(
+    "1 dependency build script was skipped",
+  );
+  const approvals = JSON.parse(
+    await readFile(path.join(project, "zyrk-workspace.json"), "utf8"),
+  );
+  expect(approvals).toMatchObject({
+    schemaVersion: 1,
+    approvedBuilds: [
+      { name: "builder", version: "1.0.0", sourceId: expect.any(String) },
+    ],
+  });
+  const directory = await realpath(path.join(project, "node_modules/builder"));
+  expect(await readFile(path.join(directory, "built.txt"), "utf8")).toBe(
+    directory,
+  );
+  expect(await pathExists(path.join(project, "node_modules/failing"))).toBe(
+    true,
+  );
+});
 it("build writes remain private and a rebuild uses a new stable generation", async () => {
   const second = path.join(root, "second");
   await mkdir(second);
@@ -173,12 +203,11 @@ it("local mandatory denies beat reviewed approvals without rewriting the lock", 
     configFile,
     JSON.stringify({ scripts: { deny: ["builder"] } }),
   );
-  await expect(
-    install({
-      frozen: true,
-      env: process.env,
-    }),
-  ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
+  const denied = await install({
+    frozen: true,
+    env: process.env,
+  });
+  expect(denied.readiness).toBe("intentionally-unbuilt");
   expect(await readFile(path.join(project, "package-lock.json"), "utf8")).toBe(
     before,
   );

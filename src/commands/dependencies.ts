@@ -31,6 +31,7 @@ export async function runDependencyCommand(options: {
   registry: RegistryClient;
   env?: NodeJS.ProcessEnv;
   onProgress?: InstallOptions["onProgress"];
+  requestBuildApproval?: InstallOptions["requestBuildApproval"];
 }): Promise<InstallResult> {
   const { command } = options;
   const install: InstallOptions = {
@@ -39,6 +40,9 @@ export async function runDependencyCommand(options: {
     registry: options.registry,
     ...(options.env ? { env: options.env } : {}),
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+    ...(options.requestBuildApproval
+      ? { requestBuildApproval: options.requestBuildApproval }
+      : {}),
   };
   const names: string[] = [];
   let from: string | undefined;

@@ -12,6 +12,7 @@ const { runCli } = await import(
 process.exitCode = await runCli({
   argv: process.argv.slice(2),
   env: process.env,
+  stdin: process.stdin,
   stdout: process.stdout,
   stderr: process.stderr,
 });

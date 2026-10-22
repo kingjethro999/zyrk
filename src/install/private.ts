@@ -31,6 +31,12 @@ export type BuildCandidate = {
   sourceId: string;
   stages: Array<{ name: string; command: string }>;
 };
+export const WORKSPACE_POLICY_FILE = "zyrk-workspace.json";
+type PortableBuildApproval = {
+  name: string;
+  version: string;
+  sourceId: string;
+};
 function fail(message: string): never {
   throw new ZyrkError("ZYRK_SCRIPT_BLOCKED", message, {
     remedy:
@@ -136,6 +142,7 @@ export async function approveCandidate(options: {
   selected: readonly string[];
   env?: NodeJS.ProcessEnv;
   policy?: unknown;
+  portable?: boolean;
 }): Promise<void> {
   const user = await readUserPolicy(options.env ?? process.env);
   for (const build of options.builds)
@@ -144,7 +151,10 @@ export async function approveCandidate(options: {
   const selected = new Set(options.selected);
   const all = selected.has("*");
   for (const name of selected)
-    if (name !== "*" && !options.builds.some((b) => b.name === name))
+    if (
+      name !== "*" &&
+      !options.builds.some((b) => b.name === name || b.sourceId === name)
+    )
       fail("An approval selector does not match a reviewed build candidate.");
   await writeFileAtomic(
     path.join(options.project, ".zyrk-local", "approvals.json"),
@@ -152,11 +162,78 @@ export async function approveCandidate(options: {
       schemaVersion: 1,
       candidate: options.digest,
       sources: options.builds
-        .filter((b) => all || selected.has(b.name))
+        .filter((b) => all || selected.has(b.name) || selected.has(b.sourceId))
         .map((b) => b.sourceId)
         .sort(),
     }),
     { mode: 0o600 },
+  );
+  if (options.portable) {
+    const selectedBuilds = options.builds.filter(
+      (build) =>
+        all || selected.has(build.name) || selected.has(build.sourceId),
+    );
+    await writePortableApprovals(options.project, selectedBuilds);
+  }
+}
+
+async function readPortableApprovals(
+  project: string,
+): Promise<PortableBuildApproval[]> {
+  const file = path.join(project, WORKSPACE_POLICY_FILE);
+  let raw: unknown;
+  try {
+    const stat = await lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink())
+      fail("The workspace build-approval file must be a regular file.");
+    raw = JSON.parse(await readFile(file, "utf8"));
+  } catch (cause) {
+    if (cause instanceof ZyrkError) throw cause;
+    if (isErrno(cause, "ENOENT")) return [];
+    fail("The workspace build-approval file is unreadable or malformed.");
+  }
+  if (
+    !object(raw) ||
+    raw.schemaVersion !== 1 ||
+    !Array.isArray(raw.approvedBuilds) ||
+    raw.approvedBuilds.some(
+      (item) =>
+        !object(item) ||
+        typeof item.name !== "string" ||
+        typeof item.version !== "string" ||
+        typeof item.sourceId !== "string" ||
+        !/^src1_[a-f0-9]{40}$/.test(item.sourceId),
+    )
+  )
+    fail("The workspace build-approval file has an unsupported format.");
+  return raw.approvedBuilds as PortableBuildApproval[];
+}
+
+async function writePortableApprovals(
+  project: string,
+  selected: readonly BuildCandidate[],
+): Promise<void> {
+  const current = await readPortableApprovals(project);
+  const bySource = new Map(current.map((item) => [item.sourceId, item]));
+  for (const build of selected)
+    bySource.set(build.sourceId, {
+      name: build.name,
+      version: build.version,
+      sourceId: build.sourceId,
+    });
+  await writeFileAtomic(
+    path.join(project, WORKSPACE_POLICY_FILE),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        approvedBuilds: [...bySource.values()].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o644 },
   );
 }
 async function readUserPolicy(
@@ -172,14 +249,14 @@ async function readUserPolicy(
   if (!object(user)) fail("Mandatory user build policy is malformed.");
   return user;
 }
-export async function assertApproved(options: {
+export async function approvedCandidates(options: {
   project: string;
   env: NodeJS.ProcessEnv;
   digest: string;
   builds: readonly BuildCandidate[];
   policy: unknown;
-}): Promise<void> {
-  if (!options.builds.length) return;
+}): Promise<BuildCandidate[]> {
+  if (!options.builds.length) return [];
   const user = await readUserPolicy(options.env);
   let local: unknown;
   try {
@@ -191,24 +268,44 @@ export async function assertApproved(options: {
     if (cause instanceof ZyrkError) throw cause;
     local = undefined;
   }
-  for (const build of options.builds) {
+  const portable = await readPortableApprovals(options.project);
+  return options.builds.filter((build) => {
     if (denied(user.scripts, build) || denied(options.policy, build))
-      fail(`Build of ${build.name}@${build.version} is denied by policy.`);
-    const portable =
+      return false;
+    const manifestAllowed =
       object(options.policy) &&
       Array.isArray(options.policy.allow) &&
       options.policy.allow.includes(build.sourceId);
-    if (
-      !portable &&
-      (!object(local) ||
-        local.schemaVersion !== 1 ||
-        local.candidate !== options.digest ||
-        !Array.isArray(local.sources) ||
-        !local.sources.includes(build.sourceId))
-    )
-      fail(
-        `Build of ${build.name}@${build.version} has not been approved for this exact candidate.`,
-      );
+    const workspaceAllowed = portable.some(
+      (approval) => approval.sourceId === build.sourceId,
+    );
+    const localAllowed =
+      object(local) &&
+      local.schemaVersion === 1 &&
+      local.candidate === options.digest &&
+      Array.isArray(local.sources) &&
+      local.sources.includes(build.sourceId);
+    return manifestAllowed || workspaceAllowed || localAllowed;
+  });
+}
+
+export async function assertApproved(options: {
+  project: string;
+  env: NodeJS.ProcessEnv;
+  digest: string;
+  builds: readonly BuildCandidate[];
+  policy: unknown;
+}): Promise<void> {
+  const approved = await approvedCandidates(options);
+  if (approved.length !== options.builds.length) {
+    const pending = options.builds.find(
+      (build) => !approved.some((item) => item.sourceId === build.sourceId),
+    );
+    fail(
+      pending
+        ? `Build of ${pending.name}@${pending.version} has not been approved for this exact source.`
+        : "Not every dependency build candidate is approved.",
+    );
   }
 }
 export async function materializePrivate(options: {

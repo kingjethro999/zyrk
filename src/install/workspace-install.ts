@@ -76,7 +76,7 @@ import {
   candidates,
   candidateDigest,
   approveCandidate,
-  assertApproved,
+  approvedCandidates,
   buildPrivate,
 } from "./private.ts";
 const object = (v: unknown): v is Record<string, unknown> =>
@@ -652,6 +652,7 @@ export async function installWorkspaceProject(
           selected: options.approveBuilds,
           env: options.env ?? process.env,
           policy,
+          portable: true,
         });
       return {
         readiness: "build-review",
@@ -662,14 +663,45 @@ export async function installWorkspaceProject(
         builds,
       };
     }
+    let approvedBuilds: typeof builds = [];
     if (builds.length && !options.ignoreScripts) {
-      await assertApproved({
+      const approvalOptions = {
         project: root,
         env: options.env ?? process.env,
         digest,
         builds,
         policy,
-      });
+      };
+      approvedBuilds = await approvedCandidates(approvalOptions);
+      if (
+        approvedBuilds.length < builds.length &&
+        options.requestBuildApproval
+      ) {
+        const pending = builds.filter(
+          (build) =>
+            !approvedBuilds.some((item) => item.sourceId === build.sourceId),
+        );
+        const selected = await options.requestBuildApproval(pending);
+        if (selected.length) {
+          await approveCandidate({
+            project: root,
+            digest,
+            builds: pending,
+            selected,
+            env: options.env ?? process.env,
+            policy,
+            portable: true,
+          });
+          approvedBuilds = await approvedCandidates(approvalOptions);
+        }
+      }
+    }
+    const skippedBuilds = builds.length - approvedBuilds.length;
+    if (skippedBuilds > 0)
+      warnings.push(
+        `${skippedBuilds} dependency build ${skippedBuilds === 1 ? "script was" : "scripts were"} skipped because approval was not granted; readiness is intentionally unbuilt. Run zyrk approve-builds to review and approve sources.`,
+      );
+    if (approvedBuilds.length && !options.ignoreScripts) {
       // Approved writes need a coherent fully private registry closure.
       await allocatePrivate(new Set(nodes.map((n) => n.key)));
       options.onProgress?.({ phase: "building" });
@@ -677,13 +709,13 @@ export async function installWorkspaceProject(
         project: root,
         generationId,
         nodes,
-        builds,
+        builds: approvedBuilds,
         realized,
         env: options.env ?? process.env,
       });
     }
     const readiness =
-      builds.length && options.ignoreScripts
+      builds.length && (options.ignoreScripts || skippedBuilds > 0)
         ? "intentionally-unbuilt"
         : "ready";
     registration = await registerGeneration({

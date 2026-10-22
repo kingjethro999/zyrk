@@ -105,9 +105,11 @@ Manifest, lock, and projection changes are journaled for process-crash recovery;
 a failed resolution, verification, or build-policy check keeps the prior graph.
 
 Dependency `preinstall`, `install`, and `postinstall` scripts (plus implicit
-`binding.gyp` builds) are supported and run during `zyrk install` after you
-approve the exact reviewed candidates. Unreviewed package code stays blocked.
-Review first, trust the selected sources, then install:
+`binding.gyp` builds) are supported. In an interactive terminal, `zyrk install`
+shows the exact candidates and lets you select which scripts to run. Press Enter
+to skip all pending scripts and continue with an intentionally unbuilt install.
+Headless installs also skip unapproved scripts and report that readiness state.
+Review candidates separately with:
 
 ```bash
 zyrk approve-builds                # inspect exact sources and commands; executes no package code
@@ -117,8 +119,12 @@ zyrk rebuild --offline             # rebuild the complete approved locked graph
 ```
 
 Approvals are local to the exact graph, sources, patch contents, and script
-policy. Mandatory user denies override project approvals. Approved scripts run
-with your account's permissions; permission is not a sandbox. Packages that need
+policy. Interactive selections are written to the checked-in
+`zyrk-workspace.json` file with exact package source identities, so collaborators
+can reuse the review alongside the lockfile. Manual `zyrk approve-builds
+<package>` approvals are recorded there too. Mandatory user denies override
+project approvals. Approved scripts run with your account's permissions;
+permission is not a sandbox. Packages that need
 writes use a complete private dependency generation under `.zyrk-local/`, with
 independent writable files and dependency links confined to that generation.
 Build failure keeps the previous project graph active. `--ignore-scripts`
@@ -126,6 +132,12 @@ explicitly publishes an **intentionally unbuilt** installation. Root install
 hooks never run automatically. A project can request runtime writable packages
 with `"zyrk": { "mutablePackages": ["package-name"] }`; this also uses a complete
 private graph.
+
+`zyrk-workspace.json` is portable review state, not a machine-specific store
+manifest. It records each approved package name, version, and exact source ID;
+the file can be committed with `package-lock.json` so collaborators do not have
+to repeat the same approval for the same verified source. User-level denials
+still take precedence.
 
 ### Run project scripts
 
@@ -413,11 +425,11 @@ The commit hook runs the full check gate, increments the version in
 `package.json`, `package-lock.json`, and `VERSION`, and creates a matching version
 tag after the commit. Keep changes focused and never bypass the hooks.
 
-CI checks pushed commits and pull requests. The separate
-[npm publishing action](.github/workflows/npm-publish.yml) is triggered when a
-GitHub release is published. It verifies the release tag, formatting, typecheck,
-build, and tests, then publishes that exact commit. Ordinary commits do not
-publish packages. Dependabot and a scheduled advisory check supplement CI; an
+CI checks pushed commits and pull requests. The
+[npm publishing action](.github/workflows/npm-publish.yml) runs when the commit
+hook's version tag is pushed, verifies formatting, typecheck, build, tests, and
+the tag/version match, then publishes that exact commit. A manual workflow
+dispatch can publish a prior version tag for release backfills. Dependabot and a scheduled advisory check supplement CI; an
 unavailable advisory service fails separately from a clean result.
 
 The contributor guide is [AGENTS.md](AGENTS.md). Bug reports and reproducible

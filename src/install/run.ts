@@ -9,7 +9,7 @@ import {
   candidates,
   candidateDigest,
   approveCandidate,
-  assertApproved,
+  approvedCandidates,
   materializePrivate,
   buildPrivate,
   type BuildCandidate,
@@ -108,6 +108,9 @@ export type InstallOptions = {
   env?: NodeJS.ProcessEnv;
   reviewBuilds?: boolean;
   approveBuilds?: readonly string[];
+  requestBuildApproval?: (
+    builds: readonly BuildCandidate[],
+  ) => Promise<readonly string[]>;
   rebuild?: boolean;
   repair?: boolean;
   resolveBudget?: Partial<ResolverLimits>;
@@ -838,6 +841,7 @@ export async function installProject(
           selected: options.approveBuilds,
           env: options.env ?? process.env,
           policy: scriptPolicy(manifest),
+          portable: true,
         });
       return {
         readiness: "build-review",
@@ -848,15 +852,43 @@ export async function installProject(
         builds,
       };
     }
-    const unbuilt = builds.length > 0 && options.ignoreScripts === true;
+    let approvedBuilds: BuildCandidate[] = [];
     if (builds.length && !options.ignoreScripts) {
-      await assertApproved({
+      const approvalOptions = {
         project,
         env: options.env ?? process.env,
         digest: reviewedDigest,
         builds,
         policy: scriptPolicy(manifest),
-      });
+      };
+      approvedBuilds = await approvedCandidates(approvalOptions);
+      if (
+        approvedBuilds.length < builds.length &&
+        options.requestBuildApproval
+      ) {
+        const pending = builds.filter(
+          (build) =>
+            !approvedBuilds.some((item) => item.sourceId === build.sourceId),
+        );
+        const selected = await options.requestBuildApproval(pending);
+        if (selected.length) {
+          await approveCandidate({
+            project,
+            digest: reviewedDigest,
+            builds: pending,
+            selected,
+            env: options.env ?? process.env,
+            policy: scriptPolicy(manifest),
+            portable: true,
+          });
+          approvedBuilds = await approvedCandidates(approvalOptions);
+        }
+      }
+    }
+    const unbuilt =
+      builds.length > 0 &&
+      (options.ignoreScripts === true || approvedBuilds.length < builds.length);
+    if (approvedBuilds.length && !options.ignoreScripts) {
       if (!privateGraph) {
         realized = await materializePrivate({
           project,
@@ -871,7 +903,7 @@ export async function installProject(
         project,
         generationId,
         nodes: activeNodes,
-        builds,
+        builds: approvedBuilds,
         realized,
         env: options.env ?? process.env,
       });
@@ -901,11 +933,12 @@ export async function installProject(
         privateGraph = true;
       }
     }
-    if (unbuilt)
-      for (const build of builds)
-        warnings.push(
-          `${build.name}@${build.version}: skipped ${build.stages.map((s) => s.name).join(", ")}; intentionally unbuilt.`,
-        );
+    if (unbuilt) {
+      const skipped = builds.length - approvedBuilds.length;
+      warnings.push(
+        `${skipped} dependency build ${skipped === 1 ? "script was" : "scripts were"} skipped because approval was not granted; readiness is intentionally unbuilt. Run zyrk approve-builds to review and approve sources.`,
+      );
+    }
     if (privateGraph)
       warnings.push(
         "Using a complete project-private dependency graph; build/runtime writes do not change shared source.",

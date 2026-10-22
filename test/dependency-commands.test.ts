@@ -203,25 +203,24 @@ it("preserves unselected locked roots during an add and selected update", async 
     (await doc("package-lock.json")).packages["node_modules/alpha"].version,
   ).toBe("1.0.0");
 });
-it("retains manifest, lock, and projection when add fails resolution or build policy", async () => {
+it("retains state on resolution failure and skips unapproved builds during add", async () => {
   await install();
   const before = [
     await text("package.json"),
     await text("package-lock.json"),
     await realpath(path.join(project, "node_modules/alpha")),
   ];
-  for (const spec of ["built@1.0.0", "broken@1.0.0"]) {
-    await expect(command("add", spec)).rejects.toMatchObject({
-      code: spec.startsWith("built")
-        ? "ZYRK_SCRIPT_BLOCKED"
-        : "ZYRK_RESOLUTION_FAILED",
-    });
-    expect([
-      await text("package.json"),
-      await text("package-lock.json"),
-      await realpath(path.join(project, "node_modules/alpha")),
-    ]).toEqual(before);
-  }
+  await expect(command("add", "broken@1.0.0")).rejects.toMatchObject({
+    code: "ZYRK_RESOLUTION_FAILED",
+  });
+  expect([
+    await text("package.json"),
+    await text("package-lock.json"),
+    await realpath(path.join(project, "node_modules/alpha")),
+  ]).toEqual(before);
+  const added = await command("add", "built@1.0.0");
+  expect(added.readiness).toBe("intentionally-unbuilt");
+  expect(await text("package.json")).toContain("built");
   expect(
     await pathExists(path.join(project, "node_modules/built/script-ran")),
   ).toBe(false);
