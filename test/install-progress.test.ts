@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { createInstallProgress } from "../src/cli/progress.ts";
 
 it("renders plain progress without escapes and remains quiet for JSON", () => {
@@ -8,7 +8,7 @@ it("renders plain progress without escapes and remains quiet for JSON", () => {
   ui.update({ phase: "resolving" });
   ui.update({ phase: "fetching", completed: 1, total: 2 });
   ui.close();
-  expect(chunks.join("")).toContain("Resolving dependencies");
+  expect(chunks.join("")).toContain("Preparing installation");
   expect(chunks.join("")).toContain("1/2");
   expect(chunks.join("")).not.toContain("\u001b");
   const before = chunks.join("");
@@ -18,25 +18,52 @@ it("renders plain progress without escapes and remains quiet for JSON", () => {
   expect(chunks.join("")).toBe(before);
 });
 
-it("stops the TTY spinner when closed on success or error", () => {
-  vi.useFakeTimers();
-  try {
-    const chunks: string[] = [];
-    const ui = createInstallProgress(
-      { isTTY: true, write: (s) => chunks.push(s) },
-      false,
-    );
-    ui.update({ phase: "fetching", completed: 0, total: 3 });
-    vi.advanceTimersByTime(250);
-    expect(chunks.length).toBeGreaterThan(1);
-    ui.close();
-    const count = chunks.length;
-    vi.advanceTimersByTime(1000);
-    expect(chunks.length).toBe(count);
-    expect(vi.getTimerCount()).toBe(0);
-  } finally {
-    vi.useRealTimers();
-  }
+it("renders the staged install display and success footer in a TTY", () => {
+  const chunks: string[] = [];
+  const ui = createInstallProgress(
+    { isTTY: true, write: (s) => chunks.push(s) },
+    false,
+    { color: false },
+  );
+  ui.update({ phase: "planning" });
+  ui.update({ phase: "resolving" });
+  ui.update({
+    phase: "fetching",
+    completed: 2,
+    total: 3,
+    reused: 1,
+    downloaded: 1,
+  });
+  ui.update({ phase: "realizing" });
+  ui.update({ phase: "linking" });
+  ui.close({
+    title: "Installed from the verified shared store.",
+    detail: "Your project still uses node_modules and normal imports.",
+  });
+  const output = chunks.join("");
+  expect(output).toContain("› zyrk: Preparing installation");
+  expect(output).toContain("› zyrk: Verifying package sources");
+  expect(output).toContain("Sources verified 2/3 · reused 1 · downloaded 1");
+  expect(output).toContain("› zyrk: Preparing shared realizations");
+  expect(output).toContain("› zyrk: Linking project dependencies");
+  expect(output).toContain("─".repeat(46));
+  expect(output).toContain("✓ Installed from the verified shared store.");
+  expect(output).toContain(
+    "Your project still uses node_modules and normal imports.",
+  );
+  expect(output.replaceAll("\r\u001b[2K", "")).not.toContain("\u001b");
+});
+
+it("renders plain progress without escapes when output is redirected", () => {
+  const chunks: string[] = [];
+  const ui = createInstallProgress({ write: (s) => chunks.push(s) }, false);
+  ui.update({ phase: "planning" });
+  ui.update({ phase: "resolving" });
+  ui.update({ phase: "fetching", completed: 1, total: 2 });
+  ui.close();
+  expect(chunks.join("")).toContain("zyrk: Preparing installation");
+  expect(chunks.join("")).toContain("zyrk: Verifying package sources (1/2)");
+  expect(chunks.join("")).not.toContain("\u001b");
 });
 
 it("shows verified source reuse and downloads, and ticks only committed packages", () => {

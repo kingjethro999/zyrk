@@ -240,6 +240,6 @@ it("explains Next native installation and renders its install progress", async (
     }),
   ).toBe(0);
   expect(errOut.join("")).toContain("dependencies will install with zyrk");
-  expect(errOut.join("")).toContain("Resolving dependencies");
+  expect(errOut.join("")).toContain("Preparing installation");
   expect(errOut.join("")).toContain("Linking project dependencies");
 });

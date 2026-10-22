@@ -37,6 +37,7 @@ import { randomId } from "../util/ids.ts";
 import { canonicalJson } from "../util/json.ts";
 import { sha512Hex } from "../util/hash.ts";
 import { CLI_VERSION } from "../version.ts";
+import { renderCommandOutput } from "../cli/terminal.ts";
 
 type Obj = Record<string, unknown>;
 function object(value: unknown): value is Obj {
@@ -63,8 +64,8 @@ export type ProjectCommandOptions = {
   args: readonly string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
-  stdout: { write(chunk: string): unknown };
-  stderr: { write(chunk: string): unknown };
+  stdout: { write(chunk: string): unknown; isTTY?: boolean };
+  stderr: { write(chunk: string): unknown; isTTY?: boolean };
   json?: boolean;
   workspaceLockHeld?: boolean;
   initialCwd?: string;
@@ -255,7 +256,13 @@ function emit(
           command: options.command,
           ...(result as Obj),
         }) + "\n"
-      : human + "\n",
+      : renderCommandOutput(options.command, `${human}\n`, {
+          ...(options.stdout.isTTY === undefined
+            ? {}
+            : { isTTY: options.stdout.isTTY }),
+          color:
+            options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+        }),
   );
 }
 

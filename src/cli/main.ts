@@ -1,5 +1,6 @@
 import { runNextCommand } from "../commands/next.ts";
 import { createInstallProgress } from "./progress.ts";
+import { renderCommandError, renderCommandOutput } from "./terminal.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
 import { runDeployCommand } from "../commands/deploy.ts";
 import { runPatchCommand } from "../commands/patch.ts";
@@ -10,7 +11,11 @@ import { sanitizeDiagnostic, redactSecrets } from "../log.ts";
  * Unsupported command modes fail explicitly in their handler.
  */
 
-import { installProject, type InstallOptions } from "../install/run.ts";
+import {
+  installProject,
+  type InstallOptions,
+  type InstallResult,
+} from "../install/run.ts";
 import type { BuildCandidate } from "../install/private.ts";
 import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
@@ -42,6 +47,28 @@ import {
 import { isGlobalInstallRequest, parseArgs, type ParsedArgs } from "./parse.ts";
 
 export const CLI_JSON_SCHEMA_VERSION = 1;
+
+function installCompletion(readiness: InstallResult["readiness"]) {
+  switch (readiness) {
+    case "ready":
+      return {
+        title: "Installed from the verified shared store.",
+        detail: "Your project still uses node_modules and normal imports.",
+      };
+    case "intentionally-unbuilt":
+      return {
+        title: "Installed; some dependency builds were intentionally skipped.",
+        detail:
+          "Review build policy before running packages that need those builds.",
+      };
+    case "fetched":
+      return { title: "Verified package sources in the shared store." };
+    case "lockfile-only":
+      return { title: "Lockfile updated; dependencies were not installed." };
+    case "build-review":
+      return { title: "Build review saved; dependency scripts were not run." };
+  }
+}
 
 /** Spec-defined dependency commands (SPEC 15.1-15.2, fetch, docker). */
 const NATIVE_COMMANDS: ReadonlyArray<readonly [string, string]> = [
@@ -294,7 +321,7 @@ export type RunCliOptions = {
   argv: readonly string[];
   env: NodeJS.ProcessEnv;
   stdin?: NodeJS.ReadStream;
-  stdout: { write(chunk: string): unknown };
+  stdout: { write(chunk: string): unknown; isTTY?: boolean };
   stderr: { write(chunk: string): unknown; isTTY?: boolean };
   readVersion?: () => string;
   cwd?: string;
@@ -359,8 +386,39 @@ export async function runCli(options: RunCliOptions): Promise<number> {
   const parsed = parseArgs(options.argv);
   const version = (options.readVersion ?? readCliVersion)();
   const emit = (result: CliOutput): number => {
-    if (result.stdout !== "") options.stdout.write(result.stdout);
-    if (result.stderr !== "") options.stderr.write(result.stderr);
+    const interactive =
+      !parsed.json &&
+      !parsed.help &&
+      !parsed.version &&
+      options.stdout.isTTY === true &&
+      parsed.command !== undefined &&
+      !isDelegatedCommand(parsed.command);
+    const style = {
+      isTTY: interactive,
+      color:
+        interactive &&
+        options.env.NO_COLOR === undefined &&
+        options.env.TERM !== "dumb",
+    };
+    if (result.stdout !== "")
+      options.stdout.write(
+        interactive
+          ? renderCommandOutput(
+              parsed.command ?? "command",
+              result.stdout,
+              style,
+            )
+          : result.stdout,
+      );
+    if (result.stderr !== "")
+      options.stderr.write(
+        result.exitCode !== 0
+          ? renderCommandError(result.stderr, {
+              ...style,
+              isTTY: options.stderr.isTTY === true && !parsed.json,
+            })
+          : result.stderr,
+      );
     return result.exitCode;
   };
   if (
@@ -583,7 +641,9 @@ export async function runCli(options: RunCliOptions): Promise<number> {
   ) {
     if (isGlobalInstallRequest(parsed.command, parsed.commandArgs, options.env))
       return emit(fail(globalInstallError(parsed.command), parsed));
-    const progress = createInstallProgress(options.stderr, parsed.json);
+    const progress = createInstallProgress(options.stderr, parsed.json, {
+      color: options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+    });
     try {
       if (
         parsed.commandArgs.includes("--help") ||
@@ -650,7 +710,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           : {}),
         ...tools,
       });
-      progress.close();
+      progress.close(installCompletion(result.readiness));
       if (parsed.json)
         return emit({
           exitCode: 0,
@@ -696,7 +756,9 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       parsed.command === "update" ||
       parsed.command === "import")
   ) {
-    const progress = createInstallProgress(options.stderr, parsed.json);
+    const progress = createInstallProgress(options.stderr, parsed.json, {
+      color: options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+    });
     try {
       const tools =
         options.tools === undefined
@@ -721,7 +783,10 @@ export async function runCli(options: RunCliOptions): Promise<number> {
             }
           : {}),
       });
-      progress.close();
+      progress.close({
+        title: `Dependency changes installed from the verified shared store.`,
+        detail: `${result.packages} packages; ${result.reused} realizations reused.`,
+      });
       if (parsed.json) {
         return emit({
           exitCode: 0,
@@ -922,7 +987,20 @@ async function runToolCommand(
     env: options.env,
   };
   if (command === "dlx") {
-    return (await runDlx({ ...base, spec: first })).exitCode;
+    const result = await runDlx({ ...base, spec: first });
+    if (result.exitCode === 0 && options.stderr.isTTY)
+      options.stderr.write(
+        renderCommandOutput(
+          "dlx",
+          `zyrk dlx finished ${result.name}@${result.version}.\n`,
+          {
+            isTTY: true,
+            color:
+              options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+          },
+        ),
+      );
+    return result.exitCode;
   }
   const isNext = starterSpecFor(first).startsWith("create-next-app@");
   options.stderr.write(
@@ -932,15 +1010,25 @@ async function runToolCommand(
         : "zyrk: Creating Next.js application; dependencies will install with zyrk.\n"
       : "zyrk: This initializer controls its own dependency installation.\n",
   );
-  const progress = createInstallProgress(options.stderr, false);
+  const progress = createInstallProgress(options.stderr, false, {
+    color: options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+  });
   try {
-    return (
-      await runCreate({
-        ...base,
-        input: first,
-        onInstallProgress: progress.update,
-      })
-    ).exitCode;
+    const result = await runCreate({
+      ...base,
+      input: first,
+      onInstallProgress: progress.update,
+    });
+    progress.close(
+      result.exitCode === 0
+        ? {
+            title: "Project created successfully.",
+            detail:
+              "Open the project directory and run its declared scripts with zyrk.",
+          }
+        : undefined,
+    );
+    return result.exitCode;
   } finally {
     progress.close();
   }

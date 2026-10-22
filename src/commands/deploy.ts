@@ -34,6 +34,7 @@ import {
 } from "../install/workspace-graph.ts";
 import { findProjectBoundary, resolveStoreRoot } from "../config/paths.ts";
 import { ZyrkError, type ErrorCode } from "../errors.ts";
+import { renderCommandOutput } from "../cli/terminal.ts";
 import { lockedGraph } from "../install/lock.ts";
 import { loadProjectPatches } from "./patch.ts";
 import { currentPlatform } from "../resolve/resolver.ts";
@@ -75,8 +76,8 @@ export type DeployCommandOptions = {
   args: readonly string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
-  stdout: { write(chunk: string): unknown };
-  stderr: { write(chunk: string): unknown };
+  stdout: { write(chunk: string): unknown; isTTY?: boolean };
+  stderr: { write(chunk: string): unknown; isTTY?: boolean };
   json?: boolean;
 };
 function flags(args: readonly string[]): Map<string, string[]> {
@@ -146,7 +147,13 @@ function output(options: DeployCommandOptions, result: Obj, human: string) {
           command: options.command,
           ...result,
         }) + "\n"
-      : human + "\n",
+      : renderCommandOutput(options.command, `${human}\n`, {
+          ...(options.stdout.isTTY === undefined
+            ? {}
+            : { isTTY: options.stdout.isTTY }),
+          color:
+            options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+        }),
   );
 }
 

@@ -143,7 +143,9 @@ still take precedence.
 
 Use `zyrk run <script>` or the package-manager shortcut `zyrk <script>`; both
 use the same project-script policy, installed-generation checks, and local
-binary path. Arguments after `--` are passed to the script:
+binary path. Run the shortcut from a directory whose `package.json` declares
+that script; for example, run `cd web` before `zyrk dev` when the script belongs
+to `web/package.json`. Arguments after `--` are passed to the script:
 
 ```bash
 zyrk dev
@@ -456,14 +458,18 @@ overrides are ignored, matching npm root-only policy. Override rule order is
 recorded in the manifest fingerprint; frozen installs reject policy drift.
 
 `zyrk help` and `zyrk --help` both show help successfully. Installs report
-preparation, resolution, verified source counts, realization, approved builds,
-and project linking on stderr. Interactive terminals show an activity spinner;
-redirected output contains plain progress messages. Both `zyrk add prettier` and
-`zyrk install prettier` show these details. Source counters distinguish verified
-reuse from newly downloaded sources; downloads show received bytes. A checkmark
-lists each unique package/version linked after the project transaction commits.
-Source counts differ from dependency contexts when peers split a package.
-`--json` disables progress.
+preparation, verified source counts, realization, approved builds, and project
+linking on stderr. Interactive terminals show the stages as a calm, multi-line
+sequence, followed by a success footer; package downloads show received bytes,
+and a checkmark lists each unique package/version linked after the project
+transaction commits. Both `zyrk add prettier` and `zyrk install prettier` show
+these details. Redirected output uses plain progress messages. Source counters
+distinguish verified reuse from newly downloaded sources. Source counts differ
+from dependency contexts when peers split a package. `--json` disables progress.
+Other native commands use the same terminal language: successful summaries get
+a checkmark, structured inspection output is rendered readably, and actionable
+errors show their stable code and remedy together. `NO_COLOR=1` or `TERM=dumb`
+disables color; redirected output and `--json` remain plain and script-friendly.
 
 Install resolution has a five-minute deadline, registry requests (including
 archive downloads) have a fifteen-minute deadline, a complete fetch operation
