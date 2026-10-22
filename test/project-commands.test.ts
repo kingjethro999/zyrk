@@ -11,6 +11,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { runProjectCommand } from "../src/commands/project.ts";
+import { runCli } from "../src/cli/main.ts";
 import { installProject } from "../src/install/run.ts";
 import { RegistryClient } from "../src/fetch/registry.ts";
 import { Store } from "../src/store/layout.ts";
@@ -151,6 +152,20 @@ it("runs only the named script, quotes arguments, sets npm environment and relea
   } finally {
     db.close();
   }
+});
+it("runs a declared script as a bare command through the guarded project runner", async () => {
+  const result = await runCli({
+    argv: ["check", "--", "bare argument"],
+    env: { ...process.env, ZYRK_STORE_DIR: store.root },
+    stdout: { write: (value) => (stdout += value) },
+    stderr: { write: (value) => (stderr += value) },
+    cwd: project,
+    readVersion: () => "test",
+  });
+  expect(result).toBe(0);
+  expect(JSON.parse(stdout).args).toEqual(["bare argument"]);
+  expect(JSON.parse(stdout).event).toBe("check");
+  expect(stderr).toBe("");
 });
 it("executes only installed local bins and forwards arguments without a shell", async () => {
   expect(await run("exec", ["alpha", "one two", "$(exit 5)"])).toBe(0);

@@ -9,6 +9,19 @@ import {
 import type { WorkspaceGraph } from "./workspace-graph.ts";
 import { lockMismatch } from "./lock.ts";
 
+/** Summarize expected platform filtering without emitting one warning per variant. */
+export function platformOmissionSummary(
+  omissions: readonly { name: string }[],
+): string | undefined {
+  if (omissions.length === 0) return undefined;
+  const packages = new Set(omissions.map((item) => item.name));
+  const entries = omissions.length;
+  const variants = packages.size;
+  const entryLabel = `${entries} platform-specific optional ${entries === 1 ? "dependency" : "dependencies"}`;
+  const packageLabel = `${variants} ${variants === 1 ? "package variant" : "package variants"}`;
+  return `Skipped ${entryLabel} across ${packageLabel}; this is expected when selecting dependencies for the current platform.`;
+}
+
 type Edge = { name: string; target: string; kind: string };
 type Selection = {
   key: string;

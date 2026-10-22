@@ -104,8 +104,10 @@ Offline installs use locked verified sources and fail if an input is missing.
 Manifest, lock, and projection changes are journaled for process-crash recovery;
 a failed resolution, verification, or build-policy check keeps the prior graph.
 
-Dependency install scripts and implicit `binding.gyp` builds require explicit
-approval. Review first, trust the selected sources, then install:
+Dependency `preinstall`, `install`, and `postinstall` scripts (plus implicit
+`binding.gyp` builds) are supported and run during `zyrk install` after you
+approve the exact reviewed candidates. Unreviewed package code stays blocked.
+Review first, trust the selected sources, then install:
 
 ```bash
 zyrk approve-builds                # inspect exact sources and commands; executes no package code
@@ -125,6 +127,18 @@ hooks never run automatically. A project can request runtime writable packages
 with `"zyrk": { "mutablePackages": ["package-name"] }`; this also uses a complete
 private graph.
 
+### Run project scripts
+
+Use `zyrk run <script>` or the package-manager shortcut `zyrk <script>`; both
+use the same project-script policy, installed-generation checks, and local
+binary path. Arguments after `--` are passed to the script:
+
+```bash
+zyrk dev
+zyrk test -- --watch
+zyrk run build
+```
+
 Default registry and authentication settings are loaded from user/project
 `.npmrc` for installation, dependency edits, `dlx`, and `create`. Environment
 token placeholders are supported. Credentials are restricted to their configured
@@ -136,7 +150,10 @@ registry; private names never fall back to a public endpoint. Disabled TLS
 verification is rejected before lookup. Git sources and non-workspace local sources remain unsupported;
 they fail explicitly. Optional dependencies incompatible with the selected platform
 are omitted; missing packages, integrity failures, and other optional failures
-remain errors. Locks retain exact platform-qualified optional variants; each machine
+remain errors. Platform-specific optional packages that do not match this machine
+are summarized once after installation; these are normal variants for packages
+supporting multiple operating systems and CPUs. Locks retain exact
+platform-qualified optional variants; each machine
 selects its compatible local closure without rewriting the lock or recording store
 paths. Older platform-pruned locks need an intentional non-frozen refresh; incomplete
 npm locks must be freshly resolved before portable adoption. macOS, Windows, and

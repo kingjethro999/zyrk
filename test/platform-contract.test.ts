@@ -6,8 +6,21 @@ import * as path from "node:path";
 import { expect, it } from "vitest";
 import { platformPaths, resolveStoreRoot } from "../src/config/paths.ts";
 import { Store } from "../src/store/layout.ts";
+import { platformOmissionSummary } from "../src/install/platform.ts";
 import { rmrfNoFollow } from "../src/util/fsx.ts";
 const exec = promisify(execFile);
+it("summarizes expected platform-specific optional dependencies without a warning per package", () => {
+  expect(
+    platformOmissionSummary([
+      { name: "@tool/native-linux" },
+      { name: "@tool/native-darwin" },
+      { name: "@tool/native-linux" },
+    ]),
+  ).toBe(
+    "Skipped 3 platform-specific optional dependencies across 2 package variants; this is expected when selecting dependencies for the current platform.",
+  );
+  expect(platformOmissionSummary([])).toBeUndefined();
+});
 it("selects platform-specific per-user store and configuration paths", () => {
   const home = path.resolve("fixture home ü");
   for (const platform of ["linux", "darwin", "win32"] as const) {

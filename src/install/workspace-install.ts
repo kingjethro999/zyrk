@@ -1,5 +1,8 @@
 import { sourceProgress, reportLinked } from "./progress.ts";
-import { selectWorkspacePlatform } from "./platform.ts";
+import {
+  platformOmissionSummary,
+  selectWorkspacePlatform,
+} from "./platform.ts";
 /** Multi-importer live workspace installation with one publication journal. */
 import {
   chmod,
@@ -311,9 +314,9 @@ export async function installWorkspaceProject(
         ? await readFile(path.join(root, "package-lock.json"), "utf8")
         : JSON.stringify(doc, null, 2) + "\n";
     graph = selectWorkspacePlatform(graph, options.platform, options.omitDev);
-    const warnings = graph.omissions.map(
-      (o) => `${o.name}: omitted incompatible optional workspace dependency.`,
-    );
+    const warnings: string[] = [];
+    const omissionSummary = platformOmissionSummary(graph.omissions);
+    if (omissionSummary) warnings.push(omissionSummary);
     for (const importer of project.importers)
       for (const stage of ["preinstall", "install", "postinstall"])
         if (importer.manifest.scripts?.[stage])

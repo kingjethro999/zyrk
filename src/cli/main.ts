@@ -13,6 +13,7 @@ import { sanitizeDiagnostic, redactSecrets } from "../log.ts";
 import { installProject, type InstallOptions } from "../install/run.ts";
 import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCreate, starterSpecFor } from "../dlx/create.ts";
@@ -29,7 +30,7 @@ import { runStoreCommand } from "../commands/store.ts";
 import { exitCodeFor, ZyrkError, toZyrkError } from "../errors.ts";
 export { ZyrkError };
 import { DEFAULT_REGISTRY, RegistryClient } from "../fetch/registry.ts";
-import { resolveStoreRoot } from "../config/paths.ts";
+import { findProjectBoundary, resolveStoreRoot } from "../config/paths.ts";
 import { Store } from "../store/layout.ts";
 import {
   delegateToNpm,
@@ -104,6 +105,7 @@ export function helpText(version: string): string {
     `zyrk v${version} — one verified store per user, shared across projects through links.`,
     "",
     "Usage: zyrk <command> [args] [--json]",
+    "       zyrk <script> [args]  (shortcut for zyrk run <script> [args])",
     "",
     "Dependency commands:",
   ];
@@ -739,6 +741,55 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       return emit(
         fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
       );
+    }
+  }
+
+  // Package scripts are accepted as ergonomic aliases for `zyrk run <name>`.
+  // Route through the same project runner so policy, generation leases,
+  // local-bin PATH and lifecycle environment stay identical.
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    parsed.command !== undefined &&
+    !KNOWN_COMMANDS.has(parsed.command) &&
+    parsed.argsBeforeCommand.length === 0
+  ) {
+    const cwd = options.cwd ?? process.cwd();
+    const boundary = await findProjectBoundary(cwd);
+    if (boundary) {
+      let declared = false;
+      try {
+        const manifest = JSON.parse(
+          await readFile(path.join(boundary, "package.json"), "utf8"),
+        ) as { scripts?: Record<string, unknown> };
+        if (
+          manifest.scripts !== null &&
+          typeof manifest.scripts === "object" &&
+          !Array.isArray(manifest.scripts) &&
+          typeof manifest.scripts[parsed.command] === "string"
+        )
+          declared = true;
+      } catch {
+        // Preserve the normal unknown-command diagnostic when no valid
+        // project script can be identified.
+      }
+      if (declared) {
+        try {
+          return await runProjectCommand({
+            command: "run",
+            args: [parsed.command, ...parsed.commandArgs],
+            cwd,
+            env: options.env,
+            stdout: options.stdout,
+            stderr: options.stderr,
+            json: parsed.json,
+          });
+        } catch (error) {
+          return emit(
+            fail(toZyrkError(error, `zyrk ${parsed.command} failed.`), parsed),
+          );
+        }
+      }
     }
   }
 

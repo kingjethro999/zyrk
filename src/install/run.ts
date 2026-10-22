@@ -1,5 +1,5 @@
 import { sourceProgress, reportLinked } from "./progress.ts";
-import { selectPlatformGraph } from "./platform.ts";
+import { platformOmissionSummary, selectPlatformGraph } from "./platform.ts";
 import type { RuntimePlatform } from "../resolve/resolver.ts";
 import { findWorkspaceRoot } from "./workspaces.ts";
 import { assertSupportedSourcePayload } from "./source-policy.ts";
@@ -668,10 +668,11 @@ export async function installProject(
         name: "package.json",
         contents: `${JSON.stringify(manifest, null, 2)}\n`,
       });
-    const warnings: string[] = (activeResolution.omissions ?? []).map(
-      (item) =>
-        `${item.name}: omitted optional dependency incompatible with the selected platform.`,
+    const warnings: string[] = [];
+    const omissionSummary = platformOmissionSummary(
+      activeResolution.omissions ?? [],
     );
+    if (omissionSummary) warnings.push(omissionSummary);
     for (const stage of ["preinstall", "install", "postinstall"])
       if (manifest.scripts?.[stage])
         warnings.push(
