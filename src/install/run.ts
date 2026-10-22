@@ -248,6 +248,7 @@ export async function installProject(
     ...options,
     resolveBudget: { ...budgets.resolveBudget, ...options.resolveBudget },
     extractBudget: { ...budgets.extractBudget, ...options.extractBudget },
+    fetchBudget: { ...budgets.fetchBudget, ...options.fetchBudget },
   };
   if (await findWorkspaceRoot(options.projectDir)) {
     const { installWorkspaceProject } = await import("./workspace-install.ts");
@@ -472,6 +473,10 @@ export async function installProject(
           originFor: (name: string) => options.registry.originFor(name),
           packument: (name) =>
             options.registry.packument(name, {
+              signal: operation.operation.signal,
+            }),
+          versionManifest: (name, version) =>
+            options.registry.versionManifest(name, version, {
               signal: operation.operation.signal,
             }),
         },

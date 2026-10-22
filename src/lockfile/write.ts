@@ -143,7 +143,23 @@ export async function writeLockfile(
             : `npm:${target.name}@${target.version}`;
       }
     }
+    const npmMetadata: Record<string, unknown> = {};
+    const existingEntry = existingPackages[location];
+    if (existingEntry !== undefined) {
+      for (const field of [
+        "license",
+        "funding",
+        "deprecated",
+        "hasInstallScript",
+        "inBundle",
+      ]) {
+        if (Object.hasOwn(existingEntry, field)) {
+          npmMetadata[field] = existingEntry[field];
+        }
+      }
+    }
     packages[location] = {
+      ...npmMetadata,
       name: node.name,
       version: node.version,
       resolved: node.tarballUrl,

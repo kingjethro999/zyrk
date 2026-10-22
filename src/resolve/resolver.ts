@@ -41,6 +41,7 @@ export type MetadataProvider = {
   readonly origin: string;
   originFor?(name: string): string;
   packument(name: string): Promise<Packument>;
+  versionManifest?(name: string, version: string): Promise<PackumentVersion>;
 };
 
 export type EdgeKind = "prod" | "optional" | "peer";
@@ -203,6 +204,10 @@ class ResolverState {
   readonly provider: MetadataProvider;
   readonly overrides: OverridePolicy;
   private readonly packuments = new Map<string, Promise<Packument>>();
+  private readonly versionManifests = new Map<
+    string,
+    Promise<PackumentVersion>
+  >();
   private readonly peerless = new Map<string, Occurrence>();
   private readonly peerBearing = new Map<Frame, Map<string, Occurrence>>();
   private readonly freshPeers = new Map<Occurrence, Map<string, Occurrence>>();
@@ -277,6 +282,26 @@ class ResolverState {
       deadline,
     ]).finally(() => clearTimeout(timer));
     this.packuments.set(name, pending);
+    return pending;
+  }
+
+  versionManifestOf(name: string, version: string): Promise<PackumentVersion> {
+    const key = `${name}\0${version}`;
+    const cached = this.versionManifests.get(key);
+    if (cached !== undefined) return cached;
+    this.checkBudget();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(budgetError("resolution deadline exceeded")),
+        Math.max(1, this.expires - Date.now()),
+      );
+    });
+    const pending = Promise.race([
+      this.provider.versionManifest!(name, version),
+      deadline,
+    ]).finally(() => clearTimeout(timer));
+    this.versionManifests.set(key, pending);
     return pending;
   }
 
@@ -660,6 +685,20 @@ async function selectVersion(
     targetKind: "exact" | "range" | "tag";
   },
 ): Promise<{ version: string; entry: PackumentVersion }> {
+  if (req.targetKind === "exact" && state.provider.versionManifest) {
+    try {
+      return {
+        version: req.targetSpec,
+        entry: await state.versionManifestOf(req.realName, req.targetSpec),
+      };
+    } catch (error) {
+      // Registries and older test adapters may expose only packuments. Keep
+      // the optimization opportunistic when the exact endpoint is absent.
+      if (!(error instanceof ZyrkError) || error.detail?.status !== 404) {
+        throw error;
+      }
+    }
+  }
   const packument = await state.packumentOf(req.realName);
   const fail = (message: string, remedy: string): ZyrkError =>
     new ZyrkError("ZYRK_RESOLUTION_FAILED", message, {

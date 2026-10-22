@@ -27,6 +27,14 @@ the shared store, exact dependency context, mutation rules, and cleanup contract
 central to its design. Storage savings, speed, and framework compatibility will
 be reported only after reproducible measurements and compatibility tests.
 
+### The name and the idea
+
+The project began as **snpm**, short for “space-efficient npm.” That name was
+already in use, so it became **nexu**; npm's package-name similarity policy
+then blocked publishing that name, and the project became **zyrk**. The names
+changed, while the goal stayed the same: make shared package storage practical,
+careful, and useful in everyday Node.js development.
+
 ## Try the current CLI
 
 Install from npm:
@@ -46,10 +54,16 @@ From a checkout:
 ```bash
 git clone https://github.com/kingjethro999/zyrk.git zyrk
 cd zyrk
-npm ci
-node bin/zyrk.js --help
-node bin/zyrk.js --version
+npm install --global zyrk@0.6.6
+zyrk install --frozen-lockfile
+zyrk --help
+zyrk --version
 ```
+
+The global npm install bootstraps the `zyrk` executable. Project dependencies
+are installed by zyrk itself. On a fresh checkout, use the published bootstrap
+version first because the source checkout's own development dependencies are
+needed to run its local CLI.
 
 ### One-line install (shell)
 
@@ -359,14 +373,24 @@ own options and configuration.
 ## Develop and contribute
 
 ```bash
-npm ci
-npm run setup:hooks
-npm run typecheck
-npm test
-npm run check
-npm run format:check
-npm run format
+npm install --global zyrk@0.6.6  # bootstrap the CLI, once per machine
+zyrk install --frozen-lockfile
+zyrk run setup:hooks
+zyrk run typecheck
+zyrk run test
+zyrk run check
+zyrk run format:check
+zyrk run format
 ```
+
+Linux and macOS development, CI, and release verification use zyrk to install
+the repository's dependencies. The Windows contract job continues to use npm
+while native Windows filesystem and link behavior is being validated. npm is
+also used to publish the package; that is a registry operation, not a project
+dependency install. Vercel deployments should set the install command to
+the commands in [web/vercel.json](web/vercel.json) and set the Vercel project
+root directory to `web/`. The included site uses zyrk for project dependencies
+after npm bootstraps the CLI.
 
 The commit hook runs the full check gate, increments the version in
 `package.json`, `package-lock.json`, and `VERSION`, and creates a matching version
@@ -412,10 +436,29 @@ lists each unique package/version linked after the project transaction commits.
 Source counts differ from dependency contexts when peers split a package.
 `--json` disables progress.
 
-Install resolution has a five-minute deadline; each archive extraction has a
-two-minute deadline. Set `ZYRK_RESOLVE_TIMEOUT_MS` or `ZYRK_EXTRACT_TIMEOUT_MS`
-to an integer from `1` to `900000` milliseconds to adjust these timeouts.
-Graph, archive-entry, and byte limits still apply.
+Install resolution has a five-minute deadline, registry requests (including
+archive downloads) have a fifteen-minute deadline, a complete fetch operation
+has a fifteen-minute deadline, and each archive extraction has a two-minute
+deadline. On a slow or unreliable connection, increase the request and complete
+fetch deadlines together. For example, this gives a single request up to 30
+minutes and the entire fetch phase up to 45 minutes:
+
+```bash
+ZYRK_REQUEST_TIMEOUT_MS=1800000 ZYRK_FETCH_TIMEOUT_MS=2700000 zyrk install
+```
+
+To keep the settings for future commands in the current shell, use
+`export ZYRK_REQUEST_TIMEOUT_MS=1800000` and
+`export ZYRK_FETCH_TIMEOUT_MS=2700000`. Both values are milliseconds.
+Resolution and extraction timeouts accept `1` to `900000` (15 minutes); request
+and whole-fetch timeouts accept `1` to `3600000` (60 minutes). For a very slow
+connection, the largest supported combination is:
+
+```bash
+ZYRK_REQUEST_TIMEOUT_MS=3600000 ZYRK_FETCH_TIMEOUT_MS=3600000 zyrk install
+```
+
+These are finite deadlines; graph, archive-entry, and byte limits still apply.
 
 Platform gates run the complete check on Ubuntu and macOS/Node 24 and a
 Windows CLI/artifact contract suite, including paths with spaces and Unicode.

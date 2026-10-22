@@ -178,6 +178,47 @@ describe("version selection", () => {
     expect(nodes.map((node) => node.key)).toEqual([`alpha@${version}`]);
   });
 
+  it("uses a version manifest for exact selections when the provider supports it", async () => {
+    const calls: string[] = [];
+    const exactProvider: MetadataProvider = {
+      origin: "https://registry.example.com",
+      async packument() {
+        throw new Error("exact selections should not fetch a full packument");
+      },
+      async versionManifest(name, version) {
+        calls.push(`${name}@${version}`);
+        return versionEntry(name, { version });
+      },
+    };
+
+    const result = await resolveRequirements({
+      provider: exactProvider,
+      requirements: [{ name: "alpha", spec: "1.2.3" }],
+    });
+
+    expect(calls).toEqual(["alpha@1.2.3"]);
+    expect(result.nodes.map((node) => node.key)).toEqual(["alpha@1.2.3"]);
+  });
+
+  it("falls back to packument metadata when the exact-version endpoint is absent", async () => {
+    const exactProvider: MetadataProvider = {
+      origin: provider.origin,
+      packument: (name) => provider.packument(name),
+      async versionManifest() {
+        throw new ZyrkError("ZYRK_RESOLUTION_FAILED", "not found", {
+          detail: { status: 404 },
+        });
+      },
+    };
+
+    const result = await resolveRequirements({
+      provider: exactProvider,
+      requirements: [{ name: "alpha", spec: "1.1.0" }],
+    });
+
+    expect(result.nodes.map((node) => node.key)).toEqual(["alpha@1.1.0"]);
+  });
+
   it("fails for missing versions and tags", async () => {
     for (const spec of ["9.9.9", "^9.0.0", "no-such-tag"]) {
       await expect(

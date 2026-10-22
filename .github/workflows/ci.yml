@@ -20,10 +20,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
-          cache: npm
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm run check
+      - run: npm install --global zyrk@0.6.6
+      - run: zyrk install --frozen-lockfile
+      - run: zyrk run format:check
+      - run: zyrk run check
 
   windows-contract:
     runs-on: windows-latest

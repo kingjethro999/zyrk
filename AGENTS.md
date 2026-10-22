@@ -25,28 +25,34 @@ tested, and documented.
 ## Prerequisites
 
 - Node.js 24 or newer (native type stripping; no build step, no native toolchain).
-- npm, git, and (for publishing) the GitHub CLI.
+- npm for the one-time CLI bootstrap and registry publishing, git, and (for
+  release administration) the GitHub CLI.
 
 ## Workflow
 
 ```bash
-npm install          # toolchain only
-npm run setup:hooks  # commit-time check gate, version bumps, version tags (do this once per clone)
-npm run typecheck    # tsc --noEmit
-npm test             # vitest
-npm run check        # typecheck + tests (this is the gate)
-npm run format       # prettier --write . (keep the tree formatted)
+npm install --global zyrk@0.6.6 # bootstrap the CLI once per machine
+zyrk install --frozen-lockfile  # install this checkout's project toolchain
+zyrk run setup:hooks  # commit checks, version bumps and tags (once per clone)
+zyrk run typecheck    # tsc --noEmit
+zyrk run test         # vitest
+zyrk run check        # typecheck + build + tests (required gate)
+zyrk run format       # prettier --write . (keep the tree formatted)
 node bin/zyrk.js --help  # current command surface
 ```
 
 ## Commit discipline
+
+Windows contract CI currently uses npm while native filesystem and link
+behavior is being validated. npm remains the registry publishing client; it
+does not install project dependencies on Linux or macOS.
 
 - One feature, fix, or docs change per commit. Never bundle unrelated work.
 - **Never amend, skip, or work around the git hooks.** Every commit after the
   first runs the full check gate, then records the next version in
   `package.json`, `package-lock.json`, and `VERSION`, and tags the commit.
   If the gate fails, fix the code — don't bypass the hook.
-- Never commit if `npm run check` is red. Never push a red `main`: CI runs
+- Never commit if `zyrk run check` is red. Never push a red `main`: CI runs
   the same gate on every push and pull request.
 - Commit messages: short imperative subject line, blank line, then what and
   why. No emojis, no marketing language.
@@ -56,7 +62,7 @@ node bin/zyrk.js --help  # current command surface
 - TypeScript, strictest settings: no unchecked indexed access, exact
   optional properties, erasable syntax only (no enums, no namespaces, no
   parameter properties). Imports of project files use explicit `.ts`
-  extensions. Run `npx prettier --write` on touched files.
+  extensions. Run `zyrk exec prettier --write` on touched files.
 - Every behavior ships with a test that proves it. Prefer hermetic fixtures
   (see `test/helpers/`) over network access. A test that only passes with
   wifi is a bad test.

@@ -3,8 +3,11 @@
 plan_files/
 node_modules/
 dist/
+**/.next/
 *.tsbuildinfo
 .zyrk-local/
+.codex-worktrees/
+.codex-test-artifacts/
 coverage/
 tmp/
 # Previous names may leave private project state behind.

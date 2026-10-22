@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Full check: typecheck, then tests. Used by `npm run check`.
- * Runs the repo-local binaries; requires `npm install` to have been run.
+ * Full check: typecheck, build, then tests. Used by `zyrk run check`.
+ * Runs the repo-local binaries; requires `zyrk install` to have been run.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -21,7 +21,7 @@ const steps = [
 
 for (const [name, command, args] of steps) {
   if (!existsSync(command)) {
-    console.error(`check: missing ${command}; run npm install first`);
+    console.error(`check: missing ${command}; run zyrk install first`);
     process.exit(1);
   }
   console.log(`\n--- zyrk check: ${name} ---`);

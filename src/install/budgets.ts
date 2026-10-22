@@ -7,6 +7,7 @@ function timeout(
   env: NodeJS.ProcessEnv,
   key: string,
   fallback: number,
+  maximum = 900000,
 ): number {
   const raw = env[key];
   if (raw === undefined) return fallback;
@@ -14,13 +15,13 @@ function timeout(
     !/^[0-9]+$/.test(raw) ||
     !Number.isSafeInteger(Number(raw)) ||
     Number(raw) < 1 ||
-    Number(raw) > 900000
+    Number(raw) > maximum
   )
     throw new ZyrkError(
       "ZYRK_POLICY_DENIED",
-      `Cannot configure install: ${key} must be an integer from 1 to 900000.`,
+      `Cannot configure install: ${key} must be an integer from 1 to ${maximum}.`,
       {
-        remedy: `Set ${key} to a timeout in milliseconds from 1 to 900000, or unset it to use the default.`,
+        remedy: `Set ${key} to a timeout in milliseconds from 1 to ${maximum}, or unset it to use the default.`,
       },
     );
   return Number(raw);
@@ -28,6 +29,7 @@ function timeout(
 export function installBudgets(env: NodeJS.ProcessEnv): {
   resolveBudget: Partial<ResolverLimits>;
   extractBudget: Partial<ExtractionLimits>;
+  fetchBudget: { deadlineMs: number };
 } {
   return {
     resolveBudget: {
@@ -36,5 +38,13 @@ export function installBudgets(env: NodeJS.ProcessEnv): {
     extractBudget: {
       maxDurationMs: timeout(env, "ZYRK_EXTRACT_TIMEOUT_MS", 120000),
     },
+    fetchBudget: {
+      deadlineMs: timeout(env, "ZYRK_FETCH_TIMEOUT_MS", 900000, 3600000),
+    },
   };
+}
+
+/** Bound slow registry transfers while allowing large framework archives. */
+export function registryRequestDeadline(env: NodeJS.ProcessEnv): number {
+  return timeout(env, "ZYRK_REQUEST_TIMEOUT_MS", 900000, 3600000);
 }

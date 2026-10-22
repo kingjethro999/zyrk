@@ -1,9 +1,15 @@
 import { afterEach, expect, test } from "vitest";
 import { createServer, type RequestListener, type Server } from "node:http";
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import * as path from "node:path";
-import { RegistryClient } from "../src/fetch/registry.ts";
+import {
+  DEFAULT_MAX_TOTAL_METADATA_BYTES,
+  RegistryClient,
+} from "../src/fetch/registry.ts";
 import { installRegistry } from "../src/install/registry.ts";
 import { redactSecrets } from "../src/log.ts";
 import { ZyrkError, toZyrkError } from "../src/errors.ts";
@@ -64,6 +70,9 @@ test("diagnostics remove URL secrets, Basic auth, controls, nested details and l
       "operation failed",
     ).message,
   ).toBe("operation failed");
+});
+test("default metadata budget supports framework graphs while retaining a finite cap", () => {
+  expect(DEFAULT_MAX_TOTAL_METADATA_BYTES).toBe(256 * 1024 * 1024);
 });
 test("rejects transport options that weaken or bypass TLS policy", () => {
   for (const fetchOptions of [
@@ -165,6 +174,69 @@ test("metadata deadline aborts a live response and stops its socket", async () =
     didClose,
     new Promise((_, reject) =>
       setTimeout(() => reject(Error("socket not closed")), 1000),
+    ),
+  ]);
+});
+test("CLI registry request timeout aborts a stalled tarball response", async () => {
+  let closed!: () => void;
+  const didClose = new Promise<void>((resolve) => {
+    closed = resolve;
+  });
+  const base = await server((req, res) => {
+    req.on("close", closed);
+    res.writeHead(200, { "content-length": "1000000" });
+    res.write("partial");
+  });
+  const root = await dir();
+  const client = await installRegistry({
+    cwd: root,
+    env: { HOME: root, ZYRK_REQUEST_TIMEOUT_MS: "50" },
+    version: "test",
+    registry: base,
+  });
+  await expect(
+    client.downloadTarball({
+      url: `${base}/fixture.tgz`,
+      expectedIntegrity: undefined,
+      destPath: path.join(root, "fixture.tgz"),
+      label: "fixture@1.0.0",
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  await Promise.race([
+    didClose,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(Error("tarball socket not closed")), 1000),
+    ),
+  ]);
+});
+test("tarball deadline aborts a stalled response and stops its socket", async () => {
+  let closed!: () => void;
+  const didClose = new Promise<void>((resolve) => {
+    closed = resolve;
+  });
+  const base = await server((req, res) => {
+    req.on("close", closed);
+    res.writeHead(200, { "content-length": "1000000" });
+    res.write("partial");
+  });
+  const root = await dir();
+  await expect(
+    new RegistryClient({
+      registry: base,
+      userAgent: "test",
+      requestDeadlineMs: 50,
+      retries: 0,
+    }).downloadTarball({
+      url: `${base}/fixture.tgz`,
+      expectedIntegrity: undefined,
+      destPath: path.join(root, "fixture.tgz"),
+      label: "fixture@1.0.0",
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_FETCH_REFUSED" });
+  await Promise.race([
+    didClose,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(Error("tarball socket not closed")), 1000),
     ),
   ]);
 });
@@ -547,6 +619,32 @@ test("aggregate metadata accounting limits a client across individually valid re
   });
 });
 
+test("exact package metadata uses the version endpoint and stays within aggregate limits", async () => {
+  const requests: string[] = [];
+  const body = JSON.stringify({
+    name: "fixture",
+    version: "1.2.3",
+    dist: { tarball: "https://registry.example/fixture-1.2.3.tgz" },
+  });
+  const base = await server((req, res) => {
+    requests.push(req.url ?? "");
+    res.end(body);
+  });
+  const client = new RegistryClient({
+    registry: base,
+    userAgent: "test",
+    maxTotalMetadataBytes: Buffer.byteLength(body),
+  });
+
+  await expect(
+    client.versionManifest("fixture", "1.2.3"),
+  ).resolves.toMatchObject({
+    name: "fixture",
+    version: "1.2.3",
+  });
+  expect(requests).toEqual(["/fixture/1.2.3"]);
+});
+
 test("metadata retry error bodies consume the same total client budget", async () => {
   let requests = 0;
   const base = await server((_req, res) => {
@@ -568,6 +666,52 @@ test("metadata retry error bodies consume the same total client budget", async (
     detail: { setting: "maxTotalMetadataBytes" },
   });
   expect(requests).toBe(2);
+});
+
+test("metadata budget refusal aborts compressed response streams cleanly", async () => {
+  const compressed = gzipSync(
+    Buffer.concat([
+      Buffer.from('{"name":"fixture","versions":{'),
+      randomBytes(8 * 1024 * 1024),
+    ]),
+  );
+  const base = await server((_req, res) => {
+    res.writeHead(200, { "content-encoding": "gzip" });
+    let offset = 0;
+    const send = () => {
+      if (res.destroyed || offset >= compressed.length) return res.end();
+      const chunk = compressed.subarray(offset, offset + 16 * 1024);
+      offset += chunk.length;
+      res.write(chunk, () => setTimeout(send, 2));
+    };
+    send();
+  });
+  const helper = new URL(
+    "./helpers/metadata-budget-child.mjs",
+    import.meta.url,
+  );
+  const child = spawn(process.execPath, [helper.pathname, base], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "",
+    stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exit = await new Promise<{
+    code: number | null;
+    signal: string | null;
+  }>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+
+  expect(exit, `${stdout}\n${stderr}`).toEqual({ code: 0, signal: null });
+  expect(stdout).toContain("ZYRK_FETCH_REFUSED");
+  expect(stderr).not.toContain("zlib binding closed");
 });
 
 test("nested tool working directories retain the project registry boundary", async () => {

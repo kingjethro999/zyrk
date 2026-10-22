@@ -40,6 +40,12 @@ const transport = createRequire(import.meta.url)("make-fetch-happen") as (
 /** 512 MiB: large for an npm package, small enough to bound mishaps. */
 export const DEFAULT_MAX_TARBALL_BYTES = 512 * 1024 * 1024;
 
+/** Bounds the complete metadata closure while allowing large framework graphs. */
+export const DEFAULT_MAX_TOTAL_METADATA_BYTES = 256 * 1024 * 1024;
+
+/** Fifteen minutes per registry operation, including archive transfer. */
+export const DEFAULT_REQUEST_DEADLINE_MS = 900_000;
+
 /** Default registry for tool environments (SPEC 13.1). */
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org/";
 
@@ -165,7 +171,7 @@ export class RegistryClient {
       "maxMetadataBytes",
     );
     this.#maxTotalMetadataBytes = positiveLimit(
-      options.maxTotalMetadataBytes ?? 128 * 1024 * 1024,
+      options.maxTotalMetadataBytes ?? DEFAULT_MAX_TOTAL_METADATA_BYTES,
       "maxTotalMetadataBytes",
     );
     this.#maxMetadataVersions = positiveLimit(
@@ -173,7 +179,7 @@ export class RegistryClient {
       "maxMetadataVersions",
     );
     this.#requestDeadlineMs = positiveLimit(
-      options.requestDeadlineMs ?? 120_000,
+      options.requestDeadlineMs ?? DEFAULT_REQUEST_DEADLINE_MS,
       "requestDeadlineMs",
     );
     positiveLimit(this.#maxTarballBytes, "maxTarballBytes");
@@ -285,6 +291,52 @@ export class RegistryClient {
       this.#origin,
       this.#maxMetadataVersions,
     );
+  }
+
+  /** Fetch one exact version without transferring every release in a packument. */
+  async versionManifest(
+    name: string,
+    version: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<PackumentVersion> {
+    const selected = this.forPackage(name);
+    if (selected !== this)
+      return selected.versionManifest(name, version, options);
+    const url = `${this.#registry}${escapePackageName(name)}/${encodeURIComponent(version)}`;
+    this.#logger?.debug("fetching exact version metadata", {
+      name,
+      version,
+      url,
+    });
+    let raw: unknown;
+    try {
+      raw = await this.#withRequest(
+        url,
+        `${INSTALL_V1_ACCEPT}, application/json`,
+        (response) => this.#readMetadata(response),
+        options.signal,
+      );
+    } catch (error) {
+      throw mapFetchError(error, `fetch metadata for ${name}@${version}`);
+    }
+    const validated = validatePackument(
+      { name, versions: { [version]: raw } },
+      name,
+      this.#origin,
+      1,
+    );
+    const entry = validated.versions[version];
+    if (entry === undefined)
+      throw new ZyrkError(
+        "ZYRK_RESOLUTION_FAILED",
+        `registry has no version ${version} of ${name}`,
+        {
+          detail: { name, version },
+          remedy:
+            "check the requested version exists in the configured registry",
+        },
+      );
+    return entry;
   }
 
   /** Registry advisory request; private names may never follow an external redirect. */
@@ -682,7 +734,10 @@ export class RegistryClient {
         "registry redirect configuration",
       );
     } catch (error) {
-      active?.body.destroy();
+      // A bounded body consumer can stop while the decoder still has source
+      // bytes arriving. Abort the transport before closing the exposed stream
+      // so compressed responses cannot write into a closed decompressor.
+      cancel();
       if (timedOut || signals.some((source) => source.aborted))
         throw resourceLimit(
           "request deadline or cancellation",

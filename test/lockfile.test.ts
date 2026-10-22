@@ -136,7 +136,12 @@ describe("writeLockfile", () => {
       requires: true,
       packages: {
         "": { name: "demo", version: "0.0.0", license: "MIT" },
-        "node_modules/app": { version: "0.9.0", license: "MIT", extra: true },
+        "node_modules/app": {
+          version: "0.9.0",
+          license: "MIT",
+          funding: { url: "https://github.com/example/app?sponsor=1" },
+          extra: true,
+        },
         "node_modules/transitive": {
           version: "1.2.3",
           resolved: "https://example.com/t.tgz",
@@ -158,6 +163,8 @@ describe("writeLockfile", () => {
     expect(doc.packages?.[""]).toMatchObject({ license: "MIT" });
     expect(doc.packages?.["node_modules/app"]).toMatchObject({
       version: "1.0.0",
+      license: "MIT",
+      funding: { url: "https://github.com/example/app?sponsor=1" },
     });
     expect(doc.customField).toBe(42);
     expect(doc.zyrk).toBeDefined();

@@ -8,6 +8,7 @@ import { RegistryClient, DEFAULT_REGISTRY } from "../fetch/registry.ts";
 import { isErrno } from "../util/fsx.ts";
 import { findProjectBoundary } from "../config/paths.ts";
 import { cleanUrl } from "./lock.ts";
+import { registryRequestDeadline } from "./budgets.ts";
 
 export async function installRegistry(options: {
   cwd: string;
@@ -146,6 +147,7 @@ export async function installRegistry(options: {
   return new RegistryClient({
     registry,
     scopedRegistries,
+    requestDeadlineMs: registryRequestDeadline(options.env),
     userAgent: `zyrk/${options.version}`,
     fetchOptions: auth,
   });

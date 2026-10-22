@@ -49,15 +49,22 @@ beforeEach(async () => {
       return;
     }
     response.setHeader("content-type", "application/json");
+    const version = {
+      name: "fixture",
+      version: "1.0.0",
+      dist: { tarball: `${origin}/archive.tgz`, integrity },
+    };
+    if (request.url === "/fixture/1.0.0") {
+      response.end(JSON.stringify(version));
+      return;
+    }
     response.end(
       JSON.stringify({
         name: "fixture",
         "dist-tags": { latest: "1.0.0" },
         versions: {
           "1.0.0": {
-            name: "fixture",
-            version: "1.0.0",
-            dist: { tarball: `${origin}/archive.tgz`, integrity },
+            ...version,
           },
         },
       }),

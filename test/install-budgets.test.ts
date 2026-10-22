@@ -1,10 +1,14 @@
 import { expect, it } from "vitest";
-import { installBudgets } from "../src/install/budgets.ts";
+import {
+  installBudgets,
+  registryRequestDeadline,
+} from "../src/install/budgets.ts";
 
 it("provides bounded default install timeouts without changing graph or byte limits", () => {
   expect(installBudgets({})).toEqual({
     resolveBudget: { deadlineMs: 300000 },
     extractBudget: { maxDurationMs: 120000 },
+    fetchBudget: { deadlineMs: 900000 },
   });
 });
 it("accepts public integer timeout overrides", () => {
@@ -16,7 +20,30 @@ it("accepts public integer timeout overrides", () => {
   ).toEqual({
     resolveBudget: { deadlineMs: 900000 },
     extractBudget: { maxDurationMs: 1 },
+    fetchBudget: { deadlineMs: 900000 },
   });
+});
+it("provides a separately bounded registry request timeout", () => {
+  expect(registryRequestDeadline({})).toBe(900000);
+  expect(registryRequestDeadline({ ZYRK_REQUEST_TIMEOUT_MS: "1234" })).toBe(
+    1234,
+  );
+  expect(registryRequestDeadline({ ZYRK_REQUEST_TIMEOUT_MS: "3600000" })).toBe(
+    3600000,
+  );
+  expect(() =>
+    registryRequestDeadline({ ZYRK_REQUEST_TIMEOUT_MS: "3600001" }),
+  ).toThrow(/ZYRK_REQUEST_TIMEOUT_MS/);
+});
+it("allows a bounded whole-fetch timeout for slow networks", () => {
+  expect(
+    installBudgets({ ZYRK_FETCH_TIMEOUT_MS: "2700000" }).fetchBudget,
+  ).toEqual({
+    deadlineMs: 2700000,
+  });
+  expect(() => installBudgets({ ZYRK_FETCH_TIMEOUT_MS: "3600001" })).toThrow(
+    /ZYRK_FETCH_TIMEOUT_MS/,
+  );
 });
 it.each([
   "",
@@ -32,7 +59,10 @@ it.each([
 ])("rejects invalid public timeout %j without echoing it", (value) => {
   for (const key of ["ZYRK_RESOLVE_TIMEOUT_MS", "ZYRK_EXTRACT_TIMEOUT_MS"]) {
     expect(() => installBudgets({ [key]: value })).toThrow(
-      /integer from 1 to 900000/,
+      /integer from 1 to (900000|3600000)/,
     );
   }
+  expect(() => installBudgets({ ZYRK_FETCH_TIMEOUT_MS: "3600001" })).toThrow(
+    /integer from 1 to 3600000/,
+  );
 });
