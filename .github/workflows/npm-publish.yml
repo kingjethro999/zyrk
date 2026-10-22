@@ -57,6 +57,11 @@ jobs:
       - run: zyrk install --frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --tag backfill
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: npm publish
+        if: github.event_name != 'workflow_dispatch'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
