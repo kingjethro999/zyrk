@@ -127,6 +127,20 @@ it("installs the transitive shared graph and ordinary CJS/ESM imports", async ()
     "1.0.0",
   );
 });
+it("gives malformed manifests a direct recovery action", async () => {
+  await writeFile(
+    path.join(project, "package.json"),
+    JSON.stringify({
+      name: "demo",
+      version: "1.0.0",
+      dependencies: { "bad name": "*" },
+    }),
+  );
+  await expect(install()).rejects.toMatchObject({
+    code: "ZYRK_MANIFEST_INVALID",
+    remedy: expect.stringContaining("Correct the package.json syntax"),
+  });
+});
 it("shares exact realizations across projects and isolates other versions", async () => {
   await install();
   const second = path.join(root, "second");
@@ -172,6 +186,7 @@ it("rejects frozen drift and missing offline inputs before changing the active g
   });
   await expect(install({ offline: true })).rejects.toMatchObject({
     code: "ZYRK_OFFLINE_MISSING",
+    remedy: expect.stringContaining("run zyrk install to verify and cache"),
   });
   expect(await lockText()).toBe(before);
   expect(await evaluate(project, 'console.log(require("alpha"))')).toBe(

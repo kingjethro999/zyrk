@@ -321,6 +321,16 @@ export default function DocsPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt>
+                    <code>ZYRK_OFFLINE_MISSING</code>
+                  </dt>
+                  <dd>
+                    Reconnect to the configured registry and run{" "}
+                    <code>zyrk install</code> to verify and cache required
+                    sources. Retry offline after the online install succeeds.
+                  </dd>
+                </div>
+                <div>
                   <dt>Script is not declared</dt>
                   <dd>
                     Run the command from the project that declares it, or use{" "}

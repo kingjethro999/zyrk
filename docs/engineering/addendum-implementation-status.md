@@ -2,7 +2,7 @@
 
 Reviewed 2026-10-23 against `plan_files/ZYRK_CLAUDE_XML_ADDENDUM.md` and
 `plan_files/ZYRK_UPGRADE_ADDENDUM.md`, the maintainer brief, and the local
-0.7.6 source. This is a source-and-test inventory, not a fresh platform or
+0.7.8 source. This is a source-and-test inventory, not a fresh platform or
 framework compatibility run. The two addenda share the same nine upgrade
 phases; the Claude addendum adds a concrete website and CLI backlog.
 
@@ -12,7 +12,7 @@ phases; the Claude addendum adds a concrete website and CLI backlog.
 | --------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | W01 — accessible command copy control   | `1b88ce2` (`v0.7.6`) | Unit tests cover exact clipboard content, unavailable clipboard, and denied writes. The full repository hook passed: 69 test files, 693 passed, 1 skipped.                                                                                                                                                          |
 | WEB-02/W02 — native documentation route | `93006ac` (`v0.7.7`) | `web/app/docs/page.tsx` provides getting started, command index, platform and framework boundaries, build-script trust, timeout troubleshooting, source links, and in-site navigation. Web lint/build and local HTTP 200 route check passed; the full repository hook passed: 69 test files, 693 passed, 1 skipped. |
-| CLI-05 — focused command help           | Pending commit       | Native commands now have command-specific usage, supported options, and examples; `docker init/build/run --help` has action-level help. Integration tests cover every native command and assert help runs without initializing tools.                                                                               |
+| CLI-05 — focused command help           | `71240c7` (`v0.7.8`) | Native commands have command-specific usage, supported options, and examples; `docker init/build/run --help` has action-level help. Integration coverage checks the full native command surface and side-effect-free dispatch. The full hook passed: 69 test files, 721 passed, 1 skipped.                          |
 
 ## Current evidence
 

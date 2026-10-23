@@ -151,9 +151,20 @@ function error(
     | "ZYRK_OFFLINE_MISSING",
   message: string,
 ): ZyrkError {
+  const remedy = {
+    ZYRK_MANIFEST_INVALID:
+      "Correct the package.json syntax or dependency declarations, then run zyrk install again.",
+    ZYRK_NOT_IMPLEMENTED:
+      "Remove the unsupported project setting or use a supported workflow; run zyrk --help to review available commands.",
+    ZYRK_POLICY_DENIED:
+      "Review the project and user policy settings involved in this operation, then retry with an explicitly supported configuration.",
+    ZYRK_USAGE:
+      "Run zyrk install --help to review supported install options and correct the invocation.",
+    ZYRK_OFFLINE_MISSING:
+      "Connect to the configured registry and run zyrk install to verify and cache the required sources; retry offline after that succeeds.",
+  }[code];
   return new ZyrkError(code, message, {
-    remedy:
-      "Review package.json and the documented zyrk install options, then retry.",
+    remedy,
   });
 }
 function object(value: unknown): value is Record<string, unknown> {
