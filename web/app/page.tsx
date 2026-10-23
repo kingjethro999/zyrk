@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CopyCommand } from "./copy-command";
 
 const repo = "https://github.com/kingjethro999/zyrk";
 const bootstrap = "npm install --global zyrk";
@@ -293,12 +294,7 @@ export default function Home() {
               <div className="quick-install-label">
                 <span aria-hidden="true">⌘</span> Bootstrap the CLI
               </div>
-              <div className="copy-command">
-                <code>
-                  <span>$</span> {bootstrap}
-                </code>
-                <span className="copy-hint">npm</span>
-              </div>
+              <CopyCommand command={bootstrap} />
               <p>
                 Use <code>zyrk install</code> to install your project
                 dependencies.
