@@ -157,6 +157,206 @@ export function helpText(version: string): string {
   return `${lines.join("\n")}\n`;
 }
 
+const COMMAND_HELP: Readonly<Record<string, string>> = {
+  install: `Usage: zyrk install [package[@version] ...] [options]
+
+Install the project graph, or add the supplied packages. A portable package-lock.json records selections; the user store path stays machine-local.
+
+Options:
+  --frozen-lockfile  Fail if the lock does not match the project
+  --offline          Use verified local sources only
+  --ignore-scripts   Skip dependency lifecycle scripts
+  --lockfile-only    Write selections without linking dependencies
+  --omit=dev         Omit development dependencies
+  -D, --save-dev     Save added packages as development dependencies
+  -E, --save-exact   Save exact versions when adding packages
+  --registry=URL     Use the selected registry for this operation
+
+Examples:
+  zyrk install
+  zyrk install --frozen-lockfile
+  zyrk install prettier -D`,
+  i: `Usage: zyrk i [package[@version] ...] [options]
+
+Alias for zyrk install. See zyrk install --help for supported options and examples.`,
+  add: `Usage: zyrk add <package[@version] ...> [options]
+
+Add packages and install the updated project graph.
+
+Options:
+  -D, --save-dev       Save as development dependencies
+  -O, --save-optional  Save as optional dependencies
+  -E, --save-exact     Save exact versions
+  --ignore-scripts     Skip dependency lifecycle scripts
+  --lockfile-only      Update the lock without linking dependencies
+
+Example: zyrk add prettier -D`,
+  remove: `Usage: zyrk remove <package ...> [--ignore-scripts] [--lockfile-only]
+
+Remove direct dependencies and install the resulting graph.
+
+Example: zyrk remove prettier`,
+  update: `Usage: zyrk update [package ...] [options]
+
+Update selected packages, or all direct dependencies when no package is named.
+
+Options:
+  --latest           Select the latest versions, ignoring declared ranges
+  -E, --save-exact   Save exact versions
+  --ignore-scripts   Skip dependency lifecycle scripts
+  --lockfile-only    Update the lock without linking dependencies
+
+Example: zyrk update typescript`,
+  import: `Usage: zyrk import --from npm [--ignore-scripts] [--lockfile-only]
+
+Import supported selections from package-lock.json and install the graph.
+
+Example: zyrk import --from npm`,
+  run: `Usage: zyrk run [--workspace <name-or-path>] <script> [-- <args...>]
+       zyrk <script> [args...]
+
+Run a declared package script with local executable paths. The script runs in its package directory.
+
+Examples:
+  zyrk run build
+  zyrk dev
+  zyrk run --workspace web dev`,
+  exec: `Usage: zyrk exec [--workspace <name-or-path>] <executable> [args...]
+
+Run an executable already installed in the project. This command never fetches packages.
+
+Example: zyrk exec tsc --noEmit`,
+  list: `Usage: zyrk list [--workspace <name-or-path>] [--json]
+
+Show the installed project dependency graph. Use --json for machine-readable output.`,
+  why: `Usage: zyrk why [--workspace <name-or-path>] <package> [--json]
+
+Show the selected installed instances for a package. Use --json for machine-readable output.`,
+  doctor: `Usage: zyrk doctor [--workspace <name-or-path>] [--json]
+
+Read-only diagnostics for project files, installed links, policy, and installation state.`,
+  fetch: `Usage: zyrk fetch --frozen-lockfile [--offline]
+
+Fetch and verify the locked source closure without linking project dependencies.
+
+Example: zyrk fetch --frozen-lockfile --offline`,
+  audit: `Usage: zyrk audit [--audit-level <severity>] [--offline]
+
+Report advisories using the configured privacy policy. Severity is info, low, moderate, high, or critical.
+
+Example: zyrk audit --audit-level high`,
+  repair: `Usage: zyrk repair [--offline]
+
+Reconstruct project links from verified sources selected by the existing lockfile.`,
+  "approve-builds": `Usage: zyrk approve-builds [package ... | --all]
+
+Review build candidates without running package code. Select exact candidates to persist approval, or use --all to approve every candidate shown.
+
+Example: zyrk approve-builds`,
+  rebuild: `Usage: zyrk rebuild [--offline]
+
+Run previously approved dependency builds for the complete locked project graph.`,
+  next: `Usage: zyrk next --turbopack
+
+Explicitly configure the supported Next.js Turbopack adapter. The command preserves the existing configuration and writes a backup.
+
+Example: zyrk next --turbopack`,
+  dlx: `Usage: zyrk dlx <package[@version]> [args...]
+
+Fetch a temporary tool environment and run its executable. Tool arguments after the package are passed to that executable.
+
+Example: zyrk dlx vite --help`,
+  create: `Usage: zyrk create <initializer[@version]> [args...]
+
+Run a supported project initializer. Next.js scaffolds install dependencies with Zyrk; initializer arguments are passed through.
+
+Example: zyrk create next-app web`,
+  patch: `Usage: zyrk patch <package>
+
+Create a private editing area for a selected installed package source.
+
+Example: zyrk patch left-pad`,
+  "patch-commit": `Usage: zyrk patch-commit <package>
+
+Validate edits in a private package editing area and record the project patch.
+
+Example: zyrk patch-commit left-pad`,
+  store: `Usage: zyrk store <action>
+
+Actions:
+  path                 Print the configured store path
+  status               Show store initialization and counts
+  verify --full        Verify stored objects and realizations
+  gc [--dry-run]       Collect eligible unreferenced data
+  pin <project>        Retain a project closure
+  unpin <pin-id>       Remove a retention pin
+
+Use zyrk store gc --dry-run to preview collection.`,
+  projects: `Usage: zyrk projects <list | forget> [project-id]
+
+List registered projects or explicitly drop a retention root.
+
+Examples:
+  zyrk projects list
+  zyrk projects forget <project-id>`,
+  deploy: `Usage: zyrk deploy --out <new-directory> [options]
+
+Create a self-contained production output from an installed, verified project. The output directory's parent must already exist and the output directory must be new.
+
+Options:
+  --omit=dev         Omit development dependencies
+  --files <path>     Include a runtime file (repeatable), or declare package.json files
+  --entry <path>     Select the direct Node entry point
+
+Example: zyrk deploy --out release --files dist --entry dist/server.js`,
+  docker: `Usage: zyrk docker <init | build | run> [options]
+
+Generate a pinned Docker setup, build its image, or run it locally.
+
+Examples:
+  zyrk docker init --help
+  zyrk docker build --tag app:local
+  zyrk docker run --tag app:local`,
+};
+
+function commandHelpText(command: string): string | undefined {
+  const help = COMMAND_HELP[command];
+  return help === undefined ? undefined : `${help}\n`;
+}
+
+function requestedCommandHelp(
+  command: string,
+  args: readonly string[],
+): string | undefined {
+  if (
+    command === "docker" &&
+    args[1] !== undefined &&
+    ["-h", "--help"].includes(args[1])
+  ) {
+    const action = args[0];
+    if (action === "init")
+      return `Usage: zyrk docker init --node-image <image@sha256:digest> --cli-artifact <path> --cli-sha512 <digest> [options]\n\nGenerate reviewable Docker setup files. The pinned Node image and Zyrk CLI artifact are required.\n\nOptions: --build-script <script> --entry <file> --files <file>... --port <1..65535>\n`;
+    if (action === "build")
+      return `Usage: zyrk docker build --tag <local-image>\n\nBuild the generated Dockerfile with the explicit local image tag.\n`;
+    if (action === "run")
+      return `Usage: zyrk docker run --tag <local-image> [--port <host-port>]\n\nRun the generated application container and publish its configured port.\n`;
+  }
+  if (
+    command === "store" &&
+    args[1] !== undefined &&
+    ["-h", "--help"].includes(args[1])
+  )
+    return commandHelpText("store");
+  if (
+    command === "projects" &&
+    args[1] !== undefined &&
+    ["-h", "--help"].includes(args[1])
+  )
+    return commandHelpText("projects");
+  if (args[0] !== "--help" && args[0] !== "-h") return undefined;
+  return commandHelpText(command);
+}
+
 export type CliOutput = {
   exitCode: number;
   stdout: string;
@@ -461,6 +661,10 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         ),
       );
     }
+  }
+  if (!parsed.help && !parsed.version && parsed.command !== undefined) {
+    const help = requestedCommandHelp(parsed.command, parsed.commandArgs);
+    if (help !== undefined) return emit(ok(help, parsed));
   }
   if (
     !parsed.help &&

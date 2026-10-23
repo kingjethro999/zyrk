@@ -97,6 +97,57 @@ async function json(...args: string[]) {
     >,
   };
 }
+it.each([
+  [["install", "--help"], "--frozen-lockfile"],
+  [["i", "--help"], "zyrk install --help"],
+  [["add", "--help"], "--save-dev"],
+  [["remove", "--help"], "zyrk remove <package"],
+  [["update", "--help"], "--latest"],
+  [["import", "--help"], "--from npm"],
+  [["run", "--help"], "--workspace"],
+  [["exec", "--help"], "never fetches"],
+  [["list", "--help"], "machine-readable"],
+  [["why", "--help"], "<package>"],
+  [["doctor", "--help"], "Read-only diagnostics"],
+  [["fetch", "--help"], "--frozen-lockfile"],
+  [["audit", "--help"], "--audit-level"],
+  [["repair", "--help"], "verified sources"],
+  [["approve-builds", "--help"], "--all"],
+  [["rebuild", "--help"], "--offline"],
+  [["next", "--help"], "--turbopack"],
+  [["dlx", "--help"], "<package[@version]>"],
+  [["create", "--help"], "next-app"],
+  [["patch", "--help"], "<package>"],
+  [["patch-commit", "--help"], "<package>"],
+  [["store", "--help"], "verify --full"],
+  [["projects", "--help"], "forget <project-id>"],
+  [["deploy", "--help"], "--out <new-directory>"],
+  [["docker", "--help"], "docker init --help"],
+  [["docker", "init", "--help"], "--node-image"],
+  [["docker", "build", "--help"], "--tag"],
+  [["docker", "run", "--help"], "--port"],
+] as const)(
+  "prints focused help for %s without initializing tools",
+  async (argv, expected) => {
+    let stdout = "";
+    let initialized = false;
+    const code = await runCli({
+      argv,
+      env: {},
+      cwd: project,
+      tools: async () => {
+        initialized = true;
+        return { store, registry };
+      },
+      stdout: { write: (value) => (stdout += value) },
+      stderr: { write: () => undefined },
+    });
+    expect(code).toBe(0);
+    expect(stdout).toContain(expected);
+    expect(initialized).toBe(false);
+  },
+);
+
 it("routes frozen fetch and offline audit through the native handlers", async () => {
   expect((await cli("install", "--lockfile-only")).code).toBe(0);
   const before = await readFile(

@@ -8,10 +8,11 @@ phases; the Claude addendum adds a concrete website and CLI backlog.
 
 ## Completed implementation slices
 
-| Slice                                   | Commit               | Evidence                                                                                                                                                                                                                                                                                 |
-| --------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| W01 — accessible command copy control   | `1b88ce2` (`v0.7.6`) | Unit tests cover exact clipboard content, unavailable clipboard, and denied writes. The full repository hook passed: 69 test files, 693 passed, 1 skipped.                                                                                                                               |
-| WEB-02/W02 — native documentation route | Pending commit       | `web/app/docs/page.tsx` provides getting started, command index, platform and framework boundaries, build-script trust, timeout troubleshooting, source links, and in-site navigation. Web lint/build pass; a local production-server check returned HTTP 200 and verified key guidance. |
+| Slice                                   | Commit               | Evidence                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W01 — accessible command copy control   | `1b88ce2` (`v0.7.6`) | Unit tests cover exact clipboard content, unavailable clipboard, and denied writes. The full repository hook passed: 69 test files, 693 passed, 1 skipped.                                                                                                                                                          |
+| WEB-02/W02 — native documentation route | `93006ac` (`v0.7.7`) | `web/app/docs/page.tsx` provides getting started, command index, platform and framework boundaries, build-script trust, timeout troubleshooting, source links, and in-site navigation. Web lint/build and local HTTP 200 route check passed; the full repository hook passed: 69 test files, 693 passed, 1 skipped. |
+| CLI-05 — focused command help           | Pending commit       | Native commands now have command-specific usage, supported options, and examples; `docker init/build/run --help` has action-level help. Integration tests cover every native command and assert help runs without initializing tools.                                                                               |
 
 ## Current evidence
 
@@ -25,30 +26,28 @@ phases; the Claude addendum adds a concrete website and CLI backlog.
 | Website docs           | A native `/docs` route provides task-oriented onboarding, command examples, evidence-bounded compatibility guidance, troubleshooting, and links to the detailed README and policies.                                                    | Implemented; web lint, production build, and local HTTP route check passed.                                                  |
 | Website trust model    | Landing page covers verified sources, context separation, private builds, portable locks, ordinary imports, and recovery; the terminal display is explicitly illustrative.                                                              | Existing but needs compatibility and limitations information closer to onboarding (W03/W05).                                 |
 | Website accessibility  | Focus styles, responsive rules, and reduced-motion handling exist in `web/app/globals.css`; no evidenced browser matrix for 320px, zoom, keyboard, or contrast was found.                                                               | Partially implemented; runtime accessibility remains unverified (W04).                                                       |
-| CLI command help       | `helpText()` lists command names and brief descriptions, but does not provide per-command options/examples.                                                                                                                             | Existing but limited; improve as a separate tested slice (CLI-05).                                                           |
+| CLI command help       | Native commands provide focused usage, supported options, and examples through `zyrk <command> --help`; npm-delegated help still goes to npm.                                                                                           | Implemented in the current CLI-05 slice; integration coverage checks every native command and side-effect-free dispatch.     |
 | Errors and JSON        | Stable `ZYRK_*` errors, redaction helpers, and schema-versioned JSON output exist.                                                                                                                                                      | Existing; audit targeted high-friction errors before editing (CLI-03).                                                       |
 | Platform compatibility | Compatibility docs and CI describe Ubuntu/macOS gates and Windows contract tests; native Windows store installation remains explicitly gated.                                                                                           | Documented, not independently rerun for this review; do not claim universal platform support.                                |
 | Performance            | A benchmark/evidence plan exists, but this review did not run controlled npm/pnpm comparisons or gather performance profiles.                                                                                                           | Unverified; optimize only after reproducible measurements.                                                                   |
 
 ## Ordered implementation slices
 
-1. **CLI-05 — accurate command help.** Add focused command usage/options/examples
-   that match the parser. Preserve npm delegation and existing script shorthand.
-2. **CLI-03 — evidence-backed error improvements.** Select the top recurring or
+1. **CLI-03 — evidence-backed error improvements.** Select the top recurring or
    confusing codes from source/tests, then improve concise remedies without
    changing stable codes or leaking private data.
-3. **W03/W04/W05 — onboarding and accessibility.** Surface Node/platform support
+2. **W03/W04/W05 — onboarding and accessibility.** Surface Node/platform support
    limits, validate links and claims, and test keyboard, narrow viewport, zoom,
    reduced motion, and contrast behavior.
-4. **CLI-01/02/04 — output and approval review.** Add golden tests for TTY/plain/
+3. **CLI-01/02/04 — output and approval review.** Add golden tests for TTY/plain/
    JSON and readiness cases; refine exact-source approval details while keeping
    headless and deny-precedence behavior fail-closed.
-5. **CLI-06/07 — explainability and previews.** Evaluate update planning and
+4. **CLI-06/07 — explainability and previews.** Evaluate update planning and
    dependency/GC details only with explicit no-write proofs and stable JSON.
-6. **CORE-01/02/03 — reliability and compatibility.** Expand fault injection,
+5. **CORE-01/02/03 — reliability and compatibility.** Expand fault injection,
    real OS runners, and pinned framework smokes. Treat unsupported platform
    states as gates, not implementation targets inferred from Linux.
-7. **CORE-04 — performance evidence.** Establish reproducible baselines before
+6. **CORE-04 — performance evidence.** Establish reproducible baselines before
    tuning or making speed/storage claims. No telemetry is introduced.
 
 Each slice must include tests and user-facing docs where behavior changes, pass

@@ -230,7 +230,10 @@ export default function DocsPage() {
               <p>
                 Use <code>zyrk &lt;script&gt;</code> as a shortcut for{" "}
                 <code>zyrk run &lt;script&gt;</code>. Zyrk never installs
-                packages globally; use npm directly for global tools.
+                packages globally; use npm directly for global tools. Native
+                commands show focused usage, options, and examples with{" "}
+                <code>zyrk &lt;command&gt; --help</code>; registry commands
+                continue to show npm help.
               </p>
             </section>
 

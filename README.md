@@ -45,6 +45,13 @@ zyrk --help
 zyrk --version
 ```
 
+Native commands also provide focused help without starting an install or
+initializing the store. For example, use `zyrk install --help`,
+`zyrk docker init --help`, or `zyrk store --help`. Registry publishing and
+account commands are delegated to npm, so their help remains npm's own. The
+`zyrk <script>` shortcut is listed by `zyrk run --help` and is equivalent to
+`zyrk run <script>`.
+
 Requires **Node.js 24 or newer**. Published packages contain compiled JavaScript. A checkout runs TypeScript
 through Node's native type stripping; the check gate also builds and tests the
 source-free package layout. Installing zyrk requires no native toolchain.
