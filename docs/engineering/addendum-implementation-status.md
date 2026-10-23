@@ -2,9 +2,16 @@
 
 Reviewed 2026-10-23 against `plan_files/ZYRK_CLAUDE_XML_ADDENDUM.md` and
 `plan_files/ZYRK_UPGRADE_ADDENDUM.md`, the maintainer brief, and the local
-0.7.4 source. This is a source-and-test inventory, not a fresh platform or
+0.7.6 source. This is a source-and-test inventory, not a fresh platform or
 framework compatibility run. The two addenda share the same nine upgrade
 phases; the Claude addendum adds a concrete website and CLI backlog.
+
+## Completed implementation slices
+
+| Slice                                   | Commit               | Evidence                                                                                                                                                                                                                                                                                 |
+| --------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W01 — accessible command copy control   | `1b88ce2` (`v0.7.6`) | Unit tests cover exact clipboard content, unavailable clipboard, and denied writes. The full repository hook passed: 69 test files, 693 passed, 1 skipped.                                                                                                                               |
+| WEB-02/W02 — native documentation route | Pending commit       | `web/app/docs/page.tsx` provides getting started, command index, platform and framework boundaries, build-script trust, timeout troubleshooting, source links, and in-site navigation. Web lint/build pass; a local production-server check returned HTTP 200 and verified key guidance. |
 
 ## Current evidence
 
@@ -14,8 +21,8 @@ phases; the Claude addendum adds a concrete website and CLI backlog.
 | Install progress       | `src/cli/progress.ts` renders installation phases, downloading bytes, verified-source counts, linked packages, and readiness-aware completion. Progress is quiet when requested and plain when not attached to a TTY.                   | Existing; future work should test the complete TTY, pipe, JSON, and narrow-terminal matrix before changing output contracts. |
 | Lifecycle approval     | `src/cli/main.ts` has an interactive candidate selection flow; `src/install/private.ts` and workspace policy code enforce persisted policy.                                                                                             | Existing; improve source and deny-precedence clarity without changing trust defaults.                                        |
 | Script shorthand       | `zyrk <script>` is documented in CLI help and dispatches to project scripts.                                                                                                                                                            | Existing; preserve behavior and add command-help coverage where needed.                                                      |
-| Website copy panel     | `web/app/page.tsx` shows a static command panel with an `npm` hint, but no button or clipboard behavior.                                                                                                                                | Missing interaction; first P1 slice (W01).                                                                                   |
-| Website docs           | Main documentation links leave the site for GitHub README. No `/docs` route exists.                                                                                                                                                     | Missing; next P1/P2 slice (W02).                                                                                             |
+| Website copy panel     | The landing-page command panel has an accessible copy button, selectable command fallback, and polite success/failure status.                                                                                                           | Implemented and tested in `1b88ce2`.                                                                                         |
+| Website docs           | A native `/docs` route provides task-oriented onboarding, command examples, evidence-bounded compatibility guidance, troubleshooting, and links to the detailed README and policies.                                                    | Implemented; web lint, production build, and local HTTP route check passed.                                                  |
 | Website trust model    | Landing page covers verified sources, context separation, private builds, portable locks, ordinary imports, and recovery; the terminal display is explicitly illustrative.                                                              | Existing but needs compatibility and limitations information closer to onboarding (W03/W05).                                 |
 | Website accessibility  | Focus styles, responsive rules, and reduced-motion handling exist in `web/app/globals.css`; no evidenced browser matrix for 320px, zoom, keyboard, or contrast was found.                                                               | Partially implemented; runtime accessibility remains unverified (W04).                                                       |
 | CLI command help       | `helpText()` lists command names and brief descriptions, but does not provide per-command options/examples.                                                                                                                             | Existing but limited; improve as a separate tested slice (CLI-05).                                                           |
@@ -25,29 +32,23 @@ phases; the Claude addendum adds a concrete website and CLI backlog.
 
 ## Ordered implementation slices
 
-1. **W01 — working install-command copy control.** Add a real keyboard-accessible
-   button, polite success/failure feedback, and manual-selection fallback when
-   clipboard access is unavailable or denied. Test success and failure paths.
-2. **CLI-05 — accurate command help.** Add focused command usage/options/examples
+1. **CLI-05 — accurate command help.** Add focused command usage/options/examples
    that match the parser. Preserve npm delegation and existing script shorthand.
-3. **WEB-02/W02 — native documentation route.** Add task-oriented getting-started,
-   command, compatibility, and troubleshooting content with working in-site
-   navigation and a README/source link.
-4. **CLI-03 — evidence-backed error improvements.** Select the top recurring or
+2. **CLI-03 — evidence-backed error improvements.** Select the top recurring or
    confusing codes from source/tests, then improve concise remedies without
    changing stable codes or leaking private data.
-5. **W03/W04/W05 — onboarding and accessibility.** Surface Node/platform support
+3. **W03/W04/W05 — onboarding and accessibility.** Surface Node/platform support
    limits, validate links and claims, and test keyboard, narrow viewport, zoom,
    reduced motion, and contrast behavior.
-6. **CLI-01/02/04 — output and approval review.** Add golden tests for TTY/plain/
+4. **CLI-01/02/04 — output and approval review.** Add golden tests for TTY/plain/
    JSON and readiness cases; refine exact-source approval details while keeping
    headless and deny-precedence behavior fail-closed.
-7. **CLI-06/07 — explainability and previews.** Evaluate update planning and
+5. **CLI-06/07 — explainability and previews.** Evaluate update planning and
    dependency/GC details only with explicit no-write proofs and stable JSON.
-8. **CORE-01/02/03 — reliability and compatibility.** Expand fault injection,
+6. **CORE-01/02/03 — reliability and compatibility.** Expand fault injection,
    real OS runners, and pinned framework smokes. Treat unsupported platform
    states as gates, not implementation targets inferred from Linux.
-9. **CORE-04 — performance evidence.** Establish reproducible baselines before
+7. **CORE-04 — performance evidence.** Establish reproducible baselines before
    tuning or making speed/storage claims. No telemetry is introduced.
 
 Each slice must include tests and user-facing docs where behavior changes, pass

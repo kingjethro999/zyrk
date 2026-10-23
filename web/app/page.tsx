@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { CopyCommand } from "./copy-command";
 
 const repo = "https://github.com/kingjethro999/zyrk";
@@ -248,7 +249,7 @@ export default function Home() {
             <a href="#features">Features</a>
             <a href="#workflow">How it works</a>
             <a href="#commands">Commands</a>
-            <a href={`${repo}#readme`}>Docs</a>
+            <Link href="/docs">Docs</Link>
           </nav>
           <div className="header-actions">
             <a className="github-link" href={repo} aria-label="Zyrk on GitHub">
@@ -286,9 +287,12 @@ export default function Home() {
               <a className="button button-primary" href="#get-started">
                 Get started <span aria-hidden="true">→</span>
               </a>
-              <a className="button button-secondary" href={`${repo}#readme`}>
+              <Link
+                className="button button-secondary"
+                href="/docs#getting-started"
+              >
                 Read the guide
-              </a>
+              </Link>
             </div>
             <div className="quick-install" id="get-started">
               <div className="quick-install-label">
@@ -368,12 +372,9 @@ export default function Home() {
               The store is shared per OS user. The selected dependency graph and
               its links remain specific to each project.
             </p>
-            <a
-              className="text-link"
-              href={`${repo}#install-project-dependencies`}
-            >
+            <Link className="text-link" href="/docs#how-it-works">
               Explore the install model <span>↗</span>
-            </a>
+            </Link>
           </div>
           <div className="workflow-steps">
             <article>
@@ -436,9 +437,9 @@ export default function Home() {
             Use Zyrk to add packages, run project scripts, or scaffold an app.
             The project keeps its usual package files and runtime.
           </p>
-          <a className="text-link" href={`${repo}#try-the-current-cli`}>
+          <Link className="text-link" href="/docs#commands">
             Browse the command guide <span>↗</span>
-          </a>
+          </Link>
         </div>
         <div className="command-showcase">
           <div className="showcase-header">
@@ -525,9 +526,9 @@ export default function Home() {
             itself.
           </p>
           <div className="closing-actions">
-            <a className="button button-light" href={`${repo}#readme`}>
+            <Link className="button button-light" href="/docs">
               Read the documentation <span>↗</span>
-            </a>
+            </Link>
             <a className="button button-glass" href={repo}>
               View Zyrk on GitHub <span>↗</span>
             </a>
@@ -556,12 +557,10 @@ export default function Home() {
           </div>
           <div className="footer-column">
             <h3>Documentation</h3>
-            <a href={`${repo}#try-the-current-cli`}>Getting started</a>
-            <a href={`${repo}#install-project-dependencies`}>
-              Install and lockfiles
-            </a>
-            <a href={`${repo}#run-project-scripts`}>Run scripts</a>
-            <a href={`${repo}#workspaces`}>Workspaces</a>
+            <Link href="/docs#getting-started">Getting started</Link>
+            <Link href="/docs#how-it-works">Install and lockfiles</Link>
+            <Link href="/docs#commands">Run scripts</Link>
+            <Link href="/docs#compatibility">Compatibility</Link>
           </div>
           <div className="footer-column">
             <h3>Project</h3>
