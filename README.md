@@ -61,16 +61,22 @@ From a checkout:
 ```bash
 git clone https://github.com/kingjethro999/zyrk.git zyrk
 cd zyrk
-npm install --global zyrk@0.6.6
+npm install --global zyrk
 zyrk install --frozen-lockfile
 zyrk --help
 zyrk --version
 ```
 
 The global npm install bootstraps the `zyrk` executable. Project dependencies
-are installed by zyrk itself. On a fresh checkout, use the published bootstrap
-version first because the source checkout's own development dependencies are
+are installed by zyrk itself. On a fresh checkout, bootstrap from the published
+package first because the source checkout's own development dependencies are
 needed to run its local CLI.
+
+**Platform boundary:** Linux is the initial native shared-store target. macOS
+remains evidence-gated, and Windows native project installation is unavailable
+until its account-isolating ACL implementation passes real filesystem tests.
+The shell commands below can bootstrap the CLI for inspection; they are not a
+claim that native project installation is ready on every listed platform.
 
 ### One-line install (shell)
 

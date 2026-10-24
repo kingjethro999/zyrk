@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { CopyCommand } from "./copy-command";
+import { PlatformGuide } from "./platform-guide";
 
 const repo = "https://github.com/kingjethro999/zyrk";
 const bootstrap = "npm install --global zyrk";
@@ -238,6 +239,9 @@ function TerminalExample() {
 export default function Home() {
   return (
     <main id="top">
+      <a className="site-skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <div className="nav-rail">
         <header className="site-header">
           <a className="brand" href="#top" aria-label="Zyrk home">
@@ -267,7 +271,7 @@ export default function Home() {
         </header>
       </div>
 
-      <section className="hero">
+      <section className="hero" id="main-content">
         <div className="hero-inner">
           <div className="hero-copy">
             <p className="eyebrow">
@@ -296,8 +300,14 @@ export default function Home() {
             </div>
             <div className="quick-install" id="get-started">
               <div className="quick-install-label">
-                <span aria-hidden="true">⌘</span> Bootstrap the CLI
+                <span aria-hidden="true">⌘</span> Bootstrap the CLI · Node.js
+                24+
               </div>
+              <p className="platform-gate">
+                <strong>Before project install:</strong> Linux is the initial
+                native target. macOS remains evidence-gated, and Windows native
+                shared-store installs are unavailable.
+              </p>
               <CopyCommand command={bootstrap} />
               <p>
                 Use <code>zyrk install</code> to install your project
@@ -327,6 +337,8 @@ export default function Home() {
           <strong>Ordinary Node.js imports</strong>
         </div>
       </section>
+
+      <PlatformGuide />
 
       <section className="features-section page-section" id="features">
         <div className="section-intro">
@@ -420,6 +432,63 @@ export default function Home() {
                 </p>
               </div>
               <span className="step-token">links → imports</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="trust-model-section" id="trust-model">
+        <div className="trust-model-inner page-section">
+          <div className="trust-model-heading">
+            <p className="eyebrow">Know what each guarantee means</p>
+            <h2>
+              Integrity is a check.
+              <br />
+              <em>Approval is still trust.</em>
+            </h2>
+            <p>
+              Zyrk verifies selected bytes and protects shared storage, but it
+              cannot decide whether a package is trustworthy for your project.
+              Approved package scripts run with your OS account permissions.
+            </p>
+            <Link className="text-link" href="/docs#script-trust">
+              Review the script trust boundary <span>↗</span>
+            </Link>
+          </div>
+          <div className="trust-model-flow">
+            <article>
+              <span className="trust-model-count">01</span>
+              <p className="card-label">SOURCE ARCHIVE</p>
+              <h3>Integrity and paths checked</h3>
+              <p>
+                Zyrk checks the selected archive digest and extraction paths.
+                That does not mean the package is harmless or security reviewed.
+              </p>
+            </article>
+            <span className="trust-model-arrow" aria-hidden="true">
+              →
+            </span>
+            <article>
+              <span className="trust-model-count">02</span>
+              <p className="card-label">SHARED REALIZATION</p>
+              <h3>Exact context kept immutable</h3>
+              <p>
+                Matching dependency contexts can reuse one realization.
+                Incompatible versions and peer bindings remain separate.
+              </p>
+            </article>
+            <span className="trust-model-arrow" aria-hidden="true">
+              →
+            </span>
+            <article>
+              <span className="trust-model-count">03</span>
+              <p className="card-label">PROJECT STATE</p>
+              <h3>Writable work stays private</h3>
+              <p>
+                Projects use normal node_modules links. Approved builds use
+                private writable files; script approval is permission, not a
+                sandbox.
+              </p>
             </article>
           </div>
         </div>

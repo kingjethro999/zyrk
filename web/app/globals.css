@@ -45,7 +45,8 @@ a {
   color: inherit;
   text-decoration: none;
 }
-a:focus-visible {
+a:focus-visible,
+button:focus-visible {
   outline: 3px solid #41a89a;
   outline-offset: 4px;
   border-radius: 4px;
@@ -57,6 +58,34 @@ a {
 ::selection {
   color: #fff;
   background: var(--teal);
+}
+
+.site-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 10px;
+  left: 12px;
+  padding: 10px 14px;
+  transform: translateY(-160%);
+  border-radius: 8px;
+  color: white;
+  background: var(--teal-dark);
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform 0.16s ease;
+}
+.site-skip-link:focus {
+  transform: translateY(0);
+}
+#main-content,
+#get-started,
+#platforms,
+#features,
+#workflow,
+#trust-model,
+#commands,
+#principles {
+  scroll-margin-top: 120px;
 }
 
 .nav-rail {
@@ -380,6 +409,17 @@ h2 em {
   color: #82796e;
   font-size: 10px;
 }
+.quick-install > .platform-gate {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #ddc6a4;
+  border-left: 3px solid #bd7e3d;
+  border-radius: 8px;
+  color: #66513b;
+  background: #fbf2e5;
+  font-size: 10px;
+  line-height: 1.55;
+}
 .quick-install > p code {
   background: transparent;
   color: #356d63;
@@ -596,6 +636,101 @@ h2 em {
   padding-left: 24px;
   padding-right: 24px;
 }
+.platform-section {
+  padding-top: 96px;
+  padding-bottom: 102px;
+}
+.platform-heading {
+  max-width: 760px;
+  margin-bottom: 34px;
+}
+.platform-heading > p:not(.eyebrow),
+.trust-model-heading > p:not(.eyebrow) {
+  max-width: 650px;
+  margin-bottom: 20px;
+  color: #746a5f;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.platform-grid {
+  margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+.platform-card {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid #e2d7c8;
+  border-top: 4px solid #87b7aa;
+  border-radius: 15px;
+  background: #fffefa;
+}
+.platform-card.is-evidence-gated {
+  border-top-color: #ca9b57;
+}
+.platform-card.is-unavailable {
+  border-top-color: #b66c62;
+}
+.platform-card-header {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.platform-card h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.platform-card-header span {
+  color: var(--teal);
+  font: 700 7px var(--mono);
+  letter-spacing: 0.1em;
+}
+.platform-card.is-evidence-gated .platform-card-header span {
+  color: #8d642d;
+}
+.platform-card.is-unavailable .platform-card-header span {
+  color: #934d45;
+}
+.platform-card > p,
+.platform-card small {
+  color: #746a5f;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.platform-card dl {
+  margin: 17px 0;
+  display: grid;
+  gap: 12px;
+}
+.platform-card dl > div {
+  min-width: 0;
+}
+.platform-card dt {
+  margin-bottom: 4px;
+  color: #8b7c69;
+  font: 7px var(--mono);
+  letter-spacing: 0.09em;
+}
+.platform-card dd {
+  min-width: 0;
+  margin: 0;
+}
+.platform-card code,
+.platform-card dd > span {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #315f57;
+  font: 9px/1.55 var(--mono);
+}
+.platform-card dd > span {
+  color: #934d45;
+}
+.platform-card small {
+  display: block;
+}
 .features-section {
   padding-top: 105px;
   padding-bottom: 112px;
@@ -752,6 +887,58 @@ h2 {
   font-size: 10px;
   line-height: 1.65;
 }
+
+.trust-model-section {
+  border-bottom: 1px solid var(--line);
+  background: #fffefa;
+}
+.trust-model-inner {
+  padding-top: 95px;
+  padding-bottom: 98px;
+}
+.trust-model-heading {
+  max-width: 730px;
+  margin-bottom: 38px;
+}
+.trust-model-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+.trust-model-flow article {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid #e2d7c8;
+  border-radius: 15px;
+  background: var(--paper);
+}
+.trust-model-count {
+  width: 29px;
+  height: 29px;
+  margin-bottom: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--teal);
+  background: var(--teal-wash);
+  font: 9px var(--mono);
+}
+.trust-model-flow h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.trust-model-flow article > p:last-child {
+  margin: 0;
+  color: #746a5f;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.trust-model-arrow {
+  align-self: center;
+  color: var(--teal);
+  font: 16px var(--mono);
+}
 .step-token {
   padding: 5px 8px;
   border: 1px solid #e0d4c5;
@@ -819,6 +1006,7 @@ h2 {
   gap: 9px 14px;
 }
 .showcase-row code {
+  overflow-wrap: anywhere;
   color: #315f57;
   font: 10px var(--mono);
 }
@@ -1267,6 +1455,12 @@ h2 {
   .pre-release-note {
     color: #b8a890;
   }
+  .quick-install > .platform-gate {
+    color: #e3c8a8;
+    border-color: #66523d;
+    border-left-color: #ca9b57;
+    background: #30271f;
+  }
   .copy-command code,
   .showcase-row code {
     color: #d8eee6;
@@ -1301,6 +1495,31 @@ h2 {
   }
   .trust-rail strong {
     color: #e9dfd1;
+  }
+  .platform-card,
+  .trust-model-section {
+    background: #211b16;
+  }
+  .platform-card,
+  .trust-model-flow article {
+    border-color: #4a3828;
+  }
+  .platform-heading > p:not(.eyebrow),
+  .platform-card > p,
+  .platform-card small,
+  .trust-model-heading > p:not(.eyebrow),
+  .trust-model-flow article > p:last-child {
+    color: #c9bca9;
+  }
+  .platform-card h3,
+  .trust-model-flow h3 {
+    color: #f5f0e7;
+  }
+  .platform-card code {
+    color: #d8eee6;
+  }
+  .trust-model-flow article {
+    background: #241d17;
   }
   .workflow-section {
     border-color: #4a3828;
@@ -1447,7 +1666,9 @@ h2 {
     padding-right: 20px;
   }
   .features-section,
+  .platform-section,
   .workflow-inner,
+  .trust-model-inner,
   .commands-section,
   .principles-section {
     padding-top: 75px;
@@ -1456,6 +1677,16 @@ h2 {
   .features-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 11px;
+  }
+  .platform-grid {
+    grid-template-columns: 1fr;
+  }
+  .trust-model-flow {
+    grid-template-columns: 1fr;
+  }
+  .trust-model-arrow {
+    transform: rotate(90deg);
+    justify-self: center;
   }
   .feature-card {
     min-height: 220px;
@@ -1634,6 +1865,15 @@ h2 {
   .closing-command {
     gap: 8px;
     padding: 10px;
+  }
+  .copy-command,
+  .closing-command {
+    min-width: 0;
+  }
+  .copy-command code,
+  .closing-command code {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .closing-command code {
     font-size: 8px;
