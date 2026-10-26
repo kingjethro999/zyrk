@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { renderBuildReviews } from "../src/cli/build-approval.ts";
 import {
   approveCandidate,
@@ -9,6 +9,7 @@ import {
   type BuildCandidate,
 } from "../src/install/private.ts";
 import { rmrfNoFollow } from "../src/util/fsx.ts";
+import { isolateUserConfig } from "./helpers/user-config.ts";
 
 const source = (digit: string) => `src1_${digit.repeat(40)}`;
 const builds: BuildCandidate[] = [
@@ -43,6 +44,7 @@ const builds: BuildCandidate[] = [
 let root = "";
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   if (root) await rmrfNoFollow(root);
   root = "";
 });
@@ -50,11 +52,11 @@ afterEach(async () => {
 async function fixture() {
   root = await mkdtemp(path.join(os.tmpdir(), "zyrk-build-review-"));
   const project = path.join(root, "project");
-  const config = path.join(root, "config");
   await mkdir(project);
-  await mkdir(path.join(config, "zyrk"), { recursive: true });
+  const configFile = await isolateUserConfig(root);
+  await mkdir(path.dirname(configFile), { recursive: true });
   await writeFile(
-    path.join(config, "zyrk", "config.json"),
+    configFile,
     JSON.stringify({ scripts: { deny: ["denied"] } }),
   );
   await writeFile(
@@ -72,7 +74,7 @@ async function fixture() {
   );
   return {
     project,
-    env: { ...process.env, XDG_CONFIG_HOME: config },
+    env: { ...process.env },
   };
 }
 
