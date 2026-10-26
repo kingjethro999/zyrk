@@ -1,6 +1,7 @@
 import { runNextCommand } from "../commands/next.ts";
 import { createInstallProgress, type InstallCompletion } from "./progress.ts";
 import { renderBuildReviews } from "./build-approval.ts";
+import { completionScript, suggestCommand } from "./completion.ts";
 import { renderCommandError, renderCommandOutput } from "./terminal.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
 import { runDeployCommand } from "../commands/deploy.ts";
@@ -43,6 +44,7 @@ import { Store } from "../store/layout.ts";
 import {
   delegateToNpm,
   delegatedHelpLines,
+  DELEGATED_COMMAND_NAMES,
   isDelegatedCommand,
 } from "./npm-delegate.ts";
 import { isGlobalInstallRequest, parseArgs, type ParsedArgs } from "./parse.ts";
@@ -97,6 +99,7 @@ const NATIVE_COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["import", "Convert supported npm lock information."],
   ["deploy", "Create self-contained production output."],
   ["docker", "Generate, build, and start the Docker setup."],
+  ["completion", "Generate static Bash, Zsh, or Fish completions."],
 ];
 
 const KNOWN_COMMANDS = new Set<string>();
@@ -131,6 +134,7 @@ const IMPLEMENTED_COMMANDS = new Set([
   "patch-commit",
   "deploy",
   "docker",
+  "completion",
 ]);
 
 export function helpText(version: string): string {
@@ -162,6 +166,12 @@ export function helpText(version: string): string {
 }
 
 const COMMAND_HELP: Readonly<Record<string, string>> = {
+  completion: `Usage: zyrk completion <bash|zsh|fish>
+
+Print a static completion script. No network, package code, or project discovery runs.
+Load the output using your shell's completion setup. JSON mode returns the script as data.
+
+Example: zyrk completion bash > zyrk-completion.bash`,
   install: `Usage: zyrk install [package[@version] ...] [options]
 
 Install the project graph, or add the supplied packages. A portable package-lock.json records selections; the user store path stays machine-local.
@@ -462,6 +472,10 @@ export function dispatch(
   }
   if (!KNOWN_COMMANDS.has(command)) {
     const shown = sanitizeCommandToken(command);
+    const suggestion = suggestCommand(command, [
+      ...KNOWN_COMMANDS,
+      ...DELEGATED_COMMAND_NAMES,
+    ]);
     const placementHint =
       command.includes("://") || parsed.argsBeforeCommand.length > 0
         ? " If this was an option value, use the --flag=value form or place the command first."
@@ -469,7 +483,7 @@ export function dispatch(
     return fail(
       new ZyrkError("ZYRK_USAGE", `unknown command: ${shown}.`, {
         detail: { command: shown },
-        remedy: `Run \`zyrk --help\` for the documented command list.${placementHint}`,
+        remedy: `${suggestion ? `Did you mean zyrk ${suggestion}? ` : ""}Run \`zyrk --help\` for the documented command list.${placementHint}`,
       }),
       parsed,
       helpText(context.version),
@@ -669,6 +683,32 @@ export async function runCli(options: RunCliOptions): Promise<number> {
   if (!parsed.help && !parsed.version && parsed.command !== undefined) {
     const help = requestedCommandHelp(parsed.command, parsed.commandArgs);
     if (help !== undefined) return emit(ok(help, parsed));
+  }
+  if (!parsed.help && !parsed.version && parsed.command === "completion") {
+    try {
+      if (parsed.commandArgs.length !== 1)
+        throw new ZyrkError(
+          "ZYRK_USAGE",
+          "Select exactly one completion shell.",
+          { remedy: "Use zyrk completion bash, zsh, or fish." },
+        );
+      const shell = parsed.commandArgs[0]!;
+      const script = completionScript(shell, [
+        ...KNOWN_COMMANDS,
+        ...DELEGATED_COMMAND_NAMES,
+      ]);
+      // Generated shell code must never receive TTY decoration.
+      options.stdout.write(
+        parsed.json
+          ? `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, status: "ok", shell, script })}\n`
+          : script,
+      );
+      return 0;
+    } catch (error) {
+      return emit(
+        fail(toZyrkError(error, "Cannot generate shell completion."), parsed),
+      );
+    }
   }
   if (
     !parsed.help &&

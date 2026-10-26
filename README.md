@@ -543,3 +543,22 @@ an unavailable audit result is attention, never a clean audit. Store collection
 previews distinguish eligible, retained, removed, and grace-period entries and
 keep physical reclamation explicitly unavailable when it cannot be measured.
 Redirected output and `--json` preserve their existing data contracts.
+
+### Shell completion
+
+Generate static command and global-option completions without loading a project,
+executing package scripts, or making network requests:
+
+```bash
+zyrk completion bash > zyrk-completion.bash
+source ./zyrk-completion.bash
+zyrk completion zsh > _zyrk
+zyrk completion fish > zyrk.fish
+```
+
+For Zsh, place `_zyrk` in a directory on `fpath` and run `compinit`. For Fish,
+place `zyrk.fish` in your user completion directory. Completion intentionally
+covers built-in commands and global options; it does not guess package names or
+execute scripts to discover candidates. `--json` returns the generated script as
+data. Unknown commands offer a suggestion only when one close match exists;
+Zyrk never runs the suggested command automatically.
