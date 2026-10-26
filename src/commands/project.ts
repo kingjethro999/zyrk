@@ -256,13 +256,19 @@ function emit(
           command: options.command,
           ...(result as Obj),
         }) + "\n"
-      : renderCommandOutput(options.command, `${human}\n`, {
-          ...(options.stdout.isTTY === undefined
-            ? {}
-            : { isTTY: options.stdout.isTTY }),
-          color:
-            options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
-        }),
+      : renderCommandOutput(
+          options.command,
+          options.command === "doctor" && options.stdout.isTTY
+            ? JSON.stringify(result)
+            : `${human}\n`,
+          {
+            ...(options.stdout.isTTY === undefined
+              ? {}
+              : { isTTY: options.stdout.isTTY }),
+            color:
+              options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+          },
+        ),
   );
 }
 

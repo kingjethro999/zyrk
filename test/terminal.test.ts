@@ -11,8 +11,34 @@ it("turns structured command results into a readable TTY summary", () => {
     { isTTY: true, color: false },
   );
   expect(output).toBe(
-    "✓ zyrk store status\n{\n  initialized: true,\n  objects: 4\n}\n",
+    "› Shared store status\n  Retention roots: unavailable\n  Logical bytes: unavailable\n  Allocated bytes estimate: unavailable\n  Physical allocation measurement unavailable.\n  Private builds, fetch caches, and exclusive reclaimable bytes are not measured here.\n",
   );
+});
+
+it("never paints failing doctor or unavailable audit results as success", () => {
+  const doctor = renderCommandOutput(
+    "doctor",
+    JSON.stringify({
+      ok: false,
+      diagnostics: [
+        {
+          severity: "error",
+          code: "ZYRK_LOCK_MISMATCH",
+          message: "Lock differs.",
+        },
+      ],
+    }),
+    { isTTY: true, color: false },
+  );
+  expect(doctor).toContain("✖ Project needs attention");
+  expect(doctor).not.toContain("✓");
+  const audit = renderCommandOutput("audit", '{"status":"unavailable"}', {
+    isTTY: true,
+    color: false,
+  });
+  expect(audit).toContain("! audit is unavailable");
+  expect(audit).not.toContain("✓");
+  expect(audit).not.toContain("\u001b");
 });
 
 it("keeps redirected command output byte-for-byte unchanged", () => {

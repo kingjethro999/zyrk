@@ -534,3 +534,12 @@ and runs real pinned React, Vite, Vitest, and Tailwind builds and HTTP asset
 checks. It uses native zyrk installation with default deny policy. Recorded
 results describe the exact tested versions and platform, without a universal
 framework or cold-install performance claim.
+
+### Inspection output
+
+Interactive `doctor`, store status/verification, and collection commands use
+command-specific summaries. A failed doctor result is marked as a failure;
+an unavailable audit result is attention, never a clean audit. Store collection
+previews distinguish eligible, retained, removed, and grace-period entries and
+keep physical reclamation explicitly unavailable when it cannot be measured.
+Redirected output and `--json` preserve their existing data contracts.
