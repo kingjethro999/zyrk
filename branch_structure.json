@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "dependabot/npm_and_yarn/npmcli/arborist-10.0.4",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "dependabot/npm_and_yarn/npmcli/arborist-10.0.4": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "dependabot/npm_and_yarn/npmcli/arborist-10.0.4",
+    "origin"
+  ]
+}
