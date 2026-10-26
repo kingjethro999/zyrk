@@ -76,7 +76,7 @@ import {
   candidates,
   candidateDigest,
   approveCandidate,
-  approvedCandidates,
+  reviewBuildCandidates,
   buildPrivate,
 } from "./private.ts";
 const object = (v: unknown): v is Record<string, unknown> =>
@@ -654,6 +654,13 @@ export async function installWorkspaceProject(
           policy,
           portable: true,
         });
+      const buildReviews = await reviewBuildCandidates({
+        project: root,
+        env: options.env ?? process.env,
+        digest,
+        builds,
+        policy,
+      });
       return {
         readiness: "build-review",
         packages: nodes.length,
@@ -661,6 +668,7 @@ export async function installWorkspaceProject(
         warnings,
         candidateDigest: digest,
         builds,
+        buildReviews,
       };
     }
     let approvedBuilds: typeof builds = [];
@@ -672,16 +680,20 @@ export async function installWorkspaceProject(
         builds,
         policy,
       };
-      approvedBuilds = await approvedCandidates(approvalOptions);
+      let reviews = await reviewBuildCandidates(approvalOptions);
+      approvedBuilds = reviews.filter(
+        (review) => review.decision === "approved",
+      );
       if (
         approvedBuilds.length < builds.length &&
         options.requestBuildApproval
       ) {
-        const pending = builds.filter(
-          (build) =>
-            !approvedBuilds.some((item) => item.sourceId === build.sourceId),
+        const pending = reviews.filter(
+          (review) => review.decision === "pending",
         );
-        const selected = await options.requestBuildApproval(pending);
+        const selected = pending.length
+          ? await options.requestBuildApproval(pending)
+          : [];
         if (selected.length) {
           await approveCandidate({
             project: root,
@@ -692,7 +704,10 @@ export async function installWorkspaceProject(
             policy,
             portable: true,
           });
-          approvedBuilds = await approvedCandidates(approvalOptions);
+          reviews = await reviewBuildCandidates(approvalOptions);
+          approvedBuilds = reviews.filter(
+            (review) => review.decision === "approved",
+          );
         }
       }
     }

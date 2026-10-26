@@ -1,5 +1,6 @@
 import { runNextCommand } from "../commands/next.ts";
 import { createInstallProgress } from "./progress.ts";
+import { renderBuildReviews } from "./build-approval.ts";
 import { renderCommandError, renderCommandOutput } from "./terminal.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
 import { runDeployCommand } from "../commands/deploy.ts";
@@ -16,7 +17,7 @@ import {
   type InstallOptions,
   type InstallResult,
 } from "../install/run.ts";
-import type { BuildCandidate } from "../install/private.ts";
+import type { BuildCandidate, BuildReview } from "../install/private.ts";
 import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -250,7 +251,7 @@ Example: zyrk audit --audit-level high`,
 Reconstruct project links from verified sources selected by the existing lockfile.`,
   "approve-builds": `Usage: zyrk approve-builds [package ... | --all]
 
-Review build candidates without running package code. Select exact candidates to persist approval, or use --all to approve every candidate shown.
+Review exact source identities, lifecycle commands, and current policy decisions without running package code. Selected approvals persist to zyrk-workspace.json; user and project denies take precedence. Approved scripts are not sandboxed.
 
 Example: zyrk approve-builds`,
   rebuild: `Usage: zyrk rebuild [--offline]
@@ -534,7 +535,7 @@ async function promptForBuildApproval(
   output: { write(chunk: string): unknown },
 ): Promise<string[]> {
   output.write(
-    "\nDependency lifecycle scripts need approval. Review these exact package sources:\n",
+    "\nDependency build approval\nScripts run with your OS account permissions; approval is not a sandbox.\nSelected exact-source approvals are saved to zyrk-workspace.json for collaborators.\n\n",
   );
   builds.forEach((build, index) => {
     const stages = build.stages
@@ -546,11 +547,11 @@ async function promptForBuildApproval(
       )
       .join("; ");
     output.write(
-      `  ${index + 1}. ${build.name}@${build.version} (${build.sourceId}) — ${stages}\n`,
+      `  ${index + 1}. [ ] ${build.name}@${build.version}\n     source: ${build.sourceId}\n     lifecycle: ${stages}\n`,
     );
   });
   output.write(
-    "Enter numbers separated by commas to approve selected sources, `all` to approve all listed sources, or press Enter to skip their scripts and continue unbuilt.\n",
+    "Enter numbers separated by commas to approve selected sources, `all` to approve all listed sources, or press Enter to skip pending scripts and continue intentionally unbuilt.\n",
   );
   const prompt = createInterface({
     input,
@@ -768,6 +769,8 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       ) as Record<string, unknown>;
       if (Array.isArray(payload.builds))
         payload.builds = sanitizeDiagnostic(payload.builds);
+      if (Array.isArray(payload.buildReviews))
+        payload.buildReviews = sanitizeDiagnostic(payload.buildReviews);
       const exitCode =
         payload.status === "unavailable" || payload.thresholdExceeded === true
           ? 1
@@ -779,23 +782,10 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           stderr: "",
         });
       if (command === "approve-builds") {
-        const builds = (payload.builds ?? []) as Array<{
-          name: string;
-          version: string;
-          sourceId: string;
-          stages: Array<{ name: string; command: string }>;
-        }>;
+        const reviews = (payload.buildReviews ?? []) as BuildReview[];
         return emit({
           exitCode,
-          stdout: builds.length
-            ? builds
-                .map(
-                  (b) =>
-                    `${b.name}@${b.version} ${b.sourceId}\n${b.stages.map((s) => `  ${s.name}: ${redactSecrets(s.command)}`).join("\n")}`,
-                )
-                .join("\n") +
-              "\nReview runs no package code. Approval trusts these exact candidate sources.\n"
-            : "No dependency builds require approval.\n",
+          stdout: renderBuildReviews(reviews),
           stderr: "",
         });
       }

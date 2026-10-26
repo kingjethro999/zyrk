@@ -9,7 +9,7 @@ import {
   candidates,
   candidateDigest,
   approveCandidate,
-  approvedCandidates,
+  reviewBuildCandidates,
   materializePrivate,
   buildPrivate,
   type BuildCandidate,
@@ -134,6 +134,7 @@ export type InstallResult = {
   generationId?: string;
   candidateDigest?: string;
   builds?: BuildCandidate[];
+  buildReviews?: import("./private.ts").BuildReview[];
 };
 type Manifest = ManifestDeclaration & {
   name?: string;
@@ -854,6 +855,13 @@ export async function installProject(
           policy: scriptPolicy(manifest),
           portable: true,
         });
+      const buildReviews = await reviewBuildCandidates({
+        project,
+        env: options.env ?? process.env,
+        digest: reviewedDigest,
+        builds,
+        policy: scriptPolicy(manifest),
+      });
       return {
         readiness: "build-review",
         packages: activeNodes.length,
@@ -861,6 +869,7 @@ export async function installProject(
         warnings,
         candidateDigest: reviewedDigest,
         builds,
+        buildReviews,
       };
     }
     let approvedBuilds: BuildCandidate[] = [];
@@ -872,16 +881,20 @@ export async function installProject(
         builds,
         policy: scriptPolicy(manifest),
       };
-      approvedBuilds = await approvedCandidates(approvalOptions);
+      let reviews = await reviewBuildCandidates(approvalOptions);
+      approvedBuilds = reviews.filter(
+        (review) => review.decision === "approved",
+      );
       if (
         approvedBuilds.length < builds.length &&
         options.requestBuildApproval
       ) {
-        const pending = builds.filter(
-          (build) =>
-            !approvedBuilds.some((item) => item.sourceId === build.sourceId),
+        const pending = reviews.filter(
+          (review) => review.decision === "pending",
         );
-        const selected = await options.requestBuildApproval(pending);
+        const selected = pending.length
+          ? await options.requestBuildApproval(pending)
+          : [];
         if (selected.length) {
           await approveCandidate({
             project,
@@ -892,7 +905,10 @@ export async function installProject(
             policy: scriptPolicy(manifest),
             portable: true,
           });
-          approvedBuilds = await approvedCandidates(approvalOptions);
+          reviews = await reviewBuildCandidates(approvalOptions);
+          approvedBuilds = reviews.filter(
+            (review) => review.decision === "approved",
+          );
         }
       }
     }

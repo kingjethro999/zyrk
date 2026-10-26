@@ -131,6 +131,11 @@ zyrk install
 zyrk rebuild --offline             # rebuild the complete approved locked graph
 ```
 
+The review labels every exact source as `PENDING`, `APPROVED`, or `DENIED`,
+shows its lifecycle commands, and names the policy scope that made the decision.
+Review mode never runs package code. A mandatory deny cannot be selected and
+does not prevent a separate permitted source from being approved.
+
 Approvals are local to the exact graph, sources, patch contents, and script
 policy. Interactive selections are written to the checked-in
 `zyrk-workspace.json` file with exact package source identities, so collaborators

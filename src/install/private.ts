@@ -31,6 +31,16 @@ export type BuildCandidate = {
   sourceId: string;
   stages: Array<{ name: string; command: string }>;
 };
+export type BuildReview = BuildCandidate & {
+  decision: "approved" | "denied" | "pending";
+  policyScope:
+    | "user-deny"
+    | "project-deny"
+    | "project-policy"
+    | "workspace-policy"
+    | "local-session"
+    | "none";
+};
 export const WORKSPACE_POLICY_FILE = "zyrk-workspace.json";
 type PortableBuildApproval = {
   name: string;
@@ -145,9 +155,6 @@ export async function approveCandidate(options: {
   portable?: boolean;
 }): Promise<void> {
   const user = await readUserPolicy(options.env ?? process.env);
-  for (const build of options.builds)
-    if (denied(user.scripts, build) || denied(options.policy, build))
-      fail(`Build of ${build.name}@${build.version} is denied by policy.`);
   const selected = new Set(options.selected);
   const all = selected.has("*");
   for (const name of selected)
@@ -156,23 +163,24 @@ export async function approveCandidate(options: {
       !options.builds.some((b) => b.name === name || b.sourceId === name)
     )
       fail("An approval selector does not match a reviewed build candidate.");
+  const selectedBuilds = options.builds.filter(
+    (build) => all || selected.has(build.name) || selected.has(build.sourceId),
+  );
+  const deniedSelections = selectedBuilds.filter(
+    (build) => denied(user.scripts, build) || denied(options.policy, build),
+  );
+  for (const build of deniedSelections)
+    fail(`Build of ${build.name}@${build.version} is denied by policy.`);
   await writeFileAtomic(
     path.join(options.project, ".zyrk-local", "approvals.json"),
     JSON.stringify({
       schemaVersion: 1,
       candidate: options.digest,
-      sources: options.builds
-        .filter((b) => all || selected.has(b.name) || selected.has(b.sourceId))
-        .map((b) => b.sourceId)
-        .sort(),
+      sources: selectedBuilds.map((build) => build.sourceId).sort(),
     }),
     { mode: 0o600 },
   );
   if (options.portable) {
-    const selectedBuilds = options.builds.filter(
-      (build) =>
-        all || selected.has(build.name) || selected.has(build.sourceId),
-    );
     await writePortableApprovals(options.project, selectedBuilds);
   }
 }
@@ -249,13 +257,13 @@ async function readUserPolicy(
   if (!object(user)) fail("Mandatory user build policy is malformed.");
   return user;
 }
-export async function approvedCandidates(options: {
+export async function reviewBuildCandidates(options: {
   project: string;
   env: NodeJS.ProcessEnv;
   digest: string;
   builds: readonly BuildCandidate[];
   policy: unknown;
-}): Promise<BuildCandidate[]> {
+}): Promise<BuildReview[]> {
   if (!options.builds.length) return [];
   const user = await readUserPolicy(options.env);
   let local: unknown;
@@ -269,9 +277,11 @@ export async function approvedCandidates(options: {
     local = undefined;
   }
   const portable = await readPortableApprovals(options.project);
-  return options.builds.filter((build) => {
-    if (denied(user.scripts, build) || denied(options.policy, build))
-      return false;
+  return options.builds.map((build) => {
+    if (denied(user.scripts, build))
+      return { ...build, decision: "denied", policyScope: "user-deny" };
+    if (denied(options.policy, build))
+      return { ...build, decision: "denied", policyScope: "project-deny" };
     const manifestAllowed =
       object(options.policy) &&
       Array.isArray(options.policy.allow) &&
@@ -285,8 +295,34 @@ export async function approvedCandidates(options: {
       local.candidate === options.digest &&
       Array.isArray(local.sources) &&
       local.sources.includes(build.sourceId);
-    return manifestAllowed || workspaceAllowed || localAllowed;
+    if (manifestAllowed)
+      return {
+        ...build,
+        decision: "approved",
+        policyScope: "project-policy",
+      };
+    if (workspaceAllowed)
+      return {
+        ...build,
+        decision: "approved",
+        policyScope: "workspace-policy",
+      };
+    if (localAllowed)
+      return {
+        ...build,
+        decision: "approved",
+        policyScope: "local-session",
+      };
+    return { ...build, decision: "pending", policyScope: "none" };
   });
+}
+
+export async function approvedCandidates(
+  options: Parameters<typeof reviewBuildCandidates>[0],
+): Promise<BuildCandidate[]> {
+  return (await reviewBuildCandidates(options)).filter(
+    (review) => review.decision === "approved",
+  );
 }
 
 export async function assertApproved(options: {

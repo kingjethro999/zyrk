@@ -275,6 +275,13 @@ export default function DocsPage() {
                 installs also skip unapproved builds and report an intentionally
                 unbuilt readiness state.
               </p>
+              <p>
+                <code>zyrk approve-builds</code> labels each exact source as
+                pending, approved, or denied, shows its lifecycle commands, and
+                names the policy scope behind that decision. A mandatory deny
+                cannot be overridden and does not block approval of a separate
+                permitted source.
+              </p>
               <pre>
                 <code>
                   {"zyrk approve-builds\nzyrk install\nzyrk rebuild --offline"}

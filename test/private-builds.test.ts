@@ -206,6 +206,9 @@ it("local mandatory denies beat reviewed approvals without rewriting the lock", 
   const denied = await install({
     frozen: true,
     env: process.env,
+    requestBuildApproval: async () => {
+      throw new Error("Mandatory denials must never appear in the picker");
+    },
   });
   expect(denied.readiness).toBe("intentionally-unbuilt");
   expect(await readFile(path.join(project, "package-lock.json"), "utf8")).toBe(

@@ -175,8 +175,19 @@ it("approves reviewed build candidates and rebuilds at a new private path", asyn
   const review = await json("approve-builds");
   expect(review.code).toBe(0);
   expect(review.result.readiness).toBe("build-review");
+  expect(review.result.buildReviews).toEqual([
+    expect.objectContaining({
+      name: "built",
+      decision: "pending",
+      policyScope: "none",
+    }),
+  ]);
   expect(await pathExists(path.join(project, "node_modules"))).toBe(false);
-  expect((await cli("approve-builds", "built")).code).toBe(0);
+  const approved = await cli("approve-builds", "built");
+  expect(approved.code).toBe(0);
+  expect(approved.stdout).toContain("APPROVED built@1.0.0");
+  expect(approved.stdout).toContain("zyrk-workspace.json");
+  expect(approved.stdout).toContain("approval is not a sandbox");
   const workspacePolicy = JSON.parse(
     await readFile(path.join(project, "zyrk-workspace.json"), "utf8"),
   ) as { schemaVersion: number; approvedBuilds: Array<{ name: string }> };
