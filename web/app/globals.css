@@ -2333,3 +2333,72 @@ h2 {
     margin-left: auto;
   }
 }
+
+/* Native documentation controls keep the existing paper/teal system. */
+.docs-toc label {
+  font-size: 12px;
+  font-weight: 700;
+}
+.docs-toc input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #29231d;
+  background: #fffefa;
+  font: inherit;
+  font-size: 12px;
+}
+.docs-toc input:focus-visible {
+  outline: 3px solid #14796e;
+  outline-offset: 3px;
+}
+.docs-search-count,
+.docs-toc > p {
+  margin: 8px 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.docs-toc button,
+.docs-code-block button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #0e625a;
+  background: #e5f1ed;
+  font-size: 12px;
+  cursor: pointer;
+}
+.docs-section-navigation {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.docs-section-navigation a {
+  color: var(--teal);
+  font-size: 12px;
+}
+.docs-code-block {
+  margin: 18px 0;
+}
+.docs-code-block pre {
+  margin-bottom: 8px;
+}
+.docs-code-block > span {
+  margin-left: 12px;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .docs-toc label,
+  .docs-toc input,
+  .docs-toc .docs-search-count {
+    flex: 1 0 100%;
+  }
+}
