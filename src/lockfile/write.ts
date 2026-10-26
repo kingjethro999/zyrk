@@ -172,16 +172,28 @@ export async function writeLockfile(
       ...node.platform,
       ...(node.engines === undefined ? {} : { engines: node.engines }),
     };
-    for (const edge of node.edges) {
-      const found = lookup(location, edge.name);
+    // Establish peers before descending into ordinary children. A peer must be
+    // visible beside or above its consumer; its own node_modules is invalid to
+    // npm even if that directory already contains the requested version.
+    const placementEdges = [...node.edges].sort(
+      (a, b) => Number(b.kind === "peer") - Number(a.kind === "peer"),
+    );
+    for (const edge of placementEdges) {
+      const base =
+        edge.kind === "peer"
+          ? location.slice(
+              0,
+              Math.max(0, location.lastIndexOf("/node_modules/")),
+            )
+          : location;
+      const found = lookup(base, edge.name);
       if (found !== undefined && placements.get(found) === edge.target)
         continue;
       if (edge.kind === "peer") {
-        const parent = location.slice(
-          0,
-          Math.max(0, location.lastIndexOf("node_modules/")),
+        populate(
+          `${base ? `${base}/` : ""}node_modules/${edge.name}`,
+          edge.target,
         );
-        populate(`${parent}node_modules/${edge.name}`, edge.target);
       } else {
         populate(`${location}/node_modules/${edge.name}`, edge.target);
       }

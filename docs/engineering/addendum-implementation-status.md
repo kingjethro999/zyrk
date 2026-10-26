@@ -2,7 +2,7 @@
 
 Reviewed 2026-10-26 against `plan_files/ZYRK_CLAUDE_XML_ADDENDUM.md` and
 `plan_files/ZYRK_UPGRADE_ADDENDUM.md`, the maintainer brief, and the local
-0.8.3 source. This is a source-and-test inventory, not a fresh platform or
+0.8.5 source. This is a source-and-test inventory, not a fresh platform or
 framework compatibility run. The two addenda share the same nine upgrade
 phases; the Claude addendum adds a concrete website and CLI backlog.
 
@@ -30,6 +30,16 @@ idempotent closure. Narrow-terminal and full output-schema coverage remain
 follow-up CLI-01/02 work.
 
 ## Current evidence
+
+CI follow-up: the first approval-review fixture assumed Linux config paths;
+`v0.8.4` uses the shared platform-aware user-config helper instead. Windows CI
+also exposed a pre-existing npm-lock peer-placement defect. The `v0.8.5` slice
+places peers beside or above their consumers before traversing child packages.
+An Arborist regression reproduced `PEER LOCAL` before the fix. After refreshing
+the checkout lock, all 464 npm entries have valid Arborist edges, the Zyrk graph
+extension is byte-equivalent as JSON, and `npm ci --dry-run --ignore-scripts`
+accepts the refreshed layout. Real macOS/Windows CI results must still be checked
+after pushing these corrections.
 
 | Area                   | Verified current state                                                                                                                                                                                                                  | Assessment                                                                                                                   |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |

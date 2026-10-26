@@ -532,3 +532,50 @@ it("matches pinned npm Arborist's resolved graph for aliases, cycles, peers and 
   for (const root of resolution.roots)
     compare(root.target, tree.edgesOut.get(root.name).to);
 });
+
+it("places parent peers beside their consumer even when a child requested the same peer first", async () => {
+  const app = node({ key: "app@1.0.0", name: "app", version: "1.0.0" });
+  const child = node({ key: "child@1.0.0", name: "child", version: "1.0.0" });
+  const host = node({ key: "host@1.0.0", name: "host", version: "1.0.0" });
+  app.edges = [
+    { name: "child", target: child.key, kind: "prod", spec: "1.0.0" },
+    { name: "host", target: host.key, kind: "peer", spec: "1.0.0" },
+  ];
+  child.edges = [
+    { name: "host", target: host.key, kind: "peer", spec: "1.0.0" },
+  ];
+  app.peerBindings = [{ name: "host", target: host.key }];
+  child.peerBindings = [{ name: "host", target: host.key, optional: true }];
+  await writeFile(
+    path.join(dir, "package.json"),
+    JSON.stringify({
+      name: "demo",
+      version: "1.0.0",
+      dependencies: { app: "1.0.0" },
+    }),
+  );
+  const doc = await writeLockfile({
+    path: path.join(dir, "package-lock.json"),
+    name: "demo",
+    version: "1.0.0",
+    manifestDeps: { app: "1.0.0" },
+    fingerprints: FINGERPRINTS,
+    resolution: {
+      nodes: [app, child, host],
+      roots: [{ name: "app", target: app.key }],
+    },
+  });
+  const Arborist = require("@npmcli/arborist");
+  const tree = await new Arborist({
+    path: dir,
+    offline: true,
+    ignoreScripts: true,
+  }).loadVirtual();
+  for (const actual of tree.inventory.values())
+    for (const edge of actual.edgesOut.values())
+      expect(edge.valid, `${actual.location}:${edge.name}:${edge.error}`).toBe(
+        true,
+      );
+  expect(doc.packages?.["node_modules/host"]?.version).toBe("1.0.0");
+  expect(doc.packages?.["node_modules/app/node_modules/host"]).toBeUndefined();
+});

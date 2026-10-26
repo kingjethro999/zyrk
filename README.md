@@ -191,6 +191,12 @@ paths. Older platform-pruned locks need an intentional non-frozen refresh; incom
 npm locks must be freshly resolved before portable adoption. macOS, Windows, and
 broad framework compatibility have not passed their release gates.
 
+Zyrk writes the npm-compatible lock layout alongside its portable graph. Peer
+dependencies are placed beside or above their consumers, as npm requires. If
+an older Zyrk lock makes `npm ci` report missing peer packages, run
+`zyrk install --lockfile-only` with the updated CLI to refresh that layout
+without installing dependencies or running lifecycle scripts.
+
 ### Workspaces
 
 Standard `package.json` workspaces use one root lock and a recoverable transaction
