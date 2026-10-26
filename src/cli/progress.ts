@@ -13,6 +13,7 @@ const labels: Record<InstallProgress["phase"], string> = {
 export type InstallCompletion = {
   title: string;
   detail?: string;
+  tone?: "success" | "attention";
 };
 
 /** Presentation only: never writes to stdout or exposes package URLs or paths. */
@@ -34,6 +35,9 @@ export function createInstallProgress(
   let statusLine = false;
   let lastDownload = 0;
   let lastPlain = "";
+  let pendingPlain = "";
+  let lastPlainAt = -Infinity;
+  let downloadAnnounced = false;
   const write = (text: string) => {
     try {
       stream.write(text);
@@ -45,6 +49,14 @@ export function createInstallProgress(
     if (!statusLine) return;
     write(`\r\u001b[2K${lineBreak ? "\n" : ""}`);
     statusLine = false;
+  };
+  const flushPlain = () => {
+    if (pendingPlain && pendingPlain !== lastPlain) {
+      write(`zyrk: ${pendingPlain}\n`);
+      lastPlain = pendingPlain;
+      lastPlainAt = Date.now();
+    }
+    pendingPlain = "";
   };
 
   return {
@@ -58,6 +70,7 @@ export function createInstallProgress(
         : "";
       if (pkg?.status === "linked") {
         if (tty) clearStatus(true);
+        else flushPlain();
         write(`${green("✓")} ${packageLabel} linked\n`);
         return;
       }
@@ -80,7 +93,7 @@ export function createInstallProgress(
           const status =
             pkg?.status === "downloading"
               ? `  Downloading ${packageLabel}: ${((pkg.bytes ?? 0) / 1024).toFixed(1)} KiB`
-              : `  Sources verified ${event.completed ?? 0}/${event.total ?? 0} · reused ${event.reused ?? 0} · downloaded ${event.downloaded ?? 0}`;
+              : `  Sources verified ${event.completed ?? 0}${event.total === undefined ? "" : `/${event.total}`} · reused ${event.reused ?? 0} · downloaded ${event.downloaded ?? 0}`;
           write(`\r\u001b[2K${dim(status)}`);
           statusLine = true;
         }
@@ -97,18 +110,44 @@ export function createInstallProgress(
         (event.reused === undefined
           ? ""
           : ` — reused ${event.reused}, downloaded ${event.downloaded ?? 0}`);
-      if (current !== lastPlain) write(`zyrk: ${current}\n`);
-      lastPlain = current;
+      const newStage = stage !== currentStage;
+      if (newStage) {
+        flushPlain();
+        currentStage = stage;
+        downloadAnnounced = false;
+      }
+      const firstDownload = pkg?.status === "downloading" && !downloadAnnounced;
+      if (pkg?.status === "downloading") downloadAnnounced = true;
+      pendingPlain = current;
+      const sourcesComplete =
+        event.phase === "fetching" &&
+        pkg?.status !== "downloading" &&
+        event.total !== undefined &&
+        event.completed === event.total;
+      if (
+        newStage ||
+        firstDownload ||
+        sourcesComplete ||
+        Date.now() - lastPlainAt >= 1000
+      )
+        flushPlain();
     },
     close(completion) {
       if (closed) return;
       closed = true;
       if (quiet) return;
+      if (!tty) flushPlain();
       if (tty) {
         clearStatus(true);
         if (completion) {
           write(`${dim("─".repeat(46))}\n`);
-          write(`${green("✓")} ${completion.title}\n`);
+          const marker =
+            completion.tone === "attention"
+              ? color
+                ? "\u001b[33m!\u001b[0m"
+                : "!"
+              : green("✓");
+          write(`${marker} ${completion.title}\n`);
           if (completion.detail) write(`${dim(completion.detail)}\n`);
         }
       }

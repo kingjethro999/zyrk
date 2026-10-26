@@ -2,7 +2,7 @@
 
 Reviewed 2026-10-26 against `plan_files/ZYRK_CLAUDE_XML_ADDENDUM.md` and
 `plan_files/ZYRK_UPGRADE_ADDENDUM.md`, the maintainer brief, and the local
-0.8.2 source. This is a source-and-test inventory, not a fresh platform or
+0.8.3 source. This is a source-and-test inventory, not a fresh platform or
 framework compatibility run. The two addenda share the same nine upgrade
 phases; the Claude addendum adds a concrete website and CLI backlog.
 
@@ -16,6 +16,18 @@ phases; the Claude addendum adds a concrete website and CLI backlog.
 | CLI-03 — focused install remedies       | `8e130b2` (`v0.7.9`) | Install failures now retain stable codes while naming the failed state and a concrete recovery action. Table-driven integration coverage verifies human and JSON guidance without exposing unsafe source URLs.                                                                                                      |
 | W03/W04/W05 — bounded onboarding        | `b0103a3` (`v0.8.1`) | The website places Node and native-platform limits before bootstrap, separates verification from code trust, and adds responsive platform/trust layouts with skip navigation and control focus. Web lint/build passed; Chrome captures at 320px and 1440px showed no horizontal clipping.                           |
 | CLI-04 — policy-aware build review      | `v0.8.2`             | Exact build sources are classified as approved, pending, or denied with their policy scope; human review shows lifecycle commands, persistence, and unsandboxed risk. Mandatory denies retain precedence without blocking approval of an unrelated permitted source. Full check: 71 files, 729 passed, 1 skipped.   |
+
+## Progress-output slice (`v0.8.3`)
+
+Redirected installs coalesce repeated source and download updates at a one-second
+interval, flush the latest values at phase changes and close, and preserve
+committed package link lines. Unknown totals no longer appear as a fictitious
+zero total in TTY output. Install and dependency mutation footers distinguish
+intentionally-unbuilt readiness with an attention marker. JSON output stays
+outside the progress renderer. Clock-controlled tests reproduce a burst of 500
+source events, exercise periodic downloads, failure close, final flush, and
+idempotent closure. Narrow-terminal and full output-schema coverage remain
+follow-up CLI-01/02 work.
 
 ## Current evidence
 

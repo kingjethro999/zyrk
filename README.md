@@ -481,7 +481,11 @@ linking on stderr. Interactive terminals show the stages as a calm, multi-line
 sequence, followed by a success footer; package downloads show received bytes,
 and a checkmark lists each unique package/version linked after the project
 transaction commits. Both `zyrk add prettier` and `zyrk install prettier` show
-these details. Redirected output uses plain progress messages. Source counters
+these details. Redirected output uses plain progress messages, with frequent
+source and download updates limited to once per second. Stage changes and
+completion flush the latest counts, including when an install fails.
+Intentionally unbuilt installs use an attention footer and state which review
+action is needed. Source counters
 distinguish verified reuse from newly downloaded sources. Source counts differ
 from dependency contexts when peers split a package. `--json` disables progress.
 Other native commands use the same terminal language: successful summaries get

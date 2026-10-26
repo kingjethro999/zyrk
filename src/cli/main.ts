@@ -1,5 +1,5 @@
 import { runNextCommand } from "../commands/next.ts";
-import { createInstallProgress } from "./progress.ts";
+import { createInstallProgress, type InstallCompletion } from "./progress.ts";
 import { renderBuildReviews } from "./build-approval.ts";
 import { renderCommandError, renderCommandOutput } from "./terminal.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
@@ -49,7 +49,9 @@ import { isGlobalInstallRequest, parseArgs, type ParsedArgs } from "./parse.ts";
 
 export const CLI_JSON_SCHEMA_VERSION = 1;
 
-function installCompletion(readiness: InstallResult["readiness"]) {
+function installCompletion(
+  readiness: InstallResult["readiness"],
+): InstallCompletion {
   switch (readiness) {
     case "ready":
       return {
@@ -58,6 +60,7 @@ function installCompletion(readiness: InstallResult["readiness"]) {
       };
     case "intentionally-unbuilt":
       return {
+        tone: "attention",
         title: "Installed; some dependency builds were intentionally skipped.",
         detail:
           "Review build policy before running packages that need those builds.",
@@ -977,10 +980,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
             }
           : {}),
       });
-      progress.close({
-        title: `Dependency changes installed from the verified shared store.`,
-        detail: `${result.packages} packages; ${result.reused} realizations reused.`,
-      });
+      progress.close(installCompletion(result.readiness));
       if (parsed.json) {
         return emit({
           exitCode: 0,
