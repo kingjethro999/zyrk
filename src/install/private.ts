@@ -23,6 +23,7 @@ import { canonicalJson } from "../util/json.ts";
 import { isErrno, pathExists, writeFileAtomic } from "../util/fsx.ts";
 import { superviseChild } from "../util/proc.ts";
 import { redactSecrets } from "../log.ts";
+import { acquireLock } from "../util/locks.ts";
 
 export type BuildCandidate = {
   key: string;
@@ -36,6 +37,7 @@ export type BuildReview = BuildCandidate & {
   policyScope:
     | "user-deny"
     | "project-deny"
+    | "workspace-deny"
     | "project-policy"
     | "workspace-policy"
     | "local-session"
@@ -46,6 +48,10 @@ type PortableBuildApproval = {
   name: string;
   version: string;
   sourceId: string;
+};
+type PortableBuildPolicy = {
+  approvedBuilds: PortableBuildApproval[];
+  deniedBuilds: string[];
 };
 function fail(message: string): never {
   throw new ZyrkError("ZYRK_SCRIPT_BLOCKED", message, {
@@ -155,6 +161,7 @@ export async function approveCandidate(options: {
   portable?: boolean;
 }): Promise<void> {
   const user = await readUserPolicy(options.env ?? process.env);
+  const portablePolicy = await readPortableApprovals(options.project);
   const selected = new Set(options.selected);
   const all = selected.has("*");
   for (const name of selected)
@@ -167,7 +174,10 @@ export async function approveCandidate(options: {
     (build) => all || selected.has(build.name) || selected.has(build.sourceId),
   );
   const deniedSelections = selectedBuilds.filter(
-    (build) => denied(user.scripts, build) || denied(options.policy, build),
+    (build) =>
+      denied(user.scripts, build) ||
+      denied(options.policy, build) ||
+      portablePolicy.deniedBuilds.includes(build.sourceId),
   );
   for (const build of deniedSelections)
     fail(`Build of ${build.name}@${build.version} is denied by policy.`);
@@ -187,7 +197,7 @@ export async function approveCandidate(options: {
 
 async function readPortableApprovals(
   project: string,
-): Promise<PortableBuildApproval[]> {
+): Promise<PortableBuildPolicy> {
   const file = path.join(project, WORKSPACE_POLICY_FILE);
   let raw: unknown;
   try {
@@ -197,13 +207,19 @@ async function readPortableApprovals(
     raw = JSON.parse(await readFile(file, "utf8"));
   } catch (cause) {
     if (cause instanceof ZyrkError) throw cause;
-    if (isErrno(cause, "ENOENT")) return [];
+    if (isErrno(cause, "ENOENT"))
+      return { approvedBuilds: [], deniedBuilds: [] };
     fail("The workspace build-approval file is unreadable or malformed.");
   }
   if (
     !object(raw) ||
     raw.schemaVersion !== 1 ||
     !Array.isArray(raw.approvedBuilds) ||
+    (raw.deniedBuilds !== undefined &&
+      (!Array.isArray(raw.deniedBuilds) ||
+        raw.deniedBuilds.some(
+          (id) => typeof id !== "string" || !/^src1_[a-f0-9]{40}$/.test(id),
+        ))) ||
     raw.approvedBuilds.some(
       (item) =>
         !object(item) ||
@@ -214,7 +230,10 @@ async function readPortableApprovals(
     )
   )
     fail("The workspace build-approval file has an unsupported format.");
-  return raw.approvedBuilds as PortableBuildApproval[];
+  return {
+    approvedBuilds: raw.approvedBuilds as PortableBuildApproval[],
+    deniedBuilds: (raw.deniedBuilds ?? []) as string[],
+  };
 }
 
 async function writePortableApprovals(
@@ -222,7 +241,9 @@ async function writePortableApprovals(
   selected: readonly BuildCandidate[],
 ): Promise<void> {
   const current = await readPortableApprovals(project);
-  const bySource = new Map(current.map((item) => [item.sourceId, item]));
+  const bySource = new Map(
+    current.approvedBuilds.map((item) => [item.sourceId, item]),
+  );
   for (const build of selected)
     bySource.set(build.sourceId, {
       name: build.name,
@@ -234,6 +255,9 @@ async function writePortableApprovals(
     `${JSON.stringify(
       {
         schemaVersion: 1,
+        ...(current.deniedBuilds.length
+          ? { deniedBuilds: current.deniedBuilds }
+          : {}),
         approvedBuilds: [...bySource.values()].sort((a, b) =>
           a.name.localeCompare(b.name),
         ),
@@ -243,6 +267,54 @@ async function writePortableApprovals(
     )}\n`,
     { mode: 0o644 },
   );
+}
+
+/** One atomic deny file overrides portable, manifest, and legacy local grants. */
+export async function revokeBuildApprovals(
+  projectDir: string,
+  sourceIds: readonly string[],
+): Promise<{ revoked: string[] }> {
+  if (
+    !sourceIds.length ||
+    sourceIds.some((id) => !/^src1_[a-f0-9]{40}$/.test(id))
+  )
+    fail(
+      "Revocation requires exact source identities from zyrk approve-builds.",
+    );
+  const project = await realpath(projectDir);
+  const control = path.join(project, ".zyrk-local");
+  await mkdir(control, { recursive: true, mode: 0o700 });
+  const stat = await lstat(control);
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    fail("Project approval control directory must be a real directory.");
+  const held = await acquireLock(path.join(control, "project.lock"), {
+    name: "build approval revocation",
+  });
+  try {
+    const policy = await readPortableApprovals(project);
+    const revoked = [...new Set(sourceIds)].sort();
+    const deniedBuilds = [
+      ...new Set([...policy.deniedBuilds, ...revoked]),
+    ].sort();
+    await writeFileAtomic(
+      path.join(project, WORKSPACE_POLICY_FILE),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          approvedBuilds: policy.approvedBuilds.filter(
+            (item) => !deniedBuilds.includes(item.sourceId),
+          ),
+          deniedBuilds,
+        },
+        null,
+        2,
+      ) + "\n",
+      { mode: 0o644 },
+    );
+    return { revoked };
+  } finally {
+    await held.release();
+  }
 }
 async function readUserPolicy(
   env: NodeJS.ProcessEnv,
@@ -282,11 +354,13 @@ export async function reviewBuildCandidates(options: {
       return { ...build, decision: "denied", policyScope: "user-deny" };
     if (denied(options.policy, build))
       return { ...build, decision: "denied", policyScope: "project-deny" };
+    if (portable.deniedBuilds.includes(build.sourceId))
+      return { ...build, decision: "denied", policyScope: "workspace-deny" };
     const manifestAllowed =
       object(options.policy) &&
       Array.isArray(options.policy.allow) &&
       options.policy.allow.includes(build.sourceId);
-    const workspaceAllowed = portable.some(
+    const workspaceAllowed = portable.approvedBuilds.some(
       (approval) => approval.sourceId === build.sourceId,
     );
     const localAllowed =

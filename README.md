@@ -562,3 +562,20 @@ covers built-in commands and global options; it does not guess package names or
 execute scripts to discover candidates. `--json` returns the generated script as
 data. Unknown commands offer a suggestion only when one close match exists;
 Zyrk never runs the suggested command automatically.
+
+### Revoke an exact build approval
+
+Read the exact source identity using `zyrk approve-builds`, then revoke future
+build permission without fetching or executing package code:
+
+```bash
+zyrk approve-builds --revoke src1_<40-hex-source-digest>
+```
+
+This records `deniedBuilds` in the workspace-root `zyrk-workspace.json`, removes
+the matching portable grant, and overrides both manifest grants and old local
+session grants. Commit that policy with the project. Revocation does not undo
+previously executed code or remove existing build output; a subsequent install
+skips the denied build and reports intentionally-unbuilt readiness. To trust the
+source again, deliberately remove its exact denial from the reviewed workspace
+policy before granting approval. Mandatory user denies still take precedence.

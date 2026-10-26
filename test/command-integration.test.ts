@@ -291,3 +291,36 @@ it("routes offline repair through immutable full-closure publication", async () 
   expect((await cli("install", "--offline", "--frozen-lockfile")).code).toBe(0);
   expect(await realpath(path.join(project, "node_modules/alpha"))).toBe(after);
 });
+
+it("revokes exact-source approvals without registry or store initialization", async () => {
+  await writeFile(
+    path.join(project, "package.json"),
+    JSON.stringify({ dependencies: { built: "1.0.0" } }),
+  );
+  const review = await json("approve-builds", "built");
+  const source = (review.result.builds as Array<{ sourceId: string }>)[0]!
+    .sourceId;
+  let output = "";
+  const code = await runCli({
+    argv: ["approve-builds", "--revoke", source, "--json"],
+    cwd: project,
+    env: process.env,
+    stdout: {
+      write: (v) => {
+        output += v;
+      },
+    },
+    stderr: { write: () => undefined },
+    tools: async () => {
+      throw Error("revocation must stay offline");
+    },
+  });
+  expect(code).toBe(0);
+  expect(JSON.parse(output)).toMatchObject({ revoked: [source] });
+  expect((await json("approve-builds")).result.buildReviews).toEqual([
+    expect.objectContaining({
+      decision: "denied",
+      policyScope: "workspace-deny",
+    }),
+  ]);
+});

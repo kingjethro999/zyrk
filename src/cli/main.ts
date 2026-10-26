@@ -19,6 +19,8 @@ import {
   type InstallResult,
 } from "../install/run.ts";
 import type { BuildCandidate, BuildReview } from "../install/private.ts";
+import { revokeBuildApprovals } from "../install/private.ts";
+import { findWorkspaceRoot } from "../install/workspaces.ts";
 import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -262,9 +264,10 @@ Example: zyrk audit --audit-level high`,
   repair: `Usage: zyrk repair [--offline]
 
 Reconstruct project links from verified sources selected by the existing lockfile.`,
-  "approve-builds": `Usage: zyrk approve-builds [package ... | --all]
+  "approve-builds": `Usage: zyrk approve-builds [package ... | --all | --revoke <source-id...>]
 
 Review exact source identities, lifecycle commands, and current policy decisions without running package code. Selected approvals persist to zyrk-workspace.json; user and project denies take precedence. Approved scripts are not sandboxed.
+Use --revoke with exact source IDs to deny future builds, including legacy local grants. This does not undo package code that has already run.
 
 Example: zyrk approve-builds`,
   rebuild: `Usage: zyrk rebuild [--offline]
@@ -707,6 +710,41 @@ export async function runCli(options: RunCliOptions): Promise<number> {
     } catch (error) {
       return emit(
         fail(toZyrkError(error, "Cannot generate shell completion."), parsed),
+      );
+    }
+  }
+  if (
+    !parsed.help &&
+    !parsed.version &&
+    parsed.command === "approve-builds" &&
+    parsed.commandArgs[0] === "--revoke"
+  ) {
+    try {
+      const boundary = await findProjectBoundary(options.cwd ?? process.cwd());
+      if (!boundary)
+        throw new ZyrkError(
+          "ZYRK_MANIFEST_INVALID",
+          "Cannot find the project for approval revocation.",
+          {
+            remedy:
+              "Run this command from the project or workspace whose policy you intend to change.",
+          },
+        );
+      const project = (await findWorkspaceRoot(boundary)) ?? boundary;
+      const result = await revokeBuildApprovals(
+        project,
+        parsed.commandArgs.slice(1),
+      );
+      return emit({
+        exitCode: 0,
+        stdout: parsed.json
+          ? `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, status: "ok", ...result })}\n`
+          : `Denied ${result.revoked.length} exact sources for future dependency builds in zyrk-workspace.json. Previously executed code and build output are not undone.\n`,
+        stderr: "",
+      });
+    } catch (error) {
+      return emit(
+        fail(toZyrkError(error, "Cannot revoke build approvals."), parsed),
       );
     }
   }

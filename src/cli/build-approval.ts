@@ -10,6 +10,7 @@ const decisionLabel: Record<BuildReview["decision"], string> = {
 const scopeLabel: Record<BuildReview["policyScope"], string> = {
   "user-deny": "mandatory user policy",
   "project-deny": "project deny policy",
+  "workspace-deny": "zyrk-workspace.json exact-source denial",
   "project-policy": "project script policy",
   "workspace-policy": "zyrk-workspace.json",
   "local-session": "current graph approval",

@@ -173,3 +173,61 @@ it("renders decisions, persistence, and unsandboxed risk without secrets", async
   expect(output).not.toContain("secret");
   expect(output).not.toContain("user:");
 });
+
+it("revokes portable and legacy local grants through one exact-source deny", async () => {
+  const { revokeBuildApprovals } = await import("../src/install/private.ts");
+  const { project, env } = await fixture();
+  await approveCandidate({
+    project,
+    env,
+    digest: "candidate",
+    builds,
+    selected: ["approved"],
+    portable: true,
+  });
+  await revokeBuildApprovals(project, [source("a")]);
+  const reviews = await reviewBuildCandidates({
+    project,
+    env,
+    digest: "candidate",
+    builds,
+    policy: { allow: [source("a")] },
+  });
+  expect(reviews[0]).toMatchObject({
+    decision: "denied",
+    policyScope: "workspace-deny",
+  });
+  await expect(
+    approveCandidate({
+      project,
+      env,
+      digest: "candidate",
+      builds,
+      selected: ["approved"],
+      portable: true,
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
+  const before = await readFile(
+    path.join(project, "zyrk-workspace.json"),
+    "utf8",
+  );
+  await revokeBuildApprovals(project, [source("a")]);
+  expect(
+    await readFile(path.join(project, "zyrk-workspace.json"), "utf8"),
+  ).toBe(before);
+});
+
+it("rejects unsafe revoke selectors before creating policy", async () => {
+  const { revokeBuildApprovals } = await import("../src/install/private.ts");
+  const { project } = await fixture();
+  const before = await readFile(
+    path.join(project, "zyrk-workspace.json"),
+    "utf8",
+  );
+  await expect(
+    revokeBuildApprovals(project, ["../other"]),
+  ).rejects.toMatchObject({ code: "ZYRK_SCRIPT_BLOCKED" });
+  expect(
+    await readFile(path.join(project, "zyrk-workspace.json"), "utf8"),
+  ).toBe(before);
+});
