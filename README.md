@@ -579,3 +579,11 @@ previously executed code or remove existing build output; a subsequent install
 skips the denied build and reports intentionally-unbuilt readiness. To trust the
 source again, deliberately remove its exact denial from the reviewed workspace
 policy before granting approval. Mandatory user denies still take precedence.
+
+The native `/docs` guide provides a local section search, keyboard-accessible
+section links, previous/next navigation, and code-copy controls with success or
+failure announcements. Search covers the published quick guide's commands,
+concepts, compatibility, script trust, and troubleshooting index. It makes no
+external search requests; the detailed repository Markdown remains linked as
+source material. All section links and readable examples remain available
+without JavaScript.

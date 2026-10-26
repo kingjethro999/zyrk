@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { DocsNavigator, SectionNavigation } from "./docs-navigator";
+import { DocsCodeBlock } from "./code-block";
 
 const repository = "https://github.com/kingjethro999/zyrk";
 
@@ -143,16 +145,7 @@ export default function DocsPage() {
         </header>
 
         <div className="docs-layout">
-          <nav className="docs-toc" aria-label="On this page">
-            <span>ON THIS PAGE</span>
-            <a href="#getting-started">Getting started</a>
-            <a href="#how-it-works">How it works</a>
-            <a href="#commands">Command reference</a>
-            <a href="#compatibility">Compatibility</a>
-            <a href="#script-trust">Script trust</a>
-            <a href="#troubleshooting">Troubleshooting</a>
-            <a href="#sources">Sources and policies</a>
-          </nav>
+          <DocsNavigator />
 
           <article className="docs-content" id="docs-content">
             <section id="getting-started" className="docs-section">
@@ -162,13 +155,16 @@ export default function DocsPage() {
                 Use npm once to install the Zyrk executable. Use Zyrk for
                 project dependencies:
               </p>
-              <pre>
-                <code>
-                  {
-                    "npm install --global zyrk@latest\nzyrk --version\nzyrk install"
-                  }
-                </code>
-              </pre>
+              <p>
+                Linux is the initial native install target. macOS remains
+                evidence-gated; Windows native project installation is
+                unavailable. Review compatibility before adopting.
+              </p>
+              <DocsCodeBlock
+                code={
+                  "npm install --global zyrk@latest\nzyrk --version\nzyrk install"
+                }
+              />
               <p>
                 Run project commands from the directory whose{" "}
                 <code>package.json</code> declares the script. For a script in{" "}
@@ -183,6 +179,7 @@ export default function DocsPage() {
                   <code>zyrk install</code> is supported there.
                 </p>
               </aside>
+              <SectionNavigation id="getting-started" />
             </section>
 
             <section id="how-it-works" className="docs-section">
@@ -214,6 +211,7 @@ export default function DocsPage() {
                   the project README.
                 </li>
               </ul>
+              <SectionNavigation id="how-it-works" />
             </section>
 
             <section id="commands" className="docs-section">
@@ -235,6 +233,7 @@ export default function DocsPage() {
                 <code>zyrk &lt;command&gt; --help</code>; registry commands
                 continue to show npm help.
               </p>
+              <SectionNavigation id="commands" />
             </section>
 
             <section id="compatibility" className="docs-section">
@@ -264,6 +263,7 @@ export default function DocsPage() {
                   ))}
                 </tbody>
               </table>
+              <SectionNavigation id="compatibility" />
             </section>
 
             <section id="script-trust" className="docs-section">
@@ -282,11 +282,11 @@ export default function DocsPage() {
                 cannot be overridden and does not block approval of a separate
                 permitted source.
               </p>
-              <pre>
-                <code>
-                  {"zyrk approve-builds\nzyrk install\nzyrk rebuild --offline"}
-                </code>
-              </pre>
+              <DocsCodeBlock
+                code={
+                  "zyrk approve-builds\nzyrk install\nzyrk rebuild --offline"
+                }
+              />
               <aside className="docs-callout">
                 <strong>Approval is not a sandbox.</strong>
                 <p>
@@ -300,6 +300,7 @@ export default function DocsPage() {
                 <code>zyrk-workspace.json</code>. User-level denies override
                 project approvals.
               </p>
+              <SectionNavigation id="script-trust" />
             </section>
 
             <section id="troubleshooting" className="docs-section">
@@ -369,6 +370,7 @@ export default function DocsPage() {
                 diagnostics. Use <code>zyrk repair</code> only when you intend
                 to reconstruct the project from verified locked sources.
               </p>
+              <SectionNavigation id="troubleshooting" />
             </section>
 
             <section id="sources" className="docs-section docs-sources">
@@ -397,6 +399,7 @@ export default function DocsPage() {
                   Security reporting
                 </SourceLink>
               </div>
+              <SectionNavigation id="sources" />
             </section>
           </article>
         </div>
