@@ -1,6 +1,6 @@
 {
   "name": "zyrk",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "description": "Storage-efficient Node package manager: one verified store per user, shared across projects through links.",
   "license": "MIT",
   "type": "module",
@@ -19,7 +19,7 @@
     "format": "prettier --write .",
     "version:bump": "node scripts/bump-version.js",
     "setup:hooks": "git config core.hooksPath .githooks",
-    "build": "node init && tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
     "prepublishOnly": "node bin/zyrk.js run build"
   },
   "dependencies": {
@@ -31,7 +31,7 @@
     "tar": "^7.5.22"
   },
   "devDependencies": {
-    "@npmcli/arborist": "10.0.4",
+    "@npmcli/arborist": "10.0.3",
     "@types/node": "^26.6.5",
     "@types/semver": "^7.8.0",
     "prettier": "3.9.10",
