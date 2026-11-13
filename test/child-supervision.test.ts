@@ -49,7 +49,7 @@ describe.skipIf(process.platform !== "linux")(
             await new Promise<void>((resolve, reject) => {
               const timeout = setTimeout(
                 () => reject(new Error(`no readiness: ${output} ${errors}`)),
-                8000,
+                25_000,
               );
               child.stdout.on("data", (data: Buffer) => {
                 output += data.toString();

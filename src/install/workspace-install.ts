@@ -727,6 +727,19 @@ export async function installWorkspaceProject(
         builds: approvedBuilds,
         realized,
         env: options.env ?? process.env,
+        onProgress: (p) =>
+          options.onProgress?.({
+            phase: "building",
+            package: {
+              name: p.package.name,
+              version: p.package.version,
+              status: p.status,
+            },
+            ...(p.stage !== undefined ? { stage: p.stage } : {}),
+            ...(p.index !== undefined ? { index: p.index } : {}),
+            ...(p.total !== undefined ? { total: p.total } : {}),
+            ...(p.durationMs !== undefined ? { durationMs: p.durationMs } : {}),
+          }),
       });
     }
     const readiness =

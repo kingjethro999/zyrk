@@ -75,6 +75,35 @@ export function createInstallProgress(
         return;
       }
 
+      if (pkg?.status === "building") {
+        const stageLabel = event.stage ? ` (${event.stage})` : "";
+        const indexStr =
+          event.index !== undefined && event.total !== undefined
+            ? ` [${event.index}/${event.total}]`
+            : "";
+        const label = `Executing build${indexStr}: ${packageLabel}${stageLabel}`;
+        if (tty) {
+          clearStatus(false);
+          write(`\r\u001b[2K${dim(`› zyrk: ${label}...`)}`);
+          statusLine = true;
+        } else {
+          write(`zyrk: ${label}...\n`);
+        }
+        return;
+      }
+
+      if (pkg?.status === "built") {
+        const durationStr =
+          event.durationMs !== undefined ? ` (${event.durationMs}ms)` : "";
+        const stageLabel = event.stage ? ` [${event.stage}]` : "";
+        if (tty) clearStatus(true);
+        else flushPlain();
+        write(
+          `${green("✓")} ${packageLabel} built${stageLabel}${dim(durationStr)}\n`,
+        );
+        return;
+      }
+
       const stage = labels[event.phase];
       if (tty) {
         if (stage !== "Installation complete" && stage !== currentStage) {
@@ -94,6 +123,11 @@ export function createInstallProgress(
             pkg?.status === "downloading"
               ? `  Downloading ${packageLabel}: ${((pkg.bytes ?? 0) / 1024).toFixed(1)} KiB`
               : `  Sources verified ${event.completed ?? 0}${event.total === undefined ? "" : `/${event.total}`} · reused ${event.reused ?? 0} · downloaded ${event.downloaded ?? 0}`;
+          write(`\r\u001b[2K${dim(status)}`);
+          statusLine = true;
+        }
+        if (event.phase === "building" && event.total !== undefined) {
+          const status = `  Preparing private graph: ${event.completed ?? 0}/${event.total} packages materialized`;
           write(`\r\u001b[2K${dim(status)}`);
           statusLine = true;
         }

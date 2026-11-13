@@ -75,10 +75,14 @@ export type InstallProgress = {
   total?: number;
   reused?: number;
   downloaded?: number;
+  stage?: string;
+  index?: number;
+  durationMs?: number;
   package?: {
     name: string;
     version: string;
-    status: "downloading" | "downloaded" | "reused" | "linked";
+    status:
+      "downloading" | "downloaded" | "reused" | "linked" | "building" | "built";
     bytes?: number;
   };
 };
@@ -917,11 +921,19 @@ export async function installProject(
       (options.ignoreScripts === true || approvedBuilds.length < builds.length);
     if (approvedBuilds.length && !options.ignoreScripts) {
       if (!privateGraph) {
+        options.onProgress?.({ phase: "building" });
         realized = await materializePrivate({
           project,
           store: options.store,
           graph,
           generationId,
+          onProgress: (p) =>
+            options.onProgress?.({
+              phase: "building",
+              completed: p.completed,
+              total: p.total,
+              package: { ...p.package, status: "building" },
+            }),
         });
         privateGraph = true;
       }
@@ -933,6 +945,19 @@ export async function installProject(
         builds: approvedBuilds,
         realized,
         env: options.env ?? process.env,
+        onProgress: (p) =>
+          options.onProgress?.({
+            phase: "building",
+            package: {
+              name: p.package.name,
+              version: p.package.version,
+              status: p.status,
+            },
+            ...(p.stage !== undefined ? { stage: p.stage } : {}),
+            ...(p.index !== undefined ? { index: p.index } : {}),
+            ...(p.total !== undefined ? { total: p.total } : {}),
+            ...(p.durationMs !== undefined ? { durationMs: p.durationMs } : {}),
+          }),
       });
     }
     const mutable = object(manifest.zyrk)

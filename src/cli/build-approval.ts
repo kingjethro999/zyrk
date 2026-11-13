@@ -1,5 +1,10 @@
 import type { BuildReview } from "../install/private.ts";
 import { redactSecrets } from "../log.ts";
+export {
+  promptForBuildApproval,
+  promptInteractive,
+  promptFallback,
+} from "./build-approval-prompt.ts";
 
 const decisionLabel: Record<BuildReview["decision"], string> = {
   approved: "APPROVED",

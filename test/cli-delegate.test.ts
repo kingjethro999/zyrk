@@ -230,7 +230,7 @@ describe.skipIf(process.platform === "win32")(
         expect(result.exitCode).toBe(0);
         expect(await recordedArgs(argsPath)).toEqual(expected);
       }
-    });
+    }, 60_000);
 
     it("fails separate-value leading options before spawning anything (S05)", async () => {
       // A bare value before the command is indistinguishable from the

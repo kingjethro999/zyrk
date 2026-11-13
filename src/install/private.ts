@@ -418,11 +418,18 @@ export async function assertApproved(options: {
     );
   }
 }
+export type MaterializeProgressEvent = {
+  completed: number;
+  total: number;
+  package: { name: string; version: string };
+};
+
 export async function materializePrivate(options: {
   project: string;
   store: Store;
   graph: GraphDoc;
   generationId: string;
+  onProgress?: (event: MaterializeProgressEvent) => void;
 }): Promise<RealizeResult> {
   const project = await realpath(options.project);
   if (!/^gen1_[a-z2-7]+$/.test(options.generationId))
@@ -466,7 +473,15 @@ export async function materializePrivate(options: {
       await mkdir(pkg, { recursive: true });
     }
   }
+  let materializeCount = 0;
+  const materializeTotal = unique.size;
   for (const node of unique.values()) {
+    materializeCount++;
+    options.onProgress?.({
+      completed: materializeCount,
+      total: materializeTotal,
+      package: { name: node.name, version: node.version },
+    });
     const pkg = result.packageDirByKey.get(node.key)!;
     const source = (await readSourceManifest(options.store, node.sourceId))
       .manifest;
@@ -526,6 +541,15 @@ export async function materializePrivate(options: {
 function quote(v: string): string {
   return "'" + v.replaceAll("'", "'\\''") + "'";
 }
+export type BuildProgressEvent = {
+  package: { name: string; version: string };
+  stage: string;
+  status: "building" | "built";
+  index?: number;
+  total?: number;
+  durationMs?: number;
+};
+
 export async function buildPrivate(options: {
   project: string;
   generationId: string;
@@ -533,6 +557,7 @@ export async function buildPrivate(options: {
   builds: readonly BuildCandidate[];
   realized: RealizeResult;
   env: NodeJS.ProcessEnv;
+  onProgress?: (event: BuildProgressEvent) => void;
 }): Promise<void> {
   if (process.platform === "win32")
     throw new ZyrkError(
@@ -552,7 +577,9 @@ export async function buildPrivate(options: {
   };
   for (const n of options.nodes) walk(n.key);
   const builtDirectories = new Set<string>();
-  for (const build of ordered) {
+  const total = ordered.length;
+  for (let i = 0; i < ordered.length; i++) {
+    const build = ordered[i]!;
     const pkg = await realpath(
       options.realized.packageDirByKey.get(build.key)!,
     );
@@ -581,6 +608,14 @@ export async function buildPrivate(options: {
       }
     }
     for (const stage of build.stages) {
+      options.onProgress?.({
+        package: { name: build.name, version: build.version },
+        stage: stage.name,
+        status: "building",
+        index: i + 1,
+        total,
+      });
+      const start = Date.now();
       const env = {
         ...options.env,
         PATH: bindir + path.delimiter + (options.env.PATH ?? ""),
@@ -596,27 +631,45 @@ export async function buildPrivate(options: {
         env,
         capture: true,
       });
+      const logFile = `${sha512Hex(build.key + stage.name).slice(0, 24)}.log`;
+      const logPath = path.join(
+        options.project,
+        ".zyrk-local",
+        "generations",
+        options.generationId,
+        logFile,
+      );
       await writeFileAtomic(
-        path.join(
-          options.project,
-          ".zyrk-local",
-          "generations",
-          options.generationId,
-          `${sha512Hex(build.key + stage.name).slice(0, 24)}.log`,
-        ),
+        logPath,
         redactSecrets(outcome.stdout + outcome.stderr),
         { mode: 0o600 },
       );
-      if (outcome.exitCode !== 0)
+      if (outcome.exitCode !== 0) {
+        const errorOutput = (outcome.stderr || outcome.stdout).trim();
+        const outputTail = errorOutput
+          ? redactSecrets(errorOutput).split("\n").slice(-15).join("\n")
+          : "";
         throw new ZyrkError(
           "ZYRK_BUILD_FAILED",
-          `Dependency ${build.name}@${build.version} failed its ${stage.name} build.`,
+          `Dependency ${build.name}@${build.version} failed its ${stage.name} build (exit code ${outcome.exitCode}).${
+            outputTail
+              ? `\n\n--- Build error output (last lines) ---\n${outputTail}\n---------------------------------------`
+              : ""
+          }`,
           {
-            remedy:
-              "Inspect the private build log and fix the required toolchain or dependency before retrying. The previous generation remains selected.",
-            detail: { exitCode: outcome.exitCode },
+            remedy: `Inspect full build log at ${logPath} and fix the required toolchain or dependency before retrying. The previous generation remains selected.`,
+            detail: { exitCode: outcome.exitCode, logPath },
           },
         );
+      }
+      options.onProgress?.({
+        package: { name: build.name, version: build.version },
+        stage: stage.name,
+        status: "built",
+        index: i + 1,
+        total,
+        durationMs: Date.now() - start,
+      });
     }
   }
 }

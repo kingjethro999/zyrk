@@ -204,3 +204,86 @@ it("reports periodic download bytes and final counts without a success on failur
     clock.mockRestore();
   }
 });
+
+it("renders build execution progress and built confirmation with stage and duration", () => {
+  const chunks: string[] = [];
+  const ui = createInstallProgress(
+    { isTTY: true, write: (s) => chunks.push(s) },
+    false,
+    { color: false },
+  );
+  ui.update({ phase: "building" });
+  ui.update({
+    phase: "building",
+    completed: 1,
+    total: 2,
+  });
+  expect(chunks.join("")).toContain(
+    "Preparing private graph: 1/2 packages materialized",
+  );
+
+  ui.update({
+    phase: "building",
+    index: 1,
+    total: 1,
+    stage: "postinstall",
+    package: {
+      name: "unrs-resolver",
+      version: "1.12.2",
+      status: "building",
+    },
+  });
+  expect(chunks.join("")).toContain(
+    "Executing build [1/1]: unrs-resolver@1.12.2 (postinstall)...",
+  );
+
+  ui.update({
+    phase: "building",
+    index: 1,
+    total: 1,
+    stage: "postinstall",
+    durationMs: 340,
+    package: {
+      name: "unrs-resolver",
+      version: "1.12.2",
+      status: "built",
+    },
+  });
+  ui.close();
+  const output = chunks.join("");
+  expect(output).toContain(
+    "✓ unrs-resolver@1.12.2 built [postinstall] (340ms)",
+  );
+});
+
+it("renders plain build execution progress when redirected", () => {
+  const chunks: string[] = [];
+  const ui = createInstallProgress({ write: (s) => chunks.push(s) }, false);
+  ui.update({
+    phase: "building",
+    index: 1,
+    total: 2,
+    stage: "postinstall",
+    package: {
+      name: "native-pkg",
+      version: "1.0.0",
+      status: "building",
+    },
+  });
+  ui.update({
+    phase: "building",
+    stage: "postinstall",
+    durationMs: 120,
+    package: {
+      name: "native-pkg",
+      version: "1.0.0",
+      status: "built",
+    },
+  });
+  ui.close();
+  const output = chunks.join("");
+  expect(output).toContain(
+    "zyrk: Executing build [1/2]: native-pkg@1.0.0 (postinstall)...",
+  );
+  expect(output).toContain("✓ native-pkg@1.0.0 built [postinstall] (120ms)");
+});

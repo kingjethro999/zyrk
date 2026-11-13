@@ -1,6 +1,9 @@
 import { runNextCommand } from "../commands/next.ts";
 import { createInstallProgress, type InstallCompletion } from "./progress.ts";
-import { renderBuildReviews } from "./build-approval.ts";
+import {
+  renderBuildReviews,
+  promptForBuildApproval,
+} from "./build-approval.ts";
 import { completionScript, suggestCommand } from "./completion.ts";
 import { renderCommandError, renderCommandOutput } from "./terminal.ts";
 import { runMaintenanceCommand } from "../commands/maintenance.ts";
@@ -24,7 +27,6 @@ import { findWorkspaceRoot } from "../install/workspaces.ts";
 import { installRegistry } from "../install/registry.ts";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCreate, starterSpecFor } from "../dlx/create.ts";
@@ -549,59 +551,6 @@ export type RunCliOptions = {
   tools?: () => Promise<ToolEnvironment>;
 };
 
-async function promptForBuildApproval(
-  builds: readonly BuildCandidate[],
-  input: NodeJS.ReadStream,
-  output: { write(chunk: string): unknown },
-): Promise<string[]> {
-  output.write(
-    "\nDependency build approval\nScripts run with your OS account permissions; approval is not a sandbox.\nSelected exact-source approvals are saved to zyrk-workspace.json for collaborators.\n\n",
-  );
-  builds.forEach((build, index) => {
-    const stages = build.stages
-      .map(
-        (stage) =>
-          `${stage.name}: ${redactSecrets(stage.command)
-            .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
-            .slice(0, 180)}`,
-      )
-      .join("; ");
-    output.write(
-      `  ${index + 1}. [ ] ${build.name}@${build.version}\n     source: ${build.sourceId}\n     lifecycle: ${stages}\n`,
-    );
-  });
-  output.write(
-    "Enter numbers separated by commas to approve selected sources, `all` to approve all listed sources, or press Enter to skip pending scripts and continue intentionally unbuilt.\n",
-  );
-  const prompt = createInterface({
-    input,
-    output: output as NodeJS.WritableStream,
-    terminal: true,
-  });
-  try {
-    const answer = (await prompt.question("Approve builds> ")).trim();
-    if (!answer) return [];
-    if (answer.toLowerCase() === "all") return ["*"];
-    const numbers = answer.split(/[ ,]+/).map((value) => Number(value));
-    if (
-      numbers.some(
-        (number) =>
-          !Number.isInteger(number) || number < 1 || number > builds.length,
-      )
-    )
-      throw new ZyrkError(
-        "ZYRK_USAGE",
-        "Build selection contains an invalid candidate number.",
-        {
-          remedy: `Select numbers from 1 to ${builds.length}, enter all, or press Enter to skip scripts.`,
-        },
-      );
-    return [...new Set(numbers)].map((number) => builds[number - 1]!.sourceId);
-  } finally {
-    prompt.close();
-  }
-}
-
 /** Parse, dispatch, delegate, or run a tool, and emit. The only impure seam. */
 export async function runCli(options: RunCliOptions): Promise<number> {
   const parsed = parseArgs(options.argv);
@@ -980,7 +929,12 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         ...(options.stdin?.isTTY && options.stderr.isTTY && !parsed.json
           ? {
               requestBuildApproval: (builds: readonly BuildCandidate[]) =>
-                promptForBuildApproval(builds, options.stdin!, options.stderr),
+                promptForBuildApproval(
+                  builds,
+                  options.stdin!,
+                  options.stderr,
+                  options.env,
+                ),
             }
           : {}),
         ...tools,
@@ -1054,7 +1008,12 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         ...(options.stdin?.isTTY && options.stderr.isTTY && !parsed.json
           ? {
               requestBuildApproval: (builds: readonly BuildCandidate[]) =>
-                promptForBuildApproval(builds, options.stdin!, options.stderr),
+                promptForBuildApproval(
+                  builds,
+                  options.stdin!,
+                  options.stderr,
+                  options.env,
+                ),
             }
           : {}),
       });
