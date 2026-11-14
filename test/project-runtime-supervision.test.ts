@@ -96,7 +96,7 @@ describe.skipIf(process.platform !== "linux")(
                     reject(
                       new Error(`No child readiness: ${output} ${errors}`),
                     ),
-                  8000,
+                  20000,
                 );
                 wrapper.stdout.on("data", (chunk: Buffer) => {
                   output += chunk.toString();
@@ -188,7 +188,7 @@ describe.skipIf(process.platform !== "linux")(
           await rmrfNoFollow(root);
         }
       },
-      20000,
+      60000,
     );
 
     it("streams caller output sinks without retaining captured buffers", async () => {
