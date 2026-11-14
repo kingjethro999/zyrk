@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { beforeEach, afterEach, it, expect } from "vitest";
 import { runProjectCommand } from "../src/commands/project.ts";
 import { installProject } from "../src/install/run.ts";
+import { runStoreCommand } from "../src/commands/store.ts";
 import { RegistryClient } from "../src/fetch/registry.ts";
 import { Store } from "../src/store/layout.ts";
 import { openStoreDb } from "../src/store/db.ts";
@@ -118,6 +119,50 @@ it("keeps the generation lease active for the session lifetime", async () => {
     await delay(100);
   }
   throw new Error("lease was not released after the session exited");
+}, 30_000);
+
+it("reconciles a dead lease holder before collection but keeps remote leases", async () => {
+  const db = openStoreDb(store.paths.dbFile);
+  const now = new Date().toISOString();
+  try {
+    for (const [id, host] of [
+      ["lease1_dead", os.hostname()],
+      ["lease1_remote", "other-host.invalid"],
+    ] as const)
+      db.prepare("INSERT INTO leases VALUES (?,?,?,?,?, 'active', ?, ?)").run(
+        id,
+        99999999,
+        null,
+        host,
+        "{}",
+        now,
+        now,
+      );
+  } finally {
+    db.close();
+  }
+  await runStoreCommand({
+    command: "store",
+    args: ["gc", "--dry-run"],
+    store,
+    cwd: project,
+    json: true,
+  });
+  const after = openStoreDb(store.paths.dbFile);
+  try {
+    const states = new Map(
+      (
+        after.prepare("SELECT lease_id, state FROM leases").all() as {
+          lease_id: string;
+          state: string;
+        }[]
+      ).map((row) => [row.lease_id, row.state]),
+    );
+    expect(states.get("lease1_dead")).toBe("released");
+    expect(states.get("lease1_remote")).toBe("active");
+  } finally {
+    after.close();
+  }
 }, 30_000);
 
 it("an install proceeds while a session runs on the same project", async () => {

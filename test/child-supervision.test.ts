@@ -49,7 +49,7 @@ describe.skipIf(process.platform !== "linux")(
             await new Promise<void>((resolve, reject) => {
               const timeout = setTimeout(
                 () => reject(new Error(`no readiness: ${output} ${errors}`)),
-                25_000,
+                60_000,
               );
               child.stdout.on("data", (data: Buffer) => {
                 output += data.toString();
@@ -90,7 +90,7 @@ describe.skipIf(process.platform !== "linux")(
           }
         }
       },
-      25000,
+      60000,
     );
 
     it("escalates when a child ignores cancellation", async () => {

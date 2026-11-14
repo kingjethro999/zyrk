@@ -17,11 +17,13 @@ import { objectPathFor, verifyObjectPayload } from "../store/objects.ts";
 import { realizationDirFor, selectRealizationDirs } from "../store/realize.ts";
 import { verifyRealization } from "../store/verify.ts";
 import {
+  hostname,
   isErrno,
   pathExists,
   rmrfNoFollow,
   writeFileAtomic,
 } from "../util/fsx.ts";
+import { isProcessAlive } from "../util/proc.ts";
 import { objectIdOf } from "../util/hash.ts";
 import { randomId } from "../util/ids.ts";
 import { acquireLock } from "../util/locks.ts";
@@ -477,7 +479,51 @@ async function allocation(
     }
   return { logicalBytes, allocatedBytesEstimate };
 }
+/**
+ * Release active leases whose recorded holder is verifiably dead on this
+ * host. Remote-host leases and unverifiable holders stay active: liveness
+ * answers are conservative, matching lock reclamation semantics.
+ */
+async function reconcileLeases(db: StoreDb): Promise<number> {
+  const rows = db
+    .prepare(
+      "SELECT lease_id, holder_pid, holder_start_id, holder_host FROM leases WHERE state='active'",
+    )
+    .all() as {
+    lease_id: string;
+    holder_pid: number;
+    holder_start_id: string | null;
+    holder_host: string;
+  }[];
+  const host = hostname();
+  const now = new Date().toISOString();
+  let released = 0;
+  for (const row of rows) {
+    if (row.holder_host !== host) continue;
+    if (
+      await isProcessAlive({
+        pid: row.holder_pid,
+        startId: row.holder_start_id,
+      })
+    )
+      continue;
+    db.prepare(
+      "UPDATE leases SET state='released', heartbeat_at=? WHERE lease_id=? AND state='active'",
+    ).run(now, row.lease_id);
+    released++;
+  }
+  return released;
+}
+
 async function status(store: Store) {
+  if (await pathExists(store.paths.dbFile)) {
+    const db = openStoreDb(store.paths.dbFile);
+    try {
+      await reconcileLeases(db);
+    } finally {
+      db.close();
+    }
+  }
   const categories: Record<string, unknown> = {};
   for (const name of [
     "objects",
@@ -555,6 +601,7 @@ async function collect(store: Store, dryRun: boolean) {
   if (await pathExists(store.paths.dbFile)) {
     const db = openStoreDb(store.paths.dbFile);
     try {
+      await reconcileLeases(db);
       if (
         db
           .prepare("SELECT lease_id FROM leases WHERE state != 'released'")
