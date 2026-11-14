@@ -402,7 +402,7 @@ export async function runProjectCommand(
       "ZYRK_STORE_CORRUPT",
       "Project control directory is not a real directory.",
     );
-  const held = options.workspaceLockHeld
+  let held = options.workspaceLockHeld
     ? undefined
     : await acquireLock(
         path.join(coordinationRoot, PROJECT_STATE_DIR, "project.lock"),
@@ -542,6 +542,14 @@ export async function runProjectCommand(
         npm_lifecycle_event: selected,
         npm_lifecycle_script: (manifest.scripts as Obj)[selected],
       });
+    if (held !== undefined) {
+      // Sessions are long-lived: the project lock guards state reads and
+      // script authorization, not the child's lifetime. Concurrent sessions
+      // and installs may proceed; a projection swap is atomic and the
+      // session's store lease keeps its generation collectible-proof.
+      await held.release();
+      held = undefined;
+    }
     return await leasedChild(options, state, command, args, project, env);
   } finally {
     await held?.release();
@@ -631,6 +639,7 @@ async function leasedChild(
     path.join(store.paths.locksDir, "liveness.lock"),
     { name: "generation lease registration" },
   );
+  let barrierHeld = true;
   let db: ReturnType<typeof openStoreDb> | undefined;
   const lease = "lease1_" + randomId("", 16);
   let registered = false;
@@ -668,8 +677,11 @@ async function leasedChild(
       now,
     );
     registered = true;
-    // Keep the project -> store lock order and conservatively retain the store
-    // barrier until supervised children have stopped and the lease is released.
+    // The lease row is committed; the barrier only serialized registration.
+    // GC and installs may proceed while the supervised child runs — the
+    // active lease is what protects this generation from collection.
+    await barrier.release();
+    barrierHeld = false;
     try {
       return (
         await superviseChild(command, args, {
@@ -707,7 +719,7 @@ async function leasedChild(
           .run(new Date().toISOString(), lease);
     } finally {
       db?.close();
-      await barrier.release();
+      if (barrierHeld) await barrier.release();
     }
   }
 }

@@ -136,12 +136,13 @@ describe.skipIf(process.platform !== "linux")(
               }
               wrapper.kill("SIGSTOP");
               try {
-                await expect(
-                  acquireLock(
-                    path.join(store.paths.locksDir, "liveness.lock"),
-                    { name: "collector", timeoutMs: 0 },
-                  ),
-                ).rejects.toMatchObject({ code: "ZYRK_PROJECT_LOCKED" });
+                // Sessions no longer hold the store barrier: the committed
+                // lease row is the protection, so a collector may proceed.
+                const collector = await acquireLock(
+                  path.join(store.paths.locksDir, "liveness.lock"),
+                  { name: "collector", timeoutMs: 0 },
+                );
+                await collector.release();
               } finally {
                 wrapper.kill("SIGCONT");
               }
