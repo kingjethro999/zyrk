@@ -38,6 +38,7 @@ export function createInstallProgress(
   let pendingPlain = "";
   let lastPlainAt = -Infinity;
   let downloadAnnounced = false;
+  const startedAt = Date.now();
   const write = (text: string) => {
     try {
       stream.write(text);
@@ -183,6 +184,9 @@ export function createInstallProgress(
               : green("✓");
           write(`${marker} ${completion.title}\n`);
           if (completion.detail) write(`${dim(completion.detail)}\n`);
+          write(
+            `${dim(`Done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`)}\n`,
+          );
         }
       }
     },

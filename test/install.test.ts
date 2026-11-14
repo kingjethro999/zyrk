@@ -437,7 +437,13 @@ it("reports cold download and verified warm reuse before ticking committed packa
   expect(cold.filter((e) => e.package?.status === "downloaded")).toHaveLength(
     2,
   );
-  expect(cold.filter((e) => e.package?.status === "linked")).toHaveLength(2);
+  // Only direct project dependencies report as linked; transitive packages
+  // stay internal, matching pnpm-style summaries.
+  expect(
+    cold
+      .filter((e) => e.package?.status === "linked")
+      .map((e) => e.package?.name),
+  ).toEqual(["alpha"]);
   expect(cold.find((e) => e.downloaded === 2)?.completed).toBe(2);
   const warm: import("../src/install/run.ts").InstallProgress[] = [];
   await install({
@@ -448,5 +454,5 @@ it("reports cold download and verified warm reuse before ticking committed packa
   expect(warm.filter((e) => e.package?.status === "reused")).toHaveLength(2);
   expect(warm.some((e) => e.package?.status === "downloading")).toBe(false);
   expect(warm.find((e) => e.reused === 2)?.completed).toBe(2);
-  expect(warm.filter((e) => e.package?.status === "linked")).toHaveLength(2);
+  expect(warm.filter((e) => e.package?.status === "linked")).toHaveLength(1);
 });

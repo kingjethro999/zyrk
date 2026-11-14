@@ -51,6 +51,7 @@ it("renders the staged install display and success footer in a TTY", () => {
   expect(output).toContain(
     "Your project still uses node_modules and normal imports.",
   );
+  expect(output).toMatch(/Done in \d+\.\ds/);
   expect(output.replaceAll("\r\u001b[2K", "")).not.toContain("\u001b");
 });
 

@@ -1169,7 +1169,14 @@ export async function installProject(
     });
     registration.activate();
     await txn.setState("committed");
-    reportLinked(options.onProgress, activeNodes);
+    // Report only the project's direct dependencies as linked; transitive
+    // packages stay internal so summaries read like pnpm's.
+    reportLinked(
+      options.onProgress,
+      selectedRoots
+        .map((root) => byKey.get(root.target))
+        .filter((node): node is NonNullable<typeof node> => node !== undefined),
+    );
     return {
       readiness,
       packages: activeNodes.length,

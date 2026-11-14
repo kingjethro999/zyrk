@@ -869,7 +869,22 @@ export async function installWorkspaceProject(
       manifestChanges,
     );
     registration.activate();
-    reportLinked(options.onProgress, nodes);
+    // Report only each importer's direct registry dependencies as linked;
+    // transitive and local workspace packages stay internal.
+    reportLinked(
+      options.onProgress,
+      project.importers.flatMap((importer) => {
+        const node = activeGraph.nodes.find(
+          (n) => n.key === activeGraph.importers[importer.id],
+        );
+        return (node?.edges ?? [])
+          .map((edge) => byKey.get(edge.target))
+          .filter(
+            (child): child is NonNullable<typeof child> =>
+              child !== undefined && registryKeys.has(child.key),
+          );
+      }),
+    );
     return {
       readiness,
       packages: nodes.length,
