@@ -152,12 +152,14 @@ async function runTemporaryTool(
   if (tool === undefined) throw internal(`resolution lost node ${root.target}`);
   options.validateTool?.({ name: tool.name, version: tool.version });
 
-  // Retain the publication/GC barrier until the child and temporary projection
-  // are gone. The durable lease additionally protects recovery after a crash.
+  // The barrier covers store publication only: once the generation is
+  // registered, projected, and leased, the durable lease row protects it
+  // from collection while the tool runs, so sessions no longer serialize.
   const barrier = await acquireLock(
     path.join(store.paths.locksDir, "liveness.lock"),
     { name: "temporary tool liveness" },
   );
+  let barrierHeld = true;
   let txn: Transaction | undefined;
   let envDir: string | undefined;
   try {
@@ -299,6 +301,8 @@ async function runTemporaryTool(
         [{ name: tool.name, linkTarget: toolPkgDir }],
         { bins, generationId, projectId },
       );
+      await barrier.release();
+      barrierHeld = false;
       return {
         ...(await runTool(
           script,
@@ -343,7 +347,7 @@ async function runTemporaryTool(
       if (envDir !== undefined) await rmrfNoFollow(envDir);
       await txn?.finish();
     } finally {
-      await barrier.release();
+      if (barrierHeld) await barrier.release();
     }
   }
 }
