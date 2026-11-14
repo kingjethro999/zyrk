@@ -88,6 +88,9 @@ export async function runDependencyCommand(options: {
         case "--lockfile-only":
           install.lockfileOnly = true;
           break;
+        case "--plan":
+          install.plan = true;
+          break;
         case "--from":
           if (command !== "import" || from !== undefined)
             throw usage(command, "unexpected --from option");

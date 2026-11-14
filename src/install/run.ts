@@ -1,4 +1,5 @@
 import { sourceProgress, reportLinked } from "./progress.ts";
+import { computeDependencyPlan, type DependencyPlan } from "./plan.ts";
 import { platformOmissionSummary, selectPlatformGraph } from "./platform.ts";
 import type { RuntimePlatform } from "../resolve/resolver.ts";
 import { findWorkspaceRoot } from "./workspaces.ts";
@@ -109,6 +110,7 @@ export type InstallOptions = {
   lockfileOnly?: boolean;
   fetchOnly?: boolean;
   omitDev?: boolean;
+  plan?: boolean;
   env?: NodeJS.ProcessEnv;
   reviewBuilds?: boolean;
   approveBuilds?: readonly string[];
@@ -131,7 +133,8 @@ export type InstallResult = {
     | "intentionally-unbuilt"
     | "lockfile-only"
     | "fetched"
-    | "build-review";
+    | "build-review"
+    | "plan";
   packages: number;
   reused: number;
   warnings: string[];
@@ -139,6 +142,7 @@ export type InstallResult = {
   candidateDigest?: string;
   builds?: BuildCandidate[];
   buildReviews?: import("./private.ts").BuildReview[];
+  plan?: DependencyPlan;
 };
 type Manifest = ManifestDeclaration & {
   name?: string;
@@ -270,6 +274,11 @@ export async function installProject(
     fetchBudget: { ...budgets.fetchBudget, ...options.fetchBudget },
   };
   if (await findWorkspaceRoot(options.projectDir)) {
+    if (options.plan)
+      throw error(
+        "ZYRK_USAGE",
+        "--plan is not supported for workspace projects yet; run the command without --plan or preview in a non-workspace project.",
+      );
     const { installWorkspaceProject } = await import("./workspace-install.ts");
     return installWorkspaceProject(options);
   }
@@ -318,6 +327,7 @@ export async function installProject(
     await recoverProjection(project);
     const { doc: manifest, text: originalManifest } =
       await readManifest(project);
+    const originalManifestDoc = JSON.parse(originalManifest) as Manifest;
     const patches = await loadProjectPatches(project);
     const patchDigest = patches.length
       ? sha512Hex(
@@ -434,6 +444,34 @@ export async function installProject(
     const existing = (
       await readLockfile(lockPath, !options.frozen && !options.offline)
     )?.doc;
+    const priorNodes: { name: string; version: string }[] = [];
+    if (existing?.zyrk) {
+      try {
+        const priorGraph = lockedGraph(existing);
+        for (const n of priorGraph.nodes) {
+          priorNodes.push({ name: n.name, version: n.version });
+        }
+      } catch {
+        // Ignore unparseable prior lock
+      }
+    } else if (existing?.packages) {
+      for (const [key, pkg] of Object.entries(existing.packages)) {
+        if (
+          key.startsWith("node_modules/") &&
+          !key.slice(13).includes("node_modules/")
+        ) {
+          const name = key.slice(13);
+          if (
+            pkg &&
+            typeof pkg === "object" &&
+            "version" in pkg &&
+            typeof pkg.version === "string"
+          ) {
+            priorNodes.push({ name, version: pkg.version });
+          }
+        }
+      }
+    }
     let resolved: FinalizedGraph | undefined;
     if (options.importNpm && (!existing || existing.zyrk))
       throw lockMismatch(
@@ -639,6 +677,35 @@ export async function installProject(
     const selectedRoots = activeResolution.roots;
     const activeNodes = activeResolution.nodes;
     const byKey = new Map(activeNodes.map((n) => [n.key, n]));
+    const warnings: string[] = [];
+    const omissionSummary = platformOmissionSummary(
+      activeResolution.omissions ?? [],
+    );
+    if (omissionSummary) warnings.push(omissionSummary);
+    for (const stage of ["preinstall", "install", "postinstall"])
+      if (manifest.scripts?.[stage])
+        warnings.push(
+          `Root ${stage} hook was not run; invoke it explicitly after installation.`,
+        );
+    if (options.plan) {
+      // A plan is a pure preview: resolution ran, but no manifest, lock,
+      // store, or projection write may happen past this point.
+      return {
+        readiness: "plan",
+        packages: resolved.nodes.length,
+        reused: 0,
+        warnings,
+        plan: computeDependencyPlan({
+          originalManifest: originalManifestDoc,
+          proposedManifest: manifest,
+          priorNodes,
+          resolvedNodes: activeNodes.map((node) => ({
+            name: node.name,
+            version: node.version,
+          })),
+        }),
+      };
+    }
     barrier = await acquireLock(
       path.join(options.store.paths.locksDir, "liveness.lock"),
       { name: "store liveness" },
@@ -687,16 +754,6 @@ export async function installProject(
         name: "package.json",
         contents: `${JSON.stringify(manifest, null, 2)}\n`,
       });
-    const warnings: string[] = [];
-    const omissionSummary = platformOmissionSummary(
-      activeResolution.omissions ?? [],
-    );
-    if (omissionSummary) warnings.push(omissionSummary);
-    for (const stage of ["preinstall", "install", "postinstall"])
-      if (manifest.scripts?.[stage])
-        warnings.push(
-          `Root ${stage} hook was not run; invoke it explicitly after installation.`,
-        );
     if (options.lockfileOnly) {
       // Metadata-only publication uses the same recoverable journal but preserves node_modules.
       await installMetadata(project, files);

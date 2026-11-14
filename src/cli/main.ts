@@ -25,6 +25,7 @@ import type { BuildCandidate, BuildReview } from "../install/private.ts";
 import { revokeBuildApprovals } from "../install/private.ts";
 import { findWorkspaceRoot } from "../install/workspaces.ts";
 import { installRegistry } from "../install/registry.ts";
+import { renderPlanSummary } from "../install/plan.ts";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -77,6 +78,12 @@ function installCompletion(
       return { title: "Lockfile updated; dependencies were not installed." };
     case "build-review":
       return { title: "Build review saved; dependency scripts were not run." };
+    case "plan":
+      return {
+        tone: "attention",
+        title: "Plan computed; no files were changed.",
+        detail: "Run the command without --plan to apply these changes.",
+      };
   }
 }
 
@@ -185,6 +192,7 @@ Options:
   --offline          Use verified local sources only
   --ignore-scripts   Skip dependency lifecycle scripts
   --lockfile-only    Write selections without linking dependencies
+  --plan             Preview dependency changes without writing files
   --omit=dev         Omit development dependencies
   -D, --save-dev     Save added packages as development dependencies
   -E, --save-exact   Save exact versions when adding packages
@@ -193,7 +201,8 @@ Options:
 Examples:
   zyrk install
   zyrk install --frozen-lockfile
-  zyrk install prettier -D`,
+  zyrk install prettier -D
+  zyrk install --plan`,
   i: `Usage: zyrk i [package[@version] ...] [options]
 
 Alias for zyrk install. See zyrk install --help for supported options and examples.`,
@@ -207,11 +216,17 @@ Options:
   -E, --save-exact     Save exact versions
   --ignore-scripts     Skip dependency lifecycle scripts
   --lockfile-only      Update the lock without linking dependencies
+  --plan               Preview changes without writing files
 
 Example: zyrk add prettier -D`,
   remove: `Usage: zyrk remove <package ...> [--ignore-scripts] [--lockfile-only]
 
 Remove direct dependencies and install the resulting graph.
+
+Options:
+  --ignore-scripts   Skip dependency lifecycle scripts
+  --lockfile-only    Update the lock without linking dependencies
+  --plan             Preview changes without writing files
 
 Example: zyrk remove prettier`,
   update: `Usage: zyrk update [package ...] [options]
@@ -223,8 +238,10 @@ Options:
   -E, --save-exact   Save exact versions
   --ignore-scripts   Skip dependency lifecycle scripts
   --lockfile-only    Update the lock without linking dependencies
+  --plan             Preview changes without writing files
 
-Example: zyrk update typescript`,
+Example: zyrk update typescript
+       zyrk update --plan`,
   import: `Usage: zyrk import --from npm [--ignore-scripts] [--lockfile-only]
 
 Import supported selections from package-lock.json and install the graph.
@@ -875,7 +892,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
       ) {
         return emit(
           ok(
-            "Usage: zyrk install [package[@version] ...] [-D] [--save-exact] [--frozen-lockfile] [--offline] [--ignore-scripts] [--lockfile-only] [--omit=dev] [--registry=https://registry.npmjs.org/] [--json]\n",
+            "Usage: zyrk install [package[@version] ...] [-D] [--save-exact] [--frozen-lockfile] [--offline] [--ignore-scripts] [--lockfile-only] [--plan] [--omit=dev] [--registry=https://registry.npmjs.org/] [--json]\n",
             parsed,
           ),
         );
@@ -888,6 +905,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
         else if (token === "--offline") flags.offline = true;
         else if (token === "--ignore-scripts") flags.ignoreScripts = true;
         else if (token === "--lockfile-only") flags.lockfileOnly = true;
+        else if (token === "--plan") flags.plan = true;
         else if (token === "--omit=dev" || token === "--production")
           flags.omitDev = true;
         else if (token === "-D" || token === "--save-dev") flags.saveDev = true;
@@ -946,13 +964,19 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           stdout: `${JSON.stringify({ schemaVersion: CLI_JSON_SCHEMA_VERSION, status: "ok", ...result })}\n`,
           stderr: "",
         });
+      const planColor =
+        options.stdout.isTTY === true &&
+        options.env.NO_COLOR === undefined &&
+        options.env.TERM !== "dumb";
       const summary =
-        result.readiness === "lockfile-only"
-          ? "Lockfile written; dependencies were not installed."
-          : `Installed ${result.packages} packages using shared storage (${result.reused} realizations reused); ${result.readiness}.`;
+        result.readiness === "plan" && result.plan !== undefined
+          ? renderPlanSummary(result.plan, { color: planColor })
+          : result.readiness === "lockfile-only"
+            ? "Lockfile written; dependencies were not installed.\n"
+            : `Installed ${result.packages} packages using shared storage (${result.reused} realizations reused); ${result.readiness}.\n`;
       return emit({
         exitCode: 0,
-        stdout: `${summary}\n`,
+        stdout: summary,
         stderr: result.warnings.map((w) => `zyrk: ${w}\n`).join(""),
       });
     } catch (error) {
@@ -1025,9 +1049,17 @@ export async function runCli(options: RunCliOptions): Promise<number> {
           stderr: "",
         });
       }
+      const planColor =
+        options.stdout.isTTY === true &&
+        options.env.NO_COLOR === undefined &&
+        options.env.TERM !== "dumb";
+      const summary =
+        result.readiness === "plan" && result.plan !== undefined
+          ? renderPlanSummary(result.plan, { color: planColor })
+          : `Dependency command ${parsed.command} completed: ${result.packages} packages, ${result.reused} realizations reused; ${result.readiness}.\n`;
       return emit({
         exitCode: 0,
-        stdout: `Dependency command ${parsed.command} completed: ${result.packages} packages, ${result.reused} realizations reused; ${result.readiness}.\n`,
+        stdout: summary,
         stderr: result.warnings.map((w) => `zyrk: ${w}\n`).join(""),
       });
     } catch (error) {
