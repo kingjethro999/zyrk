@@ -178,3 +178,37 @@ export function renderCommandError(
     remedy ? `\n  ${paint("↳", 33, style)} ${remedy}` : ""
   }\n`;
 }
+
+const clean = (value: string) => value.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+
+/** Announce a supervised project session; shown only on an interactive stderr. */
+export function renderSessionStart(
+  session: { command: "run" | "exec"; name: string; script?: string },
+  style: TerminalStyle = {},
+): string {
+  const script = session.script === undefined ? "" : clean(session.script);
+  const shown = script.length > 96 ? `${script.slice(0, 95)}…` : script;
+  return `${paint("›", 36, style)} ${paint(`zyrk ${session.command}`, 2, style)} ${paint(clean(session.name), 1, style)}${shown ? paint(`  ${shown}`, 2, style) : ""}\n`;
+}
+
+/** Report how a supervised project session ended, with its wall time. */
+export function renderSessionEnd(
+  session: { name: string; exitCode: number; durationMs: number },
+  style: TerminalStyle = {},
+): string {
+  const seconds = session.durationMs / 1000;
+  const took =
+    seconds < 60
+      ? `${seconds.toFixed(1)}s`
+      : `${Math.floor(seconds / 60)}m ${String(Math.round(seconds % 60)).padStart(2, "0")}s`;
+  const name = clean(session.name);
+  // 130 and 143 are the shell's codes for SIGINT and SIGTERM: a stop the
+  // person asked for, not a failure of the script.
+  const [marker, code, text] =
+    session.exitCode === 0
+      ? ["✓", 32, `${name} finished`]
+      : session.exitCode === 130 || session.exitCode === 143
+        ? ["!", 33, `${name} stopped`]
+        : ["✖", 31, `${name} exited with code ${session.exitCode}`];
+  return `${paint(marker, code, style)} ${text} ${paint(`in ${took}`, 2, style)}\n`;
+}

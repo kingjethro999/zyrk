@@ -37,7 +37,11 @@ import { randomId } from "../util/ids.ts";
 import { canonicalJson } from "../util/json.ts";
 import { sha512Hex } from "../util/hash.ts";
 import { CLI_VERSION } from "../version.ts";
-import { renderCommandOutput } from "../cli/terminal.ts";
+import {
+  renderCommandOutput,
+  renderSessionEnd,
+  renderSessionStart,
+} from "../cli/terminal.ts";
 
 type Obj = Record<string, unknown>;
 function object(value: unknown): value is Obj {
@@ -550,7 +554,43 @@ export async function runProjectCommand(
       await held.release();
       held = undefined;
     }
-    return await leasedChild(options, state, command, args, project, env);
+    // Session framing is for people: interactive stderr only, so redirected
+    // and --json output stay exactly the child's own.
+    const framed = options.stderr.isTTY === true && options.json !== true;
+    const style = {
+      isTTY: true,
+      color: options.env.NO_COLOR === undefined && options.env.TERM !== "dumb",
+    };
+    const startedAt = Date.now();
+    if (framed)
+      options.stderr.write(
+        renderSessionStart(
+          {
+            command: options.command === "run" ? "run" : "exec",
+            name: selected,
+            ...(options.command === "run"
+              ? { script: String((manifest.scripts as Obj)[selected]) }
+              : {}),
+          },
+          style,
+        ),
+      );
+    const exitCode = await leasedChild(
+      options,
+      state,
+      command,
+      args,
+      project,
+      env,
+    );
+    if (framed)
+      options.stderr.write(
+        renderSessionEnd(
+          { name: selected, exitCode, durationMs: Date.now() - startedAt },
+          style,
+        ),
+      );
+    return exitCode;
   } finally {
     await held?.release();
   }

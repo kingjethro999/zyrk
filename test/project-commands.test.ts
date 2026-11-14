@@ -181,6 +181,26 @@ it("propagates command exit status and child termination", async () => {
   expect(await run("run", ["fail"])).toBe(17);
   expect(await run("run", ["signal"])).toBe(143);
 });
+it("frames sessions on an interactive stderr only and never in redirected or JSON output", async () => {
+  expect(await run("run", ["fail"])).toBe(17);
+  expect(stderr).toBe("");
+  const session = (json: boolean) =>
+    runProjectCommand({
+      command: "run",
+      args: ["fail"],
+      cwd: project,
+      env: { ...process.env, ZYRK_STORE_DIR: store.root, NO_COLOR: "1" },
+      stdout: { write: () => undefined },
+      stderr: { isTTY: true, write: (s) => (stderr += s) },
+      json,
+    });
+  expect(await session(true)).toBe(17);
+  expect(stderr).toBe("");
+  expect(await session(false)).toBe(17);
+  expect(stderr).toMatch(
+    /^› zyrk run fail {2}node -e "process\.exit\(17\)"\n✖ fail exited with code 17 in \d+\.\ds\n$/,
+  );
+});
 it("lists transitive graph edges and explains the selecting parent without disclosing store paths", async () => {
   expect(await run("list", [], {}, true)).toBe(0);
   const graph = JSON.parse(stdout);

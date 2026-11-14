@@ -288,3 +288,77 @@ it("renders plain build execution progress when redirected", () => {
   );
   expect(output).toContain("✓ native-pkg@1.0.0 built [postinstall] (120ms)");
 });
+
+it("animates one live line, ticks finished stages, and lists direct dependencies", () => {
+  vi.useFakeTimers();
+  try {
+    const chunks: string[] = [];
+    const ui = createInstallProgress(
+      { isTTY: true, columns: 120, write: (s) => chunks.push(s) },
+      false,
+      { color: false, motion: true },
+    );
+    ui.update({ phase: "planning" });
+    expect(chunks.join("")).toContain("⠋ Preparing installation");
+    vi.advanceTimersByTime(170);
+    // The spinner advances on its own between progress events.
+    expect(chunks.join("")).toContain("⠹ Preparing installation");
+    ui.update({
+      phase: "fetching",
+      completed: 11,
+      total: 22,
+      reused: 10,
+      downloaded: 1,
+    });
+    const fetching = chunks.join("");
+    expect(fetching).toMatch(/✓ Prepared installation {2}\d+\.\ds\n/);
+    expect(fetching).toContain(
+      `Verifying package sources  ${"━".repeat(11)}${"─".repeat(11)}  11/22 · reused 10 · downloaded 1`,
+    );
+    ui.update({ phase: "linking" });
+    ui.update({
+      phase: "complete",
+      package: { name: "three", version: "0.187.0", status: "linked" },
+    });
+    ui.close({ title: "Installed from the verified shared store." });
+    const output = chunks.join("");
+    expect(output).toContain(
+      "✓ Verified package sources  11/22 · reused 10 · downloaded 1",
+    );
+    expect(output).toContain("+ three 0.187.0\n");
+    expect(output).toContain("✓ Linked project dependencies");
+    expect(output).toContain("✓ Installed from the verified shared store.");
+    expect(output.replaceAll("\r\u001b[2K", "")).not.toContain("\u001b");
+    const settled = chunks.length;
+    vi.advanceTimersByTime(500);
+    expect(chunks.length).toBe(settled);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("never wraps the live line and leaves no tick for a failed stage", () => {
+  const chunks: string[] = [];
+  const ui = createInstallProgress(
+    { isTTY: true, columns: 40, write: (s) => chunks.push(s) },
+    false,
+    { color: false, motion: true },
+  );
+  ui.update({
+    phase: "fetching",
+    package: {
+      name: "@scope/a-very-long-package-name-for-a-narrow-terminal",
+      version: "1.0.0",
+      status: "downloading",
+      bytes: 3 * 1024 * 1024,
+    },
+  });
+  for (const line of chunks.join("").split("\r\u001b[2K"))
+    expect(line.length).toBeLessThanOrEqual(39);
+  expect(chunks.join("")).toContain("…");
+  ui.close();
+  const output = chunks.join("");
+  expect(output.endsWith("\r\u001b[2K")).toBe(true);
+  expect(output).not.toContain("✓");
+  expect(output).not.toContain("\n");
+});
