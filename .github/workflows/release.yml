@@ -1,0 +1,40 @@
+name: Publish GitHub release
+
+# install.sh and install.ps1 install the tarball attached to the newest
+# release, so every version tag gets one.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+      - run: npm install --global zyrk@0.6.6
+      - run: zyrk install --frozen-lockfile
+      - run: zyrk run format:check
+      # The check gate also emits dist/, which the package tarball ships.
+      - run: zyrk run check
+      - run: test "$(cat VERSION)" = "$GITHUB_REF_NAME"
+      - run: npm pack --ignore-scripts
+      - run: sha256sum "zyrk-${GITHUB_REF_NAME#v}.tgz" > "zyrk-${GITHUB_REF_NAME#v}.tgz.sha256"
+      - run: >
+          gh release create "$GITHUB_REF_NAME"
+          "zyrk-${GITHUB_REF_NAME#v}.tgz"
+          "zyrk-${GITHUB_REF_NAME#v}.tgz.sha256"
+          --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

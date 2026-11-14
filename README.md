@@ -37,13 +37,35 @@ careful, and useful in everyday Node.js development.
 
 ## Try the current CLI
 
-Install from npm:
+Install the latest release (Linux / macOS):
 
 ```bash
-npm install -g zyrk
+curl -fsSL https://raw.githubusercontent.com/kingjethro999/zyrk/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/kingjethro999/zyrk/main/install.ps1 | iex
+```
+
+```bash
 zyrk --help
 zyrk --version
 ```
+
+The installer downloads the package tarball attached to the newest
+[GitHub release](https://github.com/kingjethro999/zyrk/releases), checks it
+against the release's SHA-256 file, and places the `zyrk` executable with
+`npm install --global`. The digest detects a corrupt download; it is published
+beside the tarball and is not a signature. Run the installer again to update,
+or pin a release with `sh -s -- --version vX.Y.Z` (`-Version vX.Y.Z` in
+PowerShell).
+
+**npm is a legacy channel.** The npm registry carries zyrk only up to
+`0.8.9` and cannot be used to update further; newer versions are published
+as GitHub releases only. `npm install -g zyrk@0.8.9` (or the installer's
+`--npm` / `-Npm` switch) still installs that older version.
 
 Native commands also provide focused help without starting an install or
 initializing the store. For example, use `zyrk install --help`,
@@ -75,22 +97,8 @@ needed to run its local CLI.
 **Platform boundary:** Linux is the initial native shared-store target. macOS
 remains evidence-gated, and Windows native project installation is unavailable
 until its account-isolating ACL implementation passes real filesystem tests.
-The shell commands below can bootstrap the CLI for inspection; they are not a
+The installers above can bootstrap the CLI for inspection; they are not a
 claim that native project installation is ready on every listed platform.
-
-### One-line install (shell)
-
-Linux / macOS:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/kingjethro999/zyrk/main/install.sh | sh
-```
-
-Windows (PowerShell):
-
-```powershell
-irm https://raw.githubusercontent.com/kingjethro999/zyrk/main/install.ps1 | iex
-```
 
 ### Install project dependencies
 
