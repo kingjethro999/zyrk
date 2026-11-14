@@ -1,9 +1,9 @@
 name: Publish npm package
 
+# Manual only: registry publishing is unavailable, so publishing on every
+# version tag failed each push. Restore the tag trigger once npm publishing
+# works again. Releases meanwhile ship through release.yml.
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       version:
