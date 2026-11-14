@@ -165,6 +165,52 @@ it("reconciles a dead lease holder before collection but keeps remote leases", a
   }
 }, 30_000);
 
+it("lists active sessions per project and guards forget while sessions run", async () => {
+  const session = run(["sleep"]);
+  await waitForActiveLease();
+  const db = openStoreDb(store.paths.dbFile);
+  let projectId: string;
+  try {
+    projectId = String(
+      (
+        db.prepare("SELECT project_id FROM generations LIMIT 1").get() as {
+          project_id: string;
+        }
+      ).project_id,
+    );
+  } finally {
+    db.close();
+  }
+  const listed = (await runStoreCommand({
+    command: "projects",
+    args: ["list"],
+    store,
+    cwd: project,
+    json: true,
+  })) as { projects: { projectId: string; activeSessions?: number }[] };
+  expect(
+    listed.projects.find((p) => p.projectId === projectId)?.activeSessions,
+  ).toBe(1);
+  await expect(
+    runStoreCommand({
+      command: "projects",
+      args: ["forget", projectId],
+      store,
+      cwd: project,
+      json: true,
+    }),
+  ).rejects.toMatchObject({ code: "ZYRK_POLICY_DENIED" });
+  expect(await session).toBe(0);
+  const forgotten = await runStoreCommand({
+    command: "projects",
+    args: ["forget", projectId],
+    store,
+    cwd: project,
+    json: true,
+  });
+  expect(forgotten).toMatchObject({ forgotten: projectId });
+}, 90_000);
+
 it("an install proceeds while a session runs on the same project", async () => {
   const session = run(["sleep"]);
   await waitForActiveLease();

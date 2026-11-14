@@ -196,8 +196,25 @@ export async function runStoreCommand(options: {
 async function listProjects(store: Store) {
   const projects = new Map<
     string,
-    { projectId: string; path: string; graphs: string[]; reachability: string }
+    {
+      projectId: string;
+      path: string;
+      graphs: string[];
+      reachability: string;
+      activeSessions: number;
+    }
   >();
+  const sessionCounts = new Map<string, number>();
+  if (await pathExists(store.paths.dbFile)) {
+    const db = openStoreDb(store.paths.dbFile);
+    try {
+      await reconcileLeases(db);
+      for (const [id, count] of await activeSessionCounts(db))
+        sessionCounts.set(id, count);
+    } finally {
+      db.close();
+    }
+  }
   for (const { root } of await roots(store)) {
     if (root.kind !== "generation" || !root.projectId || !root.project)
       continue;
@@ -221,6 +238,7 @@ async function listProjects(store: Store) {
         path: root.project,
         graphs: [],
         reachability,
+        activeSessions: sessionCounts.get(root.projectId) ?? 0,
       };
       projects.set(root.projectId, project);
     }
@@ -234,6 +252,24 @@ async function forgetProject(store: Store, id: string) {
     ({ root }) => root.kind === "generation" && root.projectId === id,
   );
   if (!found.length) usage();
+  // Guard before any mutation: live sessions protect this project's roots.
+  if (await pathExists(store.paths.dbFile)) {
+    const db = openStoreDb(store.paths.dbFile);
+    try {
+      await reconcileLeases(db);
+      if ((await activeSessionCounts(db)).has(id))
+        throw new ZyrkError(
+          "ZYRK_POLICY_DENIED",
+          "Active zyrk sessions are using this project's generations.",
+          {
+            remedy:
+              "Stop the running zyrk sessions for this project, then retry.",
+          },
+        );
+    } finally {
+      db.close();
+    }
+  }
   // Root removal is explicit, never inferred from ENOENT or inaccessible media.
   for (const root of found)
     await fs.unlink(path.join(store.paths.pinsDir, root.id));
@@ -515,11 +551,41 @@ async function reconcileLeases(db: StoreDb): Promise<number> {
   return released;
 }
 
+/** Count active leases per project through their generation registration. */
+async function activeSessionCounts(db: StoreDb): Promise<Map<string, number>> {
+  const rows = db
+    .prepare("SELECT scope_json FROM leases WHERE state='active'")
+    .all() as { scope_json: string }[];
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    let generationId: unknown;
+    try {
+      generationId = (JSON.parse(row.scope_json) as { generationId?: unknown })
+        .generationId;
+    } catch {
+      continue;
+    }
+    if (typeof generationId !== "string") continue;
+    const generation = db
+      .prepare("SELECT project_id FROM generations WHERE generation_id = ?")
+      .get(generationId) as { project_id: string | null } | undefined;
+    if (generation?.project_id)
+      counts.set(
+        generation.project_id,
+        (counts.get(generation.project_id) ?? 0) + 1,
+      );
+  }
+  return counts;
+}
+
 async function status(store: Store) {
+  let activeSessions = 0;
   if (await pathExists(store.paths.dbFile)) {
     const db = openStoreDb(store.paths.dbFile);
     try {
       await reconcileLeases(db);
+      for (const count of (await activeSessionCounts(db)).values())
+        activeSessions += count;
     } finally {
       db.close();
     }
@@ -557,6 +623,7 @@ async function status(store: Store) {
     archivesAndFetchCaches: "unavailable",
     buildOutputsAndToolCaches: "unavailable",
     retentionRoots: retained.length,
+    activeSessions,
     graceDays: 30,
   };
 }
